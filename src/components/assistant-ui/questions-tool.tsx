@@ -2,13 +2,10 @@ import { useState } from "react";
 import { makeAssistantToolUI } from "@assistant-ui/react";
 import { CheckCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { z } from "zod";
+import { questionsInputSchema } from "@/tools/questions-tool";
 
-type QuestionArgs = {
-  questions: {
-    question: string;
-    candidates: { label: string; value: string }[];
-  }[];
-};
+type QuestionArgs = z.infer<typeof questionsInputSchema>;
 
 type QuestionResult = {
   answers: {
@@ -23,8 +20,9 @@ export const QuestionsToolUI = makeAssistantToolUI<QuestionArgs, QuestionResult>
   render: ({ args, addResult, result }) => {
     if (result && typeof result === "object" && "answers" in result)
       return <CompletedView result={result as QuestionResult} />;
-    if (!args?.questions) return null;
-    return <PendingView questions={args.questions} onSubmit={addResult} />;
+    const parsed = questionsInputSchema.safeParse(args);
+    if (!parsed.success) return null;
+    return <PendingView questions={parsed.data.questions} onSubmit={addResult} />;
   },
 });
 
@@ -78,13 +76,13 @@ function PendingView({
 
   return (
     <div className="my-2 space-y-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
-      {questions.map((q, qi) => (
+      {questions.map((q: QuestionArgs["questions"][number], qi: number) => (
         <div key={qi} className="space-y-2">
           <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
             {q.question}
           </div>
           <div className="flex flex-wrap gap-2">
-            {q.candidates.map((c) => (
+            {q.candidates.map((c: { label: string; value: string }) => (
               <button
                 key={c.value}
                 onClick={() => select(qi, c.value)}

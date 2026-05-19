@@ -97,12 +97,13 @@ function ThreadMessage() {
               }
               case "reasoning":
                 return <ReasoningText />;
-              case "text":
+              case "text": {
                 return (
                   <div className="whitespace-pre-wrap leading-7">
                     <MarkdownText />
                   </div>
                 );
+              }
               case "tool-call": {
                 if (part.toolUI) return part.toolUI;
                 const toolPart = part as {

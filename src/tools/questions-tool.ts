@@ -6,20 +6,21 @@ const candidateSchema = z.object({
   value: z.string().describe("Machine-readable value returned when selected"),
 });
 
-const questionSchema = z.object({
+export const questionSchema = z.object({
   question: z.string().describe("Question to ask the user"),
   candidates: candidateSchema
     .array()
     .describe("List of candidate answers to the question"),
 });
 
+export const questionsInputSchema = z.object({
+  questions: questionSchema
+    .array()
+    .describe("Array of questions with their candidate answers"),
+});
+
 export const questionsTool = tool({
   description: `Present questions with candidate answers to the user.`,
-  inputSchema: zodSchema(
-    z.object({
-      questions: questionSchema
-        .array()
-        .describe("Array of questions with their candidate answers"),
-    }),
-  ),
+  strict: true,
+  inputSchema: zodSchema(questionsInputSchema),
 });

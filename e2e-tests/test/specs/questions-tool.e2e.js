@@ -129,4 +129,28 @@ describe('Questions Tool UI', () => {
     const bodyText = await $('body').getText();
     expect(bodyText).toContain('Green');
   });
+
+  it('should show model reply after submitting answers', async () => {
+    await ensureChatUI();
+
+    await browser.execute(() => {
+      window.__mockQuestions = true;
+    });
+
+    await sendMessage('Pick a color');
+    await waitForText('Red');
+    await clickButtonWithText('Red');
+    await clickButtonWithText('Submit Answers');
+    await waitForText('Answers submitted');
+    await browser.pause(5000);
+
+    const debug = await browser.execute(() => ({
+      bodyText: document.body.innerText.substring(0, 3000),
+      bodyHTML: document.body.innerHTML.substring(0, 5000),
+      mockFlag: window.__mockQuestions,
+      logs: (window.__logs || []),
+    }));
+    console.log('DEBUG:', JSON.stringify(debug).substring(0, 8000));
+    expect(debug.bodyText).toContain('Great choice');
+  });
 });

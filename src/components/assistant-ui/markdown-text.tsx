@@ -5,7 +5,7 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type FC, memo, useState } from "react";
+import { type FC, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +17,7 @@ const MarkdownTextImpl = () => {
     />
   );
 };
-export const MarkdownText = memo(MarkdownTextImpl);
+export const MarkdownText = MarkdownTextImpl;
 
 const CodeHeader: FC<{
   language?: string;

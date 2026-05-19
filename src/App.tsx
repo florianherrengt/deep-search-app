@@ -3,6 +3,7 @@ import { useChat } from "@ai-sdk/react";
 import {
   streamText,
   convertToModelMessages,
+  isToolUIPart,
   type ChatTransport,
   type UIMessage,
 } from "ai";
@@ -18,6 +19,7 @@ import { Thread } from "./components/assistant-ui/thread";
 declare global {
   interface Window {
     __mockQuestions?: boolean;
+    __logs?: Array<Record<string, unknown>>;
   }
 }
 
@@ -35,9 +37,24 @@ function createMockQuestionsStream() {
   };
 
   const callId = "call_mock_" + Date.now();
+  const msgId = "msg_mock_" + Date.now();
+  const textId = "text_mock_" + Date.now();
 
   const parts = [
-    { type: "start" as const, messageId: "msg_mock_" + Date.now() },
+    { type: "start" as const, messageId: msgId },
+    {
+      type: "text-start" as const,
+      id: textId,
+    },
+    {
+      type: "text-delta" as const,
+      id: textId,
+      delta: "I need one clarification before I continue.",
+    },
+    {
+      type: "text-end" as const,
+      id: textId,
+    },
     {
       type: "tool-input-start" as const,
       toolCallId: callId,
@@ -50,6 +67,42 @@ function createMockQuestionsStream() {
       input: args,
     },
     { type: "finish" as const, finishReason: "tool-calls" as const },
+  ];
+
+  return new ReadableStream({
+    start(controller) {
+      parts.forEach((part, i) => {
+        setTimeout(() => {
+          controller.enqueue(part);
+          if (i === parts.length - 1) {
+            controller.close();
+          }
+        }, (i + 1) * 100);
+      });
+    },
+  });
+}
+
+function createMockFollowUpStream() {
+  const msgId = "msg_followup_" + Date.now();
+  const textId = "txt_" + Date.now();
+
+  const parts = [
+    { type: "start" as const, messageId: msgId },
+    {
+      type: "text-start" as const,
+      id: textId,
+    },
+    {
+      type: "text-delta" as const,
+      id: textId,
+      delta: "Thanks for your answer! Great choice.",
+    },
+    {
+      type: "text-end" as const,
+      id: textId,
+    },
+    { type: "finish" as const, finishReason: "stop" as const },
   ];
 
   return new ReadableStream({
@@ -84,7 +137,18 @@ class DirectTransport implements ChatTransport<UIMessage> {
     metadata?: unknown;
   }) {
     if (typeof window !== "undefined" && window.__mockQuestions) {
-      window.__mockQuestions = false;
+      if (typeof window !== "undefined") {
+        window.__logs = window.__logs || [];
+        window.__logs.push({ fn: "sendMessages", hasToolResult: messages.some(m => m.parts.some(p => isToolUIPart(p) && p.state === "output-available")) });
+      }
+      const hasToolResult = messages.some((m) =>
+        m.parts.some(
+          (p) => isToolUIPart(p) && p.state === "output-available",
+        ),
+      );
+      if (hasToolResult) {
+        return createMockFollowUpStream();
+      }
       return createMockQuestionsStream();
     }
 
@@ -101,6 +165,31 @@ class DirectTransport implements ChatTransport<UIMessage> {
   reconnectToStream(): Promise<ReadableStream | null> {
     return Promise.resolve(null);
   }
+}
+
+function shouldContinueAfterToolResult({ messages }: { messages: UIMessage[] }) {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "assistant") return false;
+
+  let lastToolPartIndex = -1;
+  for (let index = last.parts.length - 1; index >= 0; index -= 1) {
+    if (isToolUIPart(last.parts[index])) {
+      lastToolPartIndex = index;
+      break;
+    }
+  }
+  if (lastToolPartIndex === -1) return false;
+
+  const partsAfterTool = last.parts.slice(lastToolPartIndex + 1);
+  const hasTextAfterTool = partsAfterTool.some(
+    (part) => part.type === "text" && part.text.length > 0,
+  );
+  if (hasTextAfterTool) return false;
+
+  const toolParts = last.parts.filter(isToolUIPart);
+  return toolParts.every(
+    (part) => part.state === "output-available" || part.state === "output-error",
+  );
 }
 
 function App() {
@@ -213,7 +302,10 @@ function Chat({ apiKey, braveApiKey }: { apiKey: string; braveApiKey: string }) 
     }
   }, [braveApiKey]);
 
-  const chat = useChat({ transport: transportRef.current });
+  const chat = useChat({
+    transport: transportRef.current,
+    sendAutomaticallyWhen: shouldContinueAfterToolResult,
+  });
   const runtime = useAISDKRuntime(chat);
 
   return (
