@@ -26,7 +26,11 @@ Manages all settings in a single Tauri store (`settings.json`). Returns:
 ```ts
 interface Settings {
   openrouter_api_key: string;
+  searxng_url: string;
   brave_api_key: string;
+  exa_api_key: string;
+  serper_api_key: string;
+  tavily_api_key: string;
   default_model: string;
 }
 ```
@@ -37,9 +41,13 @@ API:
 - `updateSetting(key: keyof Settings, value: string): Promise<void>` — update and persist a single field
 - `resetAll(): Promise<void>` — clear store, reset to defaults
 
-Default values:
+Default values (all empty strings):
 - `openrouter_api_key`: `""`
+- `searxng_url`: `""`
 - `brave_api_key`: `""`
+- `exa_api_key`: `""`
+- `serper_api_key`: `""`
+- `tavily_api_key`: `""`
 - `default_model`: `"openrouter/free"`
 
 ### `SettingsDialog` component
@@ -48,16 +56,17 @@ Source: `src/components/settings-dialog.tsx`
 
 Radix Dialog overlay with:
 
-1. **OpenRouter API Key** — password input, save on blur/enter
-2. **Brave Search API Key** — password input, save on blur/enter
-3. **Default Model** — select dropdown with predefined model list:
-   - `openrouter/free` (Free)
-   - `openai/gpt-4.1-mini` (GPT-4.1 Mini)
-   - `openai/gpt-4.1` (GPT-4.1)
-   - `anthropic/claude-sonnet-4` (Claude Sonnet 4)
-   - `google/gemini-2.5-flash` (Gemini 2.5 Flash)
-   - `google/gemini-2.5-pro` (Gemini 2.5 Pro)
-4. **Danger zone** — "Reset All Settings" destructive button (with confirmation)
+1. **Default Model** — plain text input (OpenRouter model string, e.g. `openrouter/free`). Save on blur/enter.
+2. **API Keys** section:
+   - OpenRouter API Key — password input
+   - SearXNG URL — text input
+   - Brave Search API Key — password input
+   - Exa API Key — password input
+   - Serper API Key — password input
+   - Tavily API Key — password input
+3. **Danger zone** — "Reset All Settings" destructive button (with confirmation)
+
+All fields save on blur/enter.
 
 Props:
 - `open: boolean`
@@ -130,5 +139,6 @@ Add menu permissions:
 ## Out of Scope
 
 - Dynamic model fetching from OpenRouter API
+- Non-OpenRouter provider support
 - Theme toggle (deferred)
 - Settings export/import
