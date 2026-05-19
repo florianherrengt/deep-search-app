@@ -22,6 +22,4 @@ export const questionsTool = tool({
         .describe("Array of questions with their candidate answers"),
     }),
   ),
-  execute: async () =>
-    "Questions asked. Wait for the user to reply. Stop here and say nothing else.",
 });

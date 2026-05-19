@@ -21,7 +21,8 @@ type QuestionResult = {
 export const QuestionsToolUI = makeAssistantToolUI<QuestionArgs, QuestionResult>({
   toolName: "askQuestions",
   render: ({ args, addResult, result }) => {
-    if (result) return <CompletedView result={result} />;
+    if (result && typeof result === "object" && "answers" in result)
+      return <CompletedView result={result as QuestionResult} />;
     if (!args?.questions) return null;
     return <PendingView questions={args.questions} onSubmit={addResult} />;
   },
