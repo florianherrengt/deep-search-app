@@ -51,30 +51,6 @@ const CodeHeader: FC<{
 };
 
 const defaultComponents = memoizeMarkdownComponents({
-  h1: ({ className, ...props }) => (
-    <h1 className={cn("mb-4 mt-6 text-2xl font-bold", className)} {...props} />
-  ),
-  h2: ({ className, ...props }) => (
-    <h2 className={cn("mb-3 mt-5 text-xl font-semibold", className)} {...props} />
-  ),
-  h3: ({ className, ...props }) => (
-    <h3 className={cn("mb-2 mt-4 text-lg font-semibold", className)} {...props} />
-  ),
-  p: ({ className, ...props }) => (
-    <p className={cn("mb-3 leading-7", className)} {...props} />
-  ),
-  ul: ({ className, ...props }) => (
-    <ul className={cn("mb-3 ml-6 list-disc [&>li]:mt-1", className)} {...props} />
-  ),
-  ol: ({ className, ...props }) => (
-    <ol className={cn("mb-3 ml-6 list-decimal [&>li]:mt-1", className)} {...props} />
-  ),
-  blockquote: ({ className, ...props }) => (
-    <blockquote
-      className={cn("border-l-4 border-zinc-300 pl-4 italic", className)}
-      {...props}
-    />
-  ),
   pre: ({ className, ...props }) => (
     <pre
       className={cn(

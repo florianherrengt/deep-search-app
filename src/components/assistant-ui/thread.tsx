@@ -99,7 +99,7 @@ function ThreadMessage() {
                 return <ReasoningText />;
               case "text": {
                 return (
-                  <div className="whitespace-pre-wrap leading-7">
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
                     <MarkdownText />
                   </div>
                 );
