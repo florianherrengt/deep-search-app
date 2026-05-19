@@ -39,16 +39,12 @@ export function getExaApiKey(): string | null {
 }
 
 async function search(query: string): Promise<SearchResult[]> {
-  if (!apiKey) {
-    throw new Error("Exa API key not set");
-  }
-
   return limiter.schedule(async () => {
     const response = await fetch(`${API_BASE_URL}/search`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey!,
+        "x-api-key": apiKey ?? "",
       },
       body: JSON.stringify({
         query,

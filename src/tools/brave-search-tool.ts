@@ -37,10 +37,6 @@ export function getBraveApiKey(): string | null {
 }
 
 async function search(query: string): Promise<SearchResult[]> {
-  if (!apiKey) {
-    throw new Error("Brave Search API key not set");
-  }
-
   return limiter.schedule(async () => {
     const url = new URL(`${API_BASE_URL}/web/search`);
     url.searchParams.set("q", query);
@@ -48,7 +44,7 @@ async function search(query: string): Promise<SearchResult[]> {
     const response = await fetch(url.toString(), {
       headers: {
         accept: "application/json",
-        "x-subscription-token": apiKey!,
+        "x-subscription-token": apiKey ?? "",
       },
     });
 

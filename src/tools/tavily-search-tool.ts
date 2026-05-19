@@ -39,10 +39,6 @@ export function getTavilyApiKey(): string | null {
 }
 
 async function search(query: string): Promise<SearchResult[]> {
-  if (!apiKey) {
-    throw new Error("Tavily Search API key not set");
-  }
-
   return limiter.schedule(async () => {
     const response = await fetch(`${API_BASE_URL}/search`, {
       method: "POST",
