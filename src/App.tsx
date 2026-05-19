@@ -15,6 +15,57 @@ import { braveSearchTool, setBraveApiKey } from "./tools/brave-search-tool";
 import { QuestionsToolUI } from "./components/assistant-ui/questions-tool";
 import { Thread } from "./components/assistant-ui/thread";
 
+declare global {
+  interface Window {
+    __mockQuestions?: boolean;
+  }
+}
+
+function createMockQuestionsStream() {
+  const args = {
+    questions: [
+      {
+        question: "Which color do you prefer?",
+        candidates: [
+          { label: "Red", value: "red" },
+          { label: "Blue", value: "blue" },
+        ],
+      },
+    ],
+  };
+
+  const callId = "call_mock_" + Date.now();
+
+  const parts = [
+    { type: "start" as const, messageId: "msg_mock_" + Date.now() },
+    {
+      type: "tool-input-start" as const,
+      toolCallId: callId,
+      toolName: "askQuestions",
+    },
+    {
+      type: "tool-input-available" as const,
+      toolCallId: callId,
+      toolName: "askQuestions",
+      input: args,
+    },
+    { type: "finish" as const, finishReason: "tool-calls" as const },
+  ];
+
+  return new ReadableStream({
+    start(controller) {
+      parts.forEach((part, i) => {
+        setTimeout(() => {
+          controller.enqueue(part);
+          if (i === parts.length - 1) {
+            controller.close();
+          }
+        }, (i + 1) * 100);
+      });
+    },
+  });
+}
+
 
 class DirectTransport implements ChatTransport<UIMessage> {
   constructor(private getApiKey: () => string) {}
@@ -32,6 +83,11 @@ class DirectTransport implements ChatTransport<UIMessage> {
     body?: object;
     metadata?: unknown;
   }) {
+    if (typeof window !== "undefined" && window.__mockQuestions) {
+      window.__mockQuestions = false;
+      return createMockQuestionsStream();
+    }
+
     const openrouter = createOpenRouter({ apiKey: this.getApiKey() });
     const result = streamText({
       model: openrouter("openrouter/free"),
