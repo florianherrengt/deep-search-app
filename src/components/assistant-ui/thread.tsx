@@ -104,6 +104,7 @@ function ThreadMessage() {
                   </div>
                 );
               case "tool-call": {
+                if (part.toolUI) return part.toolUI;
                 const toolPart = part as {
                   toolName: string;
                   args?: unknown;
