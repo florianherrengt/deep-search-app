@@ -156,18 +156,36 @@ export function createDisambiguateTool(model: LanguageModel) {
     ),
     outputSchema: zodSchema(z.string()),
     execute: async ({ question }) => {
-      const { entities } = await extractEntities(model, question);
-      if (entities.length === 0) return "";
+      const lines: string[] = [];
 
-      const results: string[] = [];
+      let extracted: z.infer<typeof ExtractedEntitiesSchema>;
+      try {
+        extracted = await extractEntities(model, question);
+      } catch (error) {
+        return `Entity extraction failed: ${error instanceof Error ? error.message : String(error)}`;
+      }
+
+      const { entities } = extracted;
+      if (entities.length === 0) {
+        return "No ambiguous entities identified.";
+      }
+
+      lines.push(
+        `Entities: ${entities.map((e) => e.term).join(", ")}`,
+      );
+
       for (const entity of entities) {
+        lines.push("");
+        lines.push(`[${entity.term}] querying: "${entity.searchHint}"`);
         const ddgResult = await fetchDuckDuckGo(entity.searchHint);
         if (ddgResult) {
-          results.push(ddgResult);
+          lines.push(ddgResult);
+        } else {
+          lines.push("(no result)");
         }
       }
 
-      return results.join("\n\n");
+      return lines.join("\n");
     },
   });
 }
