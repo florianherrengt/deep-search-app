@@ -2,6 +2,7 @@ import { tool, zodSchema, generateText, type LanguageModel } from "ai";
 import { z } from "zod";
 import { fetch } from "@tauri-apps/plugin-http";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import {
   stripNoise,
   htmlToMarkdown,
@@ -56,6 +57,15 @@ async function extractViaWebview(url: string): Promise<string | null> {
   const id = `tab-${Date.now()}`;
   try {
     await invoke("open_tab", { url, id });
+    const hostname = (() => {
+      try {
+        return new URL(url).hostname;
+      } catch {
+        return url;
+      }
+    })();
+    await emit("browser-tab-opened", { id, url, title: hostname });
+    await invoke("switch_tab", { id });
     const html: string = await invoke("extract_content", { id });
     return html;
   } catch {
@@ -63,6 +73,8 @@ async function extractViaWebview(url: string): Promise<string | null> {
   } finally {
     try {
       await invoke("close_tab", { id });
+      await emit("browser-tab-closed", { id });
+      await invoke("switch_tab", { id: "main" });
     } catch {}
   }
 }

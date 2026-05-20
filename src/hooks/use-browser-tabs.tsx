@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 export interface BrowserTab {
   id: string;
@@ -11,68 +12,43 @@ export function useBrowserTabs() {
   const [tabs, setTabs] = useState<BrowserTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>("main");
 
-  const addTab = useCallback(
-    (tab: BrowserTab) => {
-      setTabs((prev) => [...prev, tab]);
-      setActiveTabId(tab.id);
-    },
-    [],
-  );
+  useEffect(() => {
+    const unlisteners: (() => void)[] = [];
 
-  const removeTab = useCallback(
-    (id: string) => {
-      setTabs((prev) => prev.filter((t) => t.id !== id));
-      if (activeTabId === id) {
-        setActiveTabId("main");
-        invoke("switch_tab", { id: "main" }).catch(() => {});
-      }
-    },
-    [activeTabId],
-  );
+    listen<BrowserTab>("browser-tab-opened", (e) => {
+      setTabs((prev) => {
+        if (prev.some((t) => t.id === e.payload.id)) return prev;
+        return [...prev, e.payload];
+      });
+      setActiveTabId(e.payload.id);
+    }).then((u) => unlisteners.push(u));
+
+    listen<{ id: string }>("browser-tab-closed", (e) => {
+      setTabs((prev) => prev.filter((t) => t.id !== e.payload.id));
+      setActiveTabId("main");
+    }).then((u) => unlisteners.push(u));
+
+    return () => {
+      for (const u of unlisteners) u();
+    };
+  }, []);
 
   const switchToTab = useCallback((id: string) => {
     setActiveTabId(id);
     invoke("switch_tab", { id }).catch(() => {});
   }, []);
 
-  const openAndExtract = useCallback(
-    async (url: string): Promise<string> => {
-      const id = `tab-${Date.now()}`;
-      const hostname = (() => {
-        try {
-          return new URL(url).hostname;
-        } catch {
-          return url;
-        }
-      })();
-
-      addTab({ id, url, title: hostname });
-      await invoke("switch_tab", { id });
-
-      let html = "";
-      try {
-        html = await invoke<string>("extract_content", { id });
-      } catch {}
-
-      removeTab(id);
-      return html;
-    },
-    [addTab, removeTab],
-  );
-
-  const closeTab = useCallback(
-    (id: string) => {
-      invoke("close_tab", { id }).catch(() => {});
-      removeTab(id);
-    },
-    [removeTab],
-  );
+  const closeTab = useCallback((id: string) => {
+    invoke("close_tab", { id }).catch(() => {});
+    invoke("switch_tab", { id: "main" }).catch(() => {});
+    setTabs((prev) => prev.filter((t) => t.id !== id));
+    setActiveTabId("main");
+  }, []);
 
   return {
     tabs,
     activeTabId,
     switchToTab,
     closeTab,
-    openAndExtract,
   };
 }
