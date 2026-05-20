@@ -15,7 +15,9 @@
     "core:webview:allow-set-webview-size",
     "core:window:allow-create",
     "core:window:default",
-    "fs:default",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:allow-read-text-file",
     "fs:allow-write-text-file",
     "fs:scope-appdata-recursive",
     {

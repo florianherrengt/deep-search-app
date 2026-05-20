@@ -7,11 +7,11 @@ type StoreApi<T extends z.ZodObject<any>> = {
   reset: () => Promise<void>;
 };
 
-export async function createStore<T extends z.ZodObject<any>>(
+export function createStore<T extends z.ZodObject<any>>(
   filename: string,
   schema: T,
   defaults: z.infer<T>,
-): Promise<StoreApi<T>> {
+): StoreApi<T> {
   const shape = schema.shape;
   const keys = Object.keys(shape) as (keyof z.infer<T>)[];
 

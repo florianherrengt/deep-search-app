@@ -1,4 +1,5 @@
 import { tool, zodSchema } from "ai";
+import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
 import Bottleneck from "bottleneck";
 

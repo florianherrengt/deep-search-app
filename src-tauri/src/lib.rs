@@ -9,30 +9,12 @@ const TAB_BAR_HEIGHT: f64 = 40.0;
 const PAGE_LOAD_TIMEOUT_SECS: u64 = 30;
 const EVAL_RECV_TIMEOUT_SECS: u64 = 5;
 
-fn content_size(window: &tauri::Window) -> Result<(f64, f64), String> {
-    let scale = window.scale_factor().map_err(|e| e.to_string())?;
-    let size = window.inner_size().map_err(|e| e.to_string())?;
-    let logical = size.to_logical::<f64>(scale);
-    Ok((logical.width, logical.height))
-}
-
-fn resize_all_webviews(app: &AppHandle) -> Result<(), String> {
-    let window = app.get_window("main").ok_or("no main window")?;
-    let (w, h) = content_size(&window)?;
-    for (_label, wv) in app.webviews() {
-        if wv.label() == "main" {
-            continue;
-        }
-        let _ = wv.set_position(LogicalPosition::new(0.0, TAB_BAR_HEIGHT));
-        let _ = wv.set_size(LogicalSize::new(w, h - TAB_BAR_HEIGHT));
-    }
-    Ok(())
-}
-
 #[tauri::command]
 async fn open_tab(app: AppHandle, url: String, id: String) -> Result<(), String> {
     let window = app.get_window("main").ok_or("no main window")?;
-    let (w, h) = content_size(&window)?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let physical = window.inner_size().map_err(|e| e.to_string())?;
+    let logical = physical.to_logical::<f64>(scale);
 
     let parsed_url: url::Url = url.parse().map_err(|e: url::ParseError| e.to_string())?;
     let wv = WebviewBuilder::new(&id, WebviewUrl::External(parsed_url));
@@ -41,7 +23,7 @@ async fn open_tab(app: AppHandle, url: String, id: String) -> Result<(), String>
         .add_child(
             wv,
             LogicalPosition::new(0.0, TAB_BAR_HEIGHT),
-            LogicalSize::new(w, h - TAB_BAR_HEIGHT),
+            LogicalSize::new(logical.width, logical.height - TAB_BAR_HEIGHT),
         )
         .map_err(|e| e.to_string())?;
 
@@ -115,11 +97,6 @@ async fn extract_content(app: AppHandle, id: String) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn resize_tabs(app: AppHandle) -> Result<(), String> {
-    resize_all_webviews(&app)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -132,7 +109,6 @@ pub fn run() {
             switch_tab,
             close_tab,
             extract_content,
-            resize_tabs,
         ]);
 
     #[cfg(debug_assertions)]

@@ -29,6 +29,7 @@ import {
   setSearXNGBaseUrl,
 } from "@/tools/searxng-search-tool";
 import { createExtractPageContentTool } from "@/tools/extract-page-content-tool";
+import { saveResearchFileTool } from "@/tools/research-file-tool";
 import systemPrompt from "./system-prompt.md?raw";
 
 export { setBraveApiKey, setExaApiKey, setSerperApiKey, setTavilyApiKey, setSearXNGBaseUrl };
@@ -67,6 +68,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
         tavily_search: tavilySearchTool,
         searxng_search: searxngSearchTool,
         extract_page_content: createExtractPageContentTool(model),
+        save_research_file: saveResearchFileTool,
       },
       abortSignal,
     });

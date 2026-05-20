@@ -18,7 +18,7 @@ export type Settings = z.infer<typeof settingsSchema>;
 interface SettingsContextValue {
   settings: Settings;
   loading: boolean;
-  updateSetting: (key: keyof Settings, value: string | null) => Promise<void>;
+  updateSetting: (key: keyof Settings, value: string) => Promise<void>;
   resetAll: () => Promise<void>;
 }
 
@@ -40,7 +40,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateSetting = useCallback(
-    async (key: keyof Settings, value: string | null) => {
+    async (key: keyof Settings, value: string) => {
       await settingsStore.set(key, value);
       setSettings((prev) => ({ ...prev, [key]: value }));
     },
