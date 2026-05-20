@@ -157,11 +157,8 @@ export const disambiguateTool = tool({
 
     for (const entity of entities) {
       const ddgResult = await fetchDuckDuckGo(entity);
-      if (!ddgResult) continue;
       parts.push(entity);
-      parts.push(ddgResult);
+      parts.push(ddgResult || "No DDG results.");
     }
-
-    if (parts.length === 0) return `No DDG results for: ${entities.join(", ")}`;
   },
 });
