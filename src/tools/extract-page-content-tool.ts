@@ -85,16 +85,30 @@ export function createExtractPageContentTool(model: LanguageModel) {
           .describe(
             "Summarize the content before returning it. Set to false if you need the full page information.",
           ),
+        method: z
+          .enum(["auto", "fetch", "webview"])
+          .optional()
+          .describe(
+            "Extraction method. 'auto' tries fetch then falls back to webview. 'fetch' forces HTTP-only. 'webview' forces browser rendering.",
+          ),
       }),
     ),
     outputSchema: zodSchema(z.string().describe("Extracted page content")),
-    execute: async ({ url, query, summarize: doSummarize }) => {
-      let html = await fetchHtml(url);
-      let markdown = html ? processHtml(html) : "";
+    execute: async ({ url, query, summarize: doSummarize, method }) => {
+      const forced = method ?? "auto";
+      let html: string | null = null;
+      let markdown = "";
 
-      if (markdown.length < MIN_CONTENT_LENGTH) {
+      if (forced === "webview") {
         html = await extractViaWebview(url);
         markdown = html ? processHtml(html) : "";
+      } else {
+        html = await fetchHtml(url);
+        markdown = html ? processHtml(html) : "";
+        if (forced === "auto" && markdown.length < MIN_CONTENT_LENGTH) {
+          html = await extractViaWebview(url);
+          markdown = html ? processHtml(html) : "";
+        }
       }
 
       if (doSummarize !== false && markdown.trim()) {
