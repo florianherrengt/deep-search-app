@@ -1,11 +1,7 @@
-import { memo, useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
-import {
-  useScrollLock,
-  useAuiState,
-  type ReasoningGroupComponent,
-} from "@assistant-ui/react";
+import { useScrollLock } from "@assistant-ui/react";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import {
   Collapsible,
@@ -146,32 +142,6 @@ function ReasoningText({ className, ...props }: React.ComponentProps<"div">) {
     </div>
   );
 }
-
-
-const ReasoningGroupImpl: ReasoningGroupComponent = ({
-  children,
-  startIndex,
-  endIndex,
-}) => {
-  const isReasoningStreaming = useAuiState((s) => {
-    if (s.message.status?.type !== "running") return false;
-    const lastIndex = s.message.parts.length - 1;
-    if (lastIndex < 0) return false;
-    const lastType = s.message.parts[lastIndex]?.type;
-    if (lastType !== "reasoning") return false;
-    return lastIndex >= startIndex && lastIndex <= endIndex;
-  });
-
-  return (
-    <ReasoningRoot defaultOpen={isReasoningStreaming}>
-      <ReasoningTrigger active={isReasoningStreaming} />
-      <ReasoningContent>{children}</ReasoningContent>
-    </ReasoningRoot>
-  );
-};
-
-export const ReasoningGroup = memo(ReasoningGroupImpl);
-ReasoningGroup.displayName = "ReasoningGroup";
 
 export {
   ReasoningRoot,

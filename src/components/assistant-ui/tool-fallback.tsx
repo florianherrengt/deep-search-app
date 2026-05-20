@@ -1,6 +1,10 @@
-import { useState } from "react";
 import { ChevronDownIcon, WrenchIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 export function ToolFallback({
   toolName,
@@ -13,12 +17,9 @@ export function ToolFallback({
   result?: string;
   status: "running" | "complete" | "error";
 }) {
-  const [open, setOpen] = useState(false);
-
   return (
-    <div className="my-2 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50">
-      <button
-        onClick={() => setOpen(!open)}
+    <Collapsible className="my-2 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50">
+      <CollapsibleTrigger
         className={cn(
           "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
           "hover:bg-zinc-100 dark:hover:bg-zinc-800",
@@ -42,12 +43,12 @@ export function ToolFallback({
         <ChevronDownIcon
           className={cn(
             "h-3.5 w-3.5 text-zinc-400 transition-transform duration-200",
-            open && "rotate-180",
+            "group-data-[state=open]:rotate-180",
           )}
         />
-      </button>
-      {open && (
-        <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-700">
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t border-zinc-200 dark:border-zinc-700">
+        <div className="px-3 py-2">
           {args && (
             <div className="mb-2">
               <div className="mb-1 text-xs font-medium text-zinc-500">
@@ -73,7 +74,7 @@ export function ToolFallback({
             </div>
           )}
         </div>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

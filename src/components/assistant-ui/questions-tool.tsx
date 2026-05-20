@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { makeAssistantToolUI } from "@assistant-ui/react";
 import { CheckCircleIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { z } from "zod";
 import { questionsInputSchema } from "@/tools/questions-tool";
 
@@ -16,7 +16,7 @@ type QuestionResult = {
 };
 
 export const QuestionsToolUI = makeAssistantToolUI<QuestionArgs, QuestionResult>({
-  toolName: "askQuestions",
+  toolName: "ask_questions",
   render: ({ args, addResult, result }) => {
     if (result && typeof result === "object" && "answers" in result)
       return <CompletedView result={result as QuestionResult} />;
@@ -36,7 +36,8 @@ function PendingView({
   const [selections, setSelections] = useState<Record<number, string>>({});
   const [customAnswers, setCustomAnswers] = useState<Record<number, string>>({});
 
-  function select(index: number, value: string) {
+  function handleSelect(index: number, value: string) {
+    if (!value) return;
     setSelections((prev) => ({ ...prev, [index]: value }));
     setCustomAnswers((prev) => {
       const next = { ...prev };
@@ -81,22 +82,22 @@ function PendingView({
           <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
             {q.question}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <ToggleGroup
+            type="single"
+            value={selections[qi] ?? ""}
+            onValueChange={(v) => handleSelect(qi, v)}
+            className="flex flex-wrap gap-2"
+          >
             {q.candidates.map((c: { label: string; value: string }) => (
-              <button
+              <ToggleGroupItem
                 key={c.value}
-                onClick={() => select(qi, c.value)}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-sm transition-colors",
-                  selections[qi] === c.value
-                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-900/30 dark:text-blue-300"
-                    : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300",
-                )}
+                value={c.value}
+                className="rounded-lg border px-3 py-1.5 text-sm data-[state=on]:border-blue-500 data-[state=on]:bg-blue-50 data-[state=on]:text-blue-700 dark:data-[state=on]:border-blue-400 dark:data-[state=on]:bg-blue-900/30 dark:data-[state=on]:text-blue-300"
               >
                 {c.label}
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
           <input
             type="text"
             placeholder="Or type your own..."

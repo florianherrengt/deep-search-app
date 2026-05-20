@@ -7,6 +7,14 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -65,7 +73,7 @@ const FIELDS: FieldConfig[] = [
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { settings, updateSetting, resetAll } = useSettings();
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   function handleBlur(key: keyof Settings, value: string) {
     if (value !== settings[key]) {
@@ -84,13 +92,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }
 
-  async function handleReset() {
-    if (!confirmReset) {
-      setConfirmReset(true);
-      return;
-    }
+  async function handleConfirmReset() {
     await resetAll();
-    setConfirmReset(false);
+    setConfirmOpen(false);
   }
 
   return (
@@ -110,7 +114,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               id="default_model"
               type="text"
               placeholder="openrouter/free"
-              defaultValue={settings.default_model ?? ""}
+              defaultValue={settings.default_model}
               onBlur={(e: FormEvent<HTMLInputElement>) =>
                 handleBlur("default_model", e.currentTarget.value)
               }
@@ -135,7 +139,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 id={field.key}
                 type={field.type}
                 placeholder={field.placeholder}
-                defaultValue={settings[field.key] ?? ""}
+                defaultValue={settings[field.key]}
                 onBlur={(e: FormEvent<HTMLInputElement>) =>
                   handleBlur(field.key, e.currentTarget.value)
                 }
@@ -152,33 +156,41 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </div>
 
         <DialogFooter className="flex-row items-center justify-between gap-2 border-t pt-4">
-          <div>
-            {confirmReset ? (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-destructive">Are you sure?</span>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleReset}
-                >
-                  Confirm Reset
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setConfirmReset(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <Button variant="destructive" size="sm" onClick={handleReset}>
-                Reset All Settings
-              </Button>
-            )}
-          </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setConfirmOpen(true)}
+          >
+            Reset All Settings
+          </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogTitle>Reset All Settings</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will clear all API keys and preferences. This action cannot be
+            undone.
+          </AlertDialogDescription>
+          <div className="flex justify-end gap-2">
+            <AlertDialogCancel asChild>
+              <Button variant="outline" size="sm">
+                Cancel
+              </Button>
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleConfirmReset}
+              >
+                Confirm Reset
+              </Button>
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
