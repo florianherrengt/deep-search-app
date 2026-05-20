@@ -124,10 +124,7 @@ async function fetchDuckDuckGo(query: string): Promise<string> {
 function extractEntities(question: string): string[] {
   const doc = nlp(question);
 
-  const nouns = doc
-    .nouns()
-    .not("#Determiner")
-    .out("array") as string[];
+  const nouns = doc.nouns().not("#Determiner").out("array") as string[];
   const topics = doc.topics().out("array") as string[];
 
   const candidates = [...nouns, ...topics]
@@ -143,9 +140,7 @@ export const disambiguateTool = tool({
   strict: true,
   inputSchema: zodSchema(
     z.object({
-      question: z
-        .string()
-        .describe("The user's question to disambiguate"),
+      question: z.string().describe("The user's question to disambiguate"),
     }),
   ),
   outputSchema: zodSchema(z.string()),
@@ -158,7 +153,9 @@ export const disambiguateTool = tool({
     for (const entity of entities) {
       const ddgResult = await fetchDuckDuckGo(entity);
       parts.push(entity);
-      parts.push(ddgResult || "No DDG results.");
+      parts.push(ddgResult || "No results.");
     }
+
+    return parts.join("\n\n");
   },
 });
