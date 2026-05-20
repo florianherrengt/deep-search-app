@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { invoke } from "@tauri-apps/api/core";
 import type { BrowserTab } from "@/hooks/use-browser-tabs";
 
 const TAB_BAR_HEIGHT = 40;
@@ -19,6 +20,14 @@ export function TabPanel({
   onSwitchTab,
   onCloseTab,
 }: TabPanelProps) {
+  useEffect(() => {
+    const handler = () => {
+      invoke("resize_tabs").catch(() => {});
+    };
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       <div
