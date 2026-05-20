@@ -55,7 +55,7 @@ export function TabPanel({
           </div>
         ))}
       </div>
-      <div className="flex-1 relative">{chatPanel}</div>
+      <div className="flex-1 min-h-0 overflow-hidden">{chatPanel}</div>
     </div>
   );
 }
