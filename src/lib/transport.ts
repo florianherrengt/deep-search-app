@@ -17,7 +17,7 @@ import {
   braveSearchTool,
   setBraveApiKey,
 } from "@/tools/brave-search-tool";
-import { duckDuckGoInstantAnswerTool } from "@/tools/duckduckgo-instant-answer-tool";
+import { createDisambiguateTool } from "@/tools/disambiguate-tool";
 import {
   exaSearchTool,
   setExaApiKey,
@@ -86,7 +86,7 @@ function createTools(model: LanguageModel) {
   return {
     ask_questions: questionsTool,
     brave_search: braveSearchTool,
-    duckduckgo_instant_answer: duckDuckGoInstantAnswerTool,
+    disambiguate: createDisambiguateTool(model),
     exa_search: exaSearchTool,
     serper_search: serperSearchTool,
     tavily_search: tavilySearchTool,
