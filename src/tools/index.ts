@@ -1,6 +1,8 @@
 export { braveSearchTool } from "./brave-search-tool";
+export { duckDuckGoInstantAnswerTool } from "./duckduckgo-instant-answer-tool";
 export { exaSearchTool } from "./exa-search-tool";
 export { tavilySearchTool } from "./tavily-search-tool";
 export { serperSearchTool } from "./serper-search-tool";
 export { searxngSearchTool } from "./searxng-search-tool";
 export { questionsTool } from "./questions-tool";
+export { createExtractPageContentTool } from "./extract-page-content-tool";
