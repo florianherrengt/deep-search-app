@@ -151,7 +151,7 @@ export const disambiguateTool = tool({
   outputSchema: zodSchema(z.string()),
   execute: async ({ question }) => {
     const entities = extractEntities(question);
-    if (entities.length === 0) return "";
+    if (entities.length === 0) return "No disambiguation needed.";
 
     const parts: string[] = [];
 
