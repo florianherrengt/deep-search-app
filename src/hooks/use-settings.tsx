@@ -31,6 +31,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        const testSettings = getDevTestSettings();
+        if (testSettings) {
+          setSettings(testSettings);
+          return;
+        }
         setSettings(await settingsStore.get());
       } catch {
       } finally {
@@ -64,4 +69,16 @@ export function useSettings(): SettingsContextValue {
   if (!ctx)
     throw new Error("useSettings must be used within SettingsProvider");
   return ctx;
+}
+
+function getDevTestSettings(): Settings | null {
+  if (!import.meta.env.DEV || typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem("deep-search-test-settings");
+    if (!raw) return null;
+    return settingsSchema.parse(JSON.parse(raw));
+  } catch {
+    return null;
+  }
 }

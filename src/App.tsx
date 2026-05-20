@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { SettingsProvider, useSettings } from "@/hooks/use-settings";
 import { setupMenu } from "@/lib/setup-menu";
 import {
@@ -9,6 +9,7 @@ import {
   setSearXNGBaseUrl,
 } from "@/lib/transport";
 import { Chat } from "@/components/chat";
+import { SettingsPanel } from "@/components/settings-panel";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { TabPanel } from "@/components/tab-panel";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
@@ -22,12 +23,11 @@ declare global {
 
 function AppInner() {
   const { settings, loading } = useSettings();
-  const [dialogOpen, setDialogOpen] = useState(false);
   const { tabs, activeTabId, switchToTab, closeTab } = useBrowserTabs();
 
   useEffect(() => {
-    setupMenu(() => setDialogOpen(true));
-  }, []);
+    setupMenu(() => switchToTab("settings"));
+  }, [switchToTab]);
 
   useEffect(() => {
     if (settings.brave_api_key) setBraveApiKey(settings.brave_api_key);
@@ -52,7 +52,10 @@ function AppInner() {
             to open settings and add your OpenRouter API key.
           </p>
         </main>
-        <SettingsDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+        <SettingsDialog
+          open={true}
+          onOpenChange={() => {}}
+        />
       </>
     );
   }
@@ -65,6 +68,7 @@ function AppInner() {
           defaultModel={settings.default_model}
         />
       }
+      settingsPanel={<SettingsPanel />}
       tabs={tabs}
       activeTabId={activeTabId}
       onSwitchTab={switchToTab}

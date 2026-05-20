@@ -12,6 +12,7 @@ import {
 import { CopyIcon, CheckIcon, RefreshCwIcon, ArrowDownIcon } from "lucide-react";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
+import { GuardrailCard } from "@/components/assistant-ui/guardrail-card";
 import {
   ReasoningRoot,
   ReasoningTrigger,
@@ -199,6 +200,16 @@ function ThreadMessage() {
                       }
                     />
                   );
+                }
+                case "data": {
+                  const dataPart = part as {
+                    name?: string;
+                    data?: unknown;
+                  };
+                  if (dataPart.name === "guardrail_event") {
+                    return <GuardrailCard event={dataPart.data} />;
+                  }
+                  return null;
                 }
                 default:
                   return null;

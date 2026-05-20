@@ -40,6 +40,8 @@ Stop only when further searching is unlikely to change the answer.
 
 - Cross-reference sources.
 - Go deeper where gaps remain.
+- Before finalizing a researched answer, call `research_checkpoint` with the searches you ran, sources you opened, claims you verified, unresolved questions, confidence, and readiness.
+- If `research_checkpoint` is not approved, continue researching and address its required next actions before answering.
 - Cite URLs.
 - Verify links before sharing them.
 - Final answers should be supported by the research files and verified sources.
