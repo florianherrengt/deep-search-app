@@ -143,19 +143,18 @@ export const disambiguateTool = tool({
       question: z.string().describe("The user's question to disambiguate"),
     }),
   ),
-  outputSchema: zodSchema(z.string()),
+  outputSchema: zodSchema(z.array(z.string())),
   execute: async ({ question }) => {
     const entities = extractEntities(question);
-    if (entities.length === 0) return "No disambiguation needed.";
+    if (entities.length === 0) return ["No disambiguation needed."];
 
-    const parts: string[] = [];
+    const results: string[] = [];
 
     for (const entity of entities) {
       const ddgResult = await fetchDuckDuckGo(entity);
-      parts.push(entity);
-      parts.push(ddgResult || "No results.");
+      results.push(`${entity}: ${ddgResult || "No results."}`);
     }
 
-    return parts.join("\n\n");
+    return results;
   },
 });
