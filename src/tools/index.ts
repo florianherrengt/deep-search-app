@@ -1,5 +1,5 @@
 export { braveSearchTool } from "./brave-search-tool";
-export { duckDuckGoInstantAnswerTool } from "./duckduckgo-instant-answer-tool";
+export { createDisambiguateTool } from "./disambiguate-tool";
 export { exaSearchTool } from "./exa-search-tool";
 export { tavilySearchTool } from "./tavily-search-tool";
 export { serperSearchTool } from "./serper-search-tool";
