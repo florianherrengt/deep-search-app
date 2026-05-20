@@ -5,18 +5,10 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   stripNoise,
   htmlToMarkdown,
-  extractTitle,
 } from "@/lib/content-extraction";
 
 const MIN_CONTENT_LENGTH = 200;
 const FETCH_TIMEOUT_MS = 10_000;
-
-const ExtractResultSchema = z.object({
-  url: z.string(),
-  title: z.string(),
-  content: z.string(),
-  strategy: z.enum(["fetch", "webview"]),
-});
 
 async function fetchHtml(url: string): Promise<string | null> {
   try {
@@ -95,29 +87,23 @@ export function createExtractPageContentTool(model: LanguageModel) {
           ),
       }),
     ),
-    outputSchema: zodSchema(ExtractResultSchema),
+    outputSchema: zodSchema(z.string().describe("Extracted page content")),
     execute: async ({ url, query, summarize: doSummarize }) => {
       let html = await fetchHtml(url);
-      let strategy: "fetch" | "webview" = "fetch";
-
       let markdown = html ? processHtml(html) : "";
 
       if (markdown.length < MIN_CONTENT_LENGTH) {
         html = await extractViaWebview(url);
-        strategy = "webview";
         markdown = html ? processHtml(html) : "";
       }
 
-      const title = html ? extractTitle(html) : "";
-      let content = markdown;
-
       if (doSummarize !== false && markdown.trim()) {
         try {
-          content = await summarizeContent(model, markdown, query);
+          return await summarizeContent(model, markdown, query);
         } catch {}
       }
 
-      return { url, title, content, strategy };
+      return markdown;
     },
   });
 }
