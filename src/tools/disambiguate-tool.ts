@@ -162,6 +162,6 @@ export const disambiguateTool = tool({
       parts.push(ddgResult);
     }
 
-    return parts.join("\n\n");
+    if (parts.length === 0) return `No DDG results for: ${entities.join(", ")}`;
   },
 });
