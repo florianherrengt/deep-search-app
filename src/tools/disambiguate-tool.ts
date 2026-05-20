@@ -331,20 +331,15 @@ export const disambiguateTool = tool({
     const entities = extractEntities(question);
     if (entities.length === 0) return "";
 
-    const lines: string[] = [];
-    lines.push(`Entities: ${entities.join(", ")}`);
+    const parts: string[] = [];
 
     for (const entity of entities) {
-      lines.push("");
-      lines.push(`[${entity}] querying: "${entity}"`);
       const ddgResult = await fetchDuckDuckGo(entity);
-      if (ddgResult) {
-        lines.push(ddgResult);
-      } else {
-        lines.push("(no result)");
-      }
+      if (!ddgResult) continue;
+      parts.push(entity);
+      parts.push(ddgResult);
     }
 
-    return lines.join("\n");
+    return parts.join("\n\n");
   },
 });
