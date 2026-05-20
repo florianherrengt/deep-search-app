@@ -26,3 +26,5 @@ tauri-plugin-store = "2.4.3"
 tauri-plugin-webdriver = "0.2"
 tauri-plugin-fs = "2"
 tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
+tokio = { version = "1", features = ["time"] }
+url = "2"

@@ -1,7 +1,100 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use std::sync::mpsc;
+use std::time::Duration;
+
+use tauri::{
+    AppHandle, LogicalPosition, LogicalSize, Manager, WebviewBuilder, WebviewUrl,
+};
+
+const TAB_BAR_HEIGHT: f64 = 40.0;
+const PAGE_LOAD_TIMEOUT_SECS: u64 = 30;
+const EVAL_RECV_TIMEOUT_SECS: u64 = 5;
+
 #[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+async fn open_tab(app: AppHandle, url: String, id: String) -> Result<(), String> {
+    let window = app.get_window("main").ok_or("no main window")?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let physical = window.inner_size().map_err(|e| e.to_string())?;
+    let logical = physical.to_logical::<f64>(scale);
+
+    let parsed_url: url::Url = url.parse().map_err(|e: url::ParseError| e.to_string())?;
+    let wv = WebviewBuilder::new(&id, WebviewUrl::External(parsed_url));
+
+    window
+        .add_child(
+            wv,
+            LogicalPosition::new(0.0, TAB_BAR_HEIGHT),
+            LogicalSize::new(logical.width, logical.height - TAB_BAR_HEIGHT),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn switch_tab(app: AppHandle, id: String) -> Result<(), String> {
+    for (_label, wv) in app.webviews() {
+        if wv.label() == "main" {
+            continue;
+        }
+        if wv.label() == id {
+            let _ = wv.show();
+        } else {
+            let _ = wv.hide();
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn close_tab(app: AppHandle, id: String) -> Result<(), String> {
+    if let Some(wv) = app.get_webview(&id) {
+        wv.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn extract_content(app: AppHandle, id: String) -> Result<String, String> {
+    let wv = app.get_webview(&id).ok_or("webview not found")?;
+
+    let start = std::time::Instant::now();
+    let timeout = Duration::from_secs(PAGE_LOAD_TIMEOUT_SECS);
+    loop {
+        let (tx, rx) = mpsc::channel::<String>();
+        match wv.eval_with_callback(
+            "(function(){return document.readyState})()",
+            move |result| {
+                let _ = tx.send(result);
+            },
+        ) {
+            Ok(_) => {
+                if let Ok(ready) = rx.recv_timeout(Duration::from_secs(EVAL_RECV_TIMEOUT_SECS)) {
+                    if ready.contains("complete") {
+                        break;
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        if start.elapsed() > timeout {
+            return Err("page load timeout".to_string());
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let (tx, rx) = mpsc::channel::<String>();
+    wv.eval_with_callback(
+        "document.documentElement.innerHTML",
+        move |result| {
+            let _ = tx.send(result);
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    rx.recv_timeout(Duration::from_secs(EVAL_RECV_TIMEOUT_SECS))
+        .map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -9,7 +102,14 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet]);
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_http::init())
+        .invoke_handler(tauri::generate_handler![
+            open_tab,
+            switch_tab,
+            close_tab,
+            extract_content,
+        ]);
 
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_webdriver::init());
