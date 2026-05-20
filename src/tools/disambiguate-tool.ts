@@ -1,10 +1,195 @@
-import { tool, zodSchema, generateObject, type LanguageModel } from "ai";
+import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
 import Bottleneck from "bottleneck";
+import nlp from "compromise";
 
 const API_URL = "https://api.duckduckgo.com/";
 const MAX_RELATED_TOPICS = 8;
+
+const STOPWORDS = new Set([
+  "will",
+  "can",
+  "may",
+  "shall",
+  "should",
+  "would",
+  "could",
+  "might",
+  "must",
+  "does",
+  "did",
+  "has",
+  "have",
+  "had",
+  "been",
+  "being",
+  "what",
+  "which",
+  "who",
+  "whom",
+  "whose",
+  "when",
+  "where",
+  "why",
+  "how",
+  "that",
+  "this",
+  "these",
+  "those",
+  "there",
+  "here",
+  "much",
+  "many",
+  "some",
+  "any",
+  "all",
+  "each",
+  "every",
+  "other",
+  "another",
+  "such",
+  "same",
+  "than",
+  "too",
+  "very",
+  "just",
+  "also",
+  "now",
+  "then",
+  "still",
+  "already",
+  "yet",
+  "ever",
+  "never",
+  "always",
+  "often",
+  "sometimes",
+  "please",
+  "tell",
+  "know",
+  "want",
+  "need",
+  "like",
+  "get",
+  "make",
+  "go",
+  "come",
+  "take",
+  "give",
+  "find",
+  "think",
+  "say",
+  "see",
+  "look",
+  "use",
+  "try",
+  "ask",
+  "work",
+  "seem",
+  "feel",
+  "let",
+  "mean",
+  "keep",
+  "put",
+  "become",
+  "leave",
+  "begin",
+  "show",
+  "hear",
+  "play",
+  "run",
+  "move",
+  "live",
+  "believe",
+  "bring",
+  "happen",
+  "write",
+  "provide",
+  "sit",
+  "stand",
+  "lose",
+  "pay",
+  "meet",
+  "include",
+  "continue",
+  "set",
+  "learn",
+  "change",
+  "lead",
+  "understand",
+  "watch",
+  "follow",
+  "stop",
+  "create",
+  "speak",
+  "read",
+  "allow",
+  "add",
+  "spend",
+  "grow",
+  "open",
+  "walk",
+  "win",
+  "offer",
+  "remember",
+  "love",
+  "consider",
+  "appear",
+  "buy",
+  "wait",
+  "serve",
+  "die",
+  "send",
+  "expect",
+  "build",
+  "stay",
+  "fall",
+  "cut",
+  "reach",
+  "kill",
+  "remain",
+  "suggest",
+  "raise",
+  "pass",
+  "sell",
+  "require",
+  "report",
+  "decide",
+  "pull",
+  "development",
+  "release",
+  "release date",
+  "date",
+  "time",
+  "way",
+  "thing",
+  "things",
+  "something",
+  "anything",
+  "nothing",
+  "everything",
+  "one",
+  "two",
+  "first",
+  "last",
+  "new",
+  "old",
+  "good",
+  "great",
+  "best",
+  "better",
+  "big",
+  "small",
+  "long",
+  "little",
+  "right",
+  "important",
+  "different",
+  "sure",
+  "true",
+  "possible",
+]);
 
 const limiter = new Bottleneck({
   maxConcurrent: 1,
@@ -12,14 +197,6 @@ const limiter = new Bottleneck({
 });
 
 const OptionalStringSchema = z.string().nullable().optional();
-
-const ExtractedEntitySchema = z.object({
-  term: z.string().describe("The entity name, e.g. 'Steam Machine'"),
-});
-
-const ExtractedEntitiesSchema = z.object({
-  entities: z.array(ExtractedEntitySchema),
-});
 
 const DuckDuckGoResponseSchema = z
   .object({
@@ -125,64 +302,49 @@ async function fetchDuckDuckGo(query: string): Promise<string> {
   });
 }
 
-async function extractEntities(
-  model: LanguageModel,
-  question: string,
-): Promise<z.infer<typeof ExtractedEntitiesSchema>> {
-  const { object } = await generateObject({
-    model,
-    schema: zodSchema(ExtractedEntitiesSchema),
-    system:
-      "You identify entities, concepts, acronyms, products, people, places, organizations, and ambiguous terms in a question. Return just the name of each entity. If nothing in the question is ambiguous, unclear, or requires external context, return an empty list. Do not include common words, verbs, or question words.",
-    prompt: question,
-  });
-  return ExtractedEntitiesSchema.parse(object);
+function extractEntities(question: string): string[] {
+  const doc = nlp(question);
+
+  const nouns = doc.nouns().toSingular().out("array") as string[];
+  const topics = doc.topics().out("array") as string[];
+
+  const candidates = [...nouns, ...topics]
+    .map((t) => t.toLowerCase().trim())
+    .filter((t) => t.length > 1 && !STOPWORDS.has(t));
+
+  return [...new Set(candidates)];
 }
 
-export function createDisambiguateTool(model: LanguageModel) {
-  return tool({
-    description:
-      "Identify and resolve ambiguous entities, concepts, acronyms, and terms in a question. Returns concise descriptions and related context from DuckDuckGo. Pass the user's question as-is. Returns empty text if nothing needs disambiguation.",
-    strict: true,
-    inputSchema: zodSchema(
-      z.object({
-        question: z
-          .string()
-          .describe("The user's question to disambiguate"),
-      }),
-    ),
-    outputSchema: zodSchema(z.string()),
-    execute: async ({ question }) => {
-      const lines: string[] = [];
+export const disambiguateTool = tool({
+  description:
+    "Identify and resolve ambiguous entities, concepts, acronyms, and terms in a question. Returns concise descriptions and related context from DuckDuckGo. Pass the user's question as-is. Returns empty text if nothing needs disambiguation.",
+  strict: true,
+  inputSchema: zodSchema(
+    z.object({
+      question: z
+        .string()
+        .describe("The user's question to disambiguate"),
+    }),
+  ),
+  outputSchema: zodSchema(z.string()),
+  execute: async ({ question }) => {
+    const entities = extractEntities(question);
+    if (entities.length === 0) return "";
 
-      let extracted: z.infer<typeof ExtractedEntitiesSchema>;
-      try {
-        extracted = await extractEntities(model, question);
-      } catch (error) {
-        return `Entity extraction failed: ${error instanceof Error ? error.message : String(error)}`;
+    const lines: string[] = [];
+    lines.push(`Entities: ${entities.join(", ")}`);
+
+    for (const entity of entities) {
+      lines.push("");
+      lines.push(`[${entity}] querying: "${entity}"`);
+      const ddgResult = await fetchDuckDuckGo(entity);
+      if (ddgResult) {
+        lines.push(ddgResult);
+      } else {
+        lines.push("(no result)");
       }
+    }
 
-      const { entities } = extracted;
-      if (entities.length === 0) {
-        return "No ambiguous entities identified.";
-      }
-
-      lines.push(
-        `Entities: ${entities.map((e) => e.term).join(", ")}`,
-      );
-
-      for (const entity of entities) {
-        lines.push("");
-        lines.push(`[${entity.term}] querying: "${entity.term}"`);
-        const ddgResult = await fetchDuckDuckGo(entity.term);
-        if (ddgResult) {
-          lines.push(ddgResult);
-        } else {
-          lines.push("(no result)");
-        }
-      }
-
-      return lines.join("\n");
-    },
-  });
-}
+    return lines.join("\n");
+  },
+});

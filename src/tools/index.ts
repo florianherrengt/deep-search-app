@@ -1,5 +1,5 @@
 export { braveSearchTool } from "./brave-search-tool";
-export { createDisambiguateTool } from "./disambiguate-tool";
+export { disambiguateTool } from "./disambiguate-tool";
 export { exaSearchTool } from "./exa-search-tool";
 export { tavilySearchTool } from "./tavily-search-tool";
 export { serperSearchTool } from "./serper-search-tool";
