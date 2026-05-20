@@ -15,9 +15,6 @@ const OptionalStringSchema = z.string().nullable().optional();
 
 const ExtractedEntitySchema = z.object({
   term: z.string().describe("The entity name, e.g. 'Steam Machine'"),
-  searchHint: z
-    .string()
-    .describe("Compact DDG-friendly query, e.g. 'Steam Machine Valve'"),
 });
 
 const ExtractedEntitiesSchema = z.object({
@@ -136,7 +133,7 @@ async function extractEntities(
     model,
     schema: zodSchema(ExtractedEntitiesSchema),
     system:
-      "You identify entities, concepts, acronyms, products, people, places, organizations, and ambiguous terms in a question. For each one, provide a compact search hint suitable for a knowledge lookup API (not a full question). If nothing in the question is ambiguous, unclear, or requires external context, return an empty list. Do not include common words, verbs, or question words.",
+      "You identify entities, concepts, acronyms, products, people, places, organizations, and ambiguous terms in a question. Return just the name of each entity. If nothing in the question is ambiguous, unclear, or requires external context, return an empty list. Do not include common words, verbs, or question words.",
     prompt: question,
   });
   return ExtractedEntitiesSchema.parse(object);
@@ -176,8 +173,8 @@ export function createDisambiguateTool(model: LanguageModel) {
 
       for (const entity of entities) {
         lines.push("");
-        lines.push(`[${entity.term}] querying: "${entity.searchHint}"`);
-        const ddgResult = await fetchDuckDuckGo(entity.searchHint);
+        lines.push(`[${entity.term}] querying: "${entity.term}"`);
+        const ddgResult = await fetchDuckDuckGo(entity.term);
         if (ddgResult) {
           lines.push(ddgResult);
         } else {
