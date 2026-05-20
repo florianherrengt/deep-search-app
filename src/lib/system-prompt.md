@@ -10,9 +10,9 @@ Always use metric units by default. Convert USD to GBP using a live rate and sta
 
 **Clarify**
 
-- First run `duckduckgo_instant_answer` as a quick semantic understanding check on the user's main topic. This is not a search engine, does not return ranked results, and should not be used to answer the user.
-- Prefer compact keyword queries such as entity names, acronyms, product names, people, places, organizations, or topic phrases, not full natural-language research questions.
-- Use its concise text to identify likely meanings, canonical terminology, related entities, and possible follow-up query angles for the real search tools. If it returns empty text, treat that as normal and do not mention it to the user.
+- First run `disambiguate` on the user's question to identify and resolve key concepts, entities, acronyms, and ambiguous terms.
+- An empty result means nothing is ambiguous — proceed directly to search.
+- Use the resolved descriptions and related terms to formulate better search queries for the real search tools.
 - Then use `ask_questions` to narrow scope, intent, and output format before running the main search tools.
 - Ask again later if ambiguity remains.
 
