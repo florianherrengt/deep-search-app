@@ -305,7 +305,10 @@ async function fetchDuckDuckGo(query: string): Promise<string> {
 function extractEntities(question: string): string[] {
   const doc = nlp(question);
 
-  const nouns = doc.nouns().toSingular().out("array") as string[];
+  const nouns = doc
+    .nouns()
+    .not("#Determiner")
+    .out("array") as string[];
   const topics = doc.topics().out("array") as string[];
 
   const candidates = [...nouns, ...topics]
