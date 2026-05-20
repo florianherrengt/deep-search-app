@@ -7,6 +7,23 @@
     "core:default",
     "opener:default",
     "store:default",
-    "core:menu:default"
+    "core:menu:default",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-webview-hide",
+    "core:webview:allow-webview-show",
+    "core:webview:allow-set-webview-position",
+    "core:webview:allow-set-webview-size",
+    "core:window:allow-create",
+    "core:window:default",
+    "fs:default",
+    "fs:allow-write-text-file",
+    "fs:scope-appdata-recursive",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://**" },
+        { "url": "http://**" }
+      ]
+    }
   ]
 }
