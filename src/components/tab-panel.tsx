@@ -20,9 +20,9 @@ export function TabPanel({
   onCloseTab,
 }: TabPanelProps) {
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       <div
-        className="flex items-center gap-1 border-b bg-background px-2"
+        className="shrink-0 flex items-center gap-1 border-b bg-background px-2"
         style={{ height: TAB_BAR_HEIGHT }}
       >
         <Button
