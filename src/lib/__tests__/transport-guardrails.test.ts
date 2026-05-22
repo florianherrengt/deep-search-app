@@ -59,6 +59,7 @@ describe("createGuardedStream", () => {
     const chunks = await convertReadableStreamToArray(
       createGuardedStream({
         model,
+        researchFolder: "test-folder",
         messages: [userMessage("Pick a color")],
         abortSignal: undefined,
       }),
@@ -100,6 +101,7 @@ describe("createGuardedStream", () => {
     const chunks = await convertReadableStreamToArray(
       createGuardedStream({
         model,
+        researchFolder: "test-folder",
         messages: [userMessage("Find the latest pricing for Acme Search")],
         abortSignal: undefined,
       }),
@@ -154,6 +156,7 @@ describe("createGuardedStream", () => {
     const chunks = await convertReadableStreamToArray(
       createGuardedStream({
         model,
+        researchFolder: "test-folder",
         messages: [userMessage("Hello")],
         abortSignal: undefined,
       }),

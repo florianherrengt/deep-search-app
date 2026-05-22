@@ -6,9 +6,38 @@ import {
   stripNoise,
   htmlToMarkdown,
 } from "@/lib/content-extraction";
+import { writeAppFile } from "@/lib/app-file-storage";
 
 const MIN_CONTENT_LENGTH = 200;
 const FETCH_TIMEOUT_MS = 10_000;
+
+function domainFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "unknown";
+  }
+}
+
+function pathSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 120);
+}
+
+function pageSlugFromUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const base = pathSlug(u.pathname.replace(/\/$/, "") || "index");
+    return base || "page";
+  } catch {
+    return "page";
+  }
+}
 
 async function fetchHtml(url: string): Promise<string | null> {
   try {
@@ -67,10 +96,13 @@ async function extractViaWebview(url: string): Promise<string | null> {
   }
 }
 
-export function createExtractPageContentTool(model: LanguageModel) {
+export function createExtractPageContentTool(
+  model: LanguageModel,
+  researchFolder: string,
+) {
   return tool({
     description:
-      "Extract and summarize the text content of a web page. Use this to read the full content of a URL found during research.",
+      "Extract and summarize the text content of a web page. Use this to read the full content of a URL found during research. Raw HTML, markdown, and summary are automatically saved to the research folder.",
     strict: true,
     inputSchema: zodSchema(
       z.object({
@@ -111,10 +143,40 @@ export function createExtractPageContentTool(model: LanguageModel) {
         }
       }
 
-      if (doSummarize !== false && markdown.trim()) {
-        try {
-          return await summarizeContent(model, markdown, query);
-        } catch {}
+      if (html || markdown) {
+        const domain = domainFromUrl(url);
+        const page = pageSlugFromUrl(url);
+        const rawPath = `search-results/${researchFolder}/raw/${domain}`;
+
+        if (html) {
+          await writeAppFile({
+            subfolder: rawPath,
+            filename: `${page}.html`,
+            content: html,
+          });
+        }
+
+        if (markdown) {
+          await writeAppFile({
+            subfolder: rawPath,
+            filename: `${page}.md`,
+            content: markdown,
+          });
+        }
+
+        if (doSummarize !== false && markdown.trim()) {
+          try {
+            const summary = await summarizeContent(model, markdown, query);
+            if (summary) {
+              await writeAppFile({
+                subfolder: rawPath,
+                filename: `${page}-summary.md`,
+                content: summary,
+              });
+            }
+            return summary;
+          } catch {}
+        }
       }
 
       return markdown;

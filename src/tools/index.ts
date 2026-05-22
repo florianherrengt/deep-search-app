@@ -6,5 +6,6 @@ export { serperSearchTool } from "./serper-search-tool";
 export { searxngSearchTool } from "./searxng-search-tool";
 export { questionsTool } from "./questions-tool";
 export { createExtractPageContentTool } from "./extract-page-content-tool";
-export { saveResearchFileTool } from "./research-file-tool";
+export { createSaveResearchFileTool } from "./research-file-tool";
 export { createResearchCheckpointTool } from "./research-checkpoint-tool";
+export { createSequentialThinkingTool } from "./sequential-thinking-tool";

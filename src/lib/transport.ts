@@ -1,5 +1,6 @@
 import {
   streamText,
+  generateObject,
   convertToModelMessages,
   isToolUIPart,
   type ChatTransport,
@@ -12,31 +13,43 @@ import {
   type UIMessageChunk,
 } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { zodSchema } from "ai";
+import { z } from "zod";
 import { questionsTool } from "@/tools/questions-tool";
 import {
   braveSearchTool,
   setBraveApiKey,
+  getBraveApiKey,
 } from "@/tools/brave-search-tool";
 import { disambiguateTool } from "@/tools/disambiguate-tool";
 import {
   exaSearchTool,
   setExaApiKey,
+  getExaApiKey,
 } from "@/tools/exa-search-tool";
 import {
   serperSearchTool,
   setSerperApiKey,
+  getSerperApiKey,
 } from "@/tools/serper-search-tool";
 import {
   tavilySearchTool,
   setTavilyApiKey,
+  getTavilyApiKey,
 } from "@/tools/tavily-search-tool";
 import {
   searxngSearchTool,
   setSearXNGBaseUrl,
+  getSearXNGBaseUrl,
 } from "@/tools/searxng-search-tool";
 import { createExtractPageContentTool } from "@/tools/extract-page-content-tool";
-import { saveResearchFileTool } from "@/tools/research-file-tool";
+import { createSaveResearchFileTool } from "@/tools/research-file-tool";
 import { createResearchCheckpointTool } from "@/tools/research-checkpoint-tool";
+import { createSequentialThinkingTool } from "@/tools/sequential-thinking-tool";
+import {
+  SafePathSegmentSchema,
+  writeAppFile,
+} from "@/lib/app-file-storage";
 import {
   evaluateAssistantStep,
   type GuardName,
@@ -49,7 +62,65 @@ export { setBraveApiKey, setExaApiKey, setSerperApiKey, setTavilyApiKey, setSear
 
 const MAX_GUARD_RETRIES = 2;
 
+const FolderNameSchema = z.object({
+  folderName: z
+    .string()
+    .describe(
+      "Short kebab-case folder name for this research, e.g. 'how-llms-work' or 'acme-market-map'. Max 5 words.",
+    ),
+});
+
+function getFirstUserMessage(messages: UIMessage[]): string | null {
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      const text = msg.parts
+        .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+        .map((p) => p.text)
+        .join(" ")
+        .trim();
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+async function generateResearchFolder(
+  model: LanguageModel,
+  messages: UIMessage[],
+): Promise<string> {
+  const firstMessage = getFirstUserMessage(messages);
+  if (!firstMessage) return "research";
+
+  const { object } = await generateObject({
+    model,
+    schema: zodSchema(FolderNameSchema),
+    system:
+      "You name research folders. Given a user question, produce a short, descriptive kebab-case folder name. Use at most 5 words. Focus on the core topic, not the phrasing.",
+    prompt: firstMessage,
+  });
+
+  const slug = object.folderName
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100);
+
+  const folderName = SafePathSegmentSchema.parse(slug);
+
+  await writeAppFile({
+    subfolder: `search-results/${folderName}`,
+    filename: "README.md",
+    content: `# ${folderName}\n\nQuery: ${firstMessage}\n`,
+  });
+
+  return folderName;
+}
+
 export class DirectTransport implements ChatTransport<UIMessage> {
+  private researchFolder: string | null = null;
+
   constructor(
     private getApiKey: () => string,
     private getModel: () => string,
@@ -70,8 +141,14 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   }) {
     const openrouter = createOpenRouter({ apiKey: this.getApiKey() });
     const model = openrouter(this.getModel());
+
+    if (!this.researchFolder) {
+      this.researchFolder = await generateResearchFolder(model, messages);
+    }
+
     return createGuardedStream({
       model,
+      researchFolder: this.researchFolder,
       messages,
       abortSignal,
     });
@@ -82,18 +159,19 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   }
 }
 
-function createTools(model: LanguageModel) {
+function createTools(model: LanguageModel, researchFolder: string) {
   return {
     ask_questions: questionsTool,
-    brave_search: braveSearchTool,
     disambiguate: disambiguateTool,
-    exa_search: exaSearchTool,
-    serper_search: serperSearchTool,
-    tavily_search: tavilySearchTool,
-    searxng_search: searxngSearchTool,
-    extract_page_content: createExtractPageContentTool(model),
-    save_research_file: saveResearchFileTool,
+    ...(getBraveApiKey() ? { brave_search: braveSearchTool } : {}),
+    ...(getExaApiKey() ? { exa_search: exaSearchTool } : {}),
+    ...(getSerperApiKey() ? { serper_search: serperSearchTool } : {}),
+    ...(getTavilyApiKey() ? { tavily_search: tavilySearchTool } : {}),
+    ...(getSearXNGBaseUrl() ? { searxng_search: searxngSearchTool } : {}),
+    extract_page_content: createExtractPageContentTool(model, researchFolder),
+    save_research_file: createSaveResearchFileTool(researchFolder),
     research_checkpoint: createResearchCheckpointTool(model),
+    sequential_thinking: createSequentialThinkingTool(),
   } as const satisfies ToolSet;
 }
 
@@ -107,15 +185,15 @@ type AttemptFinish = {
 
 export function createGuardedStream({
   model,
+  researchFolder,
   messages,
   abortSignal,
 }: {
   model: LanguageModel;
+  researchFolder: string;
   messages: UIMessage[];
   abortSignal: AbortSignal | undefined;
 }): ReadableStream<UIMessageChunk> {
-  const tools = createTools(model);
-
   return new ReadableStream<UIMessageChunk>({
     async start(controller) {
       const retries: Record<GuardName, number> = {
@@ -129,6 +207,8 @@ export function createGuardedStream({
       let lastFinish: AttemptFinish | undefined;
 
       try {
+        const tools = createTools(model, researchFolder);
+
         currentModelMessages = await convertToModelMessages(currentUiMessages, {
           tools,
         });
