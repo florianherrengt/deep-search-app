@@ -65,6 +65,10 @@ export const ListAppSubfoldersInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
 });
 
+export const ListAppFilesInputSchema = z.object({
+  subfolder: SafeSubfolderSchema,
+});
+
 export const DeleteAppSubfolderInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
 });
@@ -79,6 +83,7 @@ export type ReadAppFileInput = z.infer<typeof ReadAppFileInputSchema>;
 export type ListAppSubfoldersInput = z.infer<
   typeof ListAppSubfoldersInputSchema
 >;
+export type ListAppFilesInput = z.infer<typeof ListAppFilesInputSchema>;
 export type DeleteAppSubfolderInput = z.infer<
   typeof DeleteAppSubfolderInputSchema
 >;
@@ -143,6 +148,30 @@ export async function listAppSubfolders(
     .filter(
       (entry) =>
         entry.isDirectory && SafePathSegmentSchema.safeParse(entry.name).success,
+    )
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+export async function listAppFiles(input: ListAppFilesInput): Promise<string[]> {
+  const parsed = ListAppFilesInputSchema.parse(input);
+
+  const folderExists = await exists(parsed.subfolder, {
+    baseDir: BaseDirectory.AppData,
+  });
+
+  if (!folderExists) {
+    return [];
+  }
+
+  const entries = await readDir(parsed.subfolder, {
+    baseDir: BaseDirectory.AppData,
+  });
+
+  return entries
+    .filter(
+      (entry) =>
+        entry.isFile && SafePathSegmentSchema.safeParse(entry.name).success,
     )
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b));

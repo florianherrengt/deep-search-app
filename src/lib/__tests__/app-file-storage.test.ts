@@ -20,6 +20,7 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 import { BaseDirectory } from "@tauri-apps/plugin-fs";
 import {
   deleteAppSubfolder,
+  listAppFiles,
   listAppSubfolders,
   readAppFile,
   renameAppSubfolder,
@@ -142,6 +143,41 @@ describe("app file storage", () => {
     expect(fsMocks.readDir).toHaveBeenCalledWith("search-results", {
       baseDir: BaseDirectory.AppData,
     });
+  });
+
+  it("lists safe app data files", async () => {
+    fsMocks.exists.mockResolvedValueOnce(true);
+    fsMocks.readDir.mockResolvedValueOnce([
+      {
+        name: "2026-05-22T11-12-13.456Z.json",
+        isDirectory: false,
+        isFile: true,
+        isSymlink: false,
+      },
+      {
+        name: "raw",
+        isDirectory: true,
+        isFile: false,
+        isSymlink: false,
+      },
+      {
+        name: "..",
+        isDirectory: false,
+        isFile: true,
+        isSymlink: false,
+      },
+    ]);
+
+    await expect(
+      listAppFiles({ subfolder: "search-results/apartment-dogs/chats" }),
+    ).resolves.toEqual(["2026-05-22T11-12-13.456Z.json"]);
+
+    expect(fsMocks.readDir).toHaveBeenCalledWith(
+      "search-results/apartment-dogs/chats",
+      {
+        baseDir: BaseDirectory.AppData,
+      },
+    );
   });
 
   it("returns an empty list when the app data subfolder does not exist", async () => {

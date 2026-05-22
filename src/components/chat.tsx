@@ -17,16 +17,20 @@ export function Chat({
   apiKey,
   defaultModel,
   chatId,
+  researchChatId,
   researchFolder,
   initialMessages = [],
   onResearchFolderChange,
+  onResearchChatSaved,
 }: {
   apiKey: string;
   defaultModel: string;
   chatId: string;
+  researchChatId: string;
   researchFolder: string | null;
   initialMessages?: UIMessage[];
   onResearchFolderChange?: (folderName: string) => void;
+  onResearchChatSaved?: (folderName: string, chatId: string) => void;
 }) {
   const apiKeyRef = useRef(apiKey);
   apiKeyRef.current = apiKey;
@@ -38,6 +42,12 @@ export function Chat({
   if (researchFolder) {
     researchFolderRef.current = researchFolder;
   }
+
+  const researchChatIdRef = useRef(researchChatId);
+  researchChatIdRef.current = researchChatId;
+
+  const onResearchChatSavedRef = useRef(onResearchChatSaved);
+  onResearchChatSavedRef.current = onResearchChatSaved;
 
   const transportRef = useRef(
     new DirectTransport(
@@ -60,7 +70,12 @@ export function Chat({
       const folderName = researchFolderRef.current;
       if (!folderName) return;
 
-      void saveResearchChatMessages(folderName, messages);
+      const savedChatId = researchChatIdRef.current;
+      void saveResearchChatMessages(folderName, savedChatId, messages).then(
+        () => {
+          onResearchChatSavedRef.current?.(folderName, savedChatId);
+        },
+      );
     },
   });
   const runtime = useAISDKRuntime(chat);

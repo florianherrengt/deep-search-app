@@ -2,6 +2,7 @@ import { useState, useCallback, type FormEvent } from "react";
 import {
   FolderIcon,
   LoaderIcon,
+  MessageSquareIcon,
   PencilIcon,
   PlusIcon,
   SearchIcon,
@@ -34,7 +35,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { ResearchFolder } from "@/lib/research-history";
+import type {
+  ResearchChatSummary,
+  ResearchFolder,
+} from "@/lib/research-history";
 import {
   searchResearch,
   type SearchResult,
@@ -43,10 +47,15 @@ import {
 interface ResearchSidebarProps {
   folders: ResearchFolder[];
   activeFolderName: string | null;
+  chats: ResearchChatSummary[];
+  activeChatId: string | null;
   apiKey: string;
   status: "loading" | "ready" | "error";
+  chatsStatus: "idle" | "loading" | "ready" | "error";
   onNewChat: () => void;
   onSelectFolder: (folderName: string) => void;
+  onNewResearchChat: (folderName: string) => void;
+  onSelectChat: (folderName: string, chatId: string) => void;
   onRenameFolder: (oldFolderName: string, newFolderName: string) => Promise<void>;
   onDeleteFolder: (folderName: string) => Promise<void>;
 }
@@ -54,10 +63,15 @@ interface ResearchSidebarProps {
 export function ResearchSidebar({
   folders,
   activeFolderName,
+  chats,
+  activeChatId,
   apiKey,
   status,
+  chatsStatus,
   onNewChat,
   onSelectFolder,
+  onNewResearchChat,
+  onSelectChat,
   onRenameFolder,
   onDeleteFolder,
 }: ResearchSidebarProps) {
@@ -281,61 +295,72 @@ export function ResearchSidebar({
                 {folders.map((folder) => {
                   const active = folder.name === activeFolderName;
                   return (
-                    <div
-                      key={folder.name}
-                      className={cn(
-                        "group flex min-h-9 items-center gap-1 rounded-md px-1 transition-colors",
-                        "hover:bg-accent hover:text-accent-foreground",
-                        active
-                          ? "bg-secondary text-secondary-foreground"
-                          : "text-sidebar-foreground",
-                      )}
-                    >
-                      <button
-                        type="button"
-                        aria-current={active ? "page" : undefined}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={() => onSelectFolder(folder.name)}
-                        title={folder.name}
+                    <div key={folder.name}>
+                      <div
+                        className={cn(
+                          "group flex min-h-9 items-center gap-1 rounded-md px-1 transition-colors",
+                          "hover:bg-accent hover:text-accent-foreground",
+                          active
+                            ? "bg-secondary text-secondary-foreground"
+                            : "text-sidebar-foreground",
+                        )}
                       >
-                        <FolderIcon className="size-4 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate">
-                          {folder.name}
-                        </span>
-                      </button>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label={`Rename ${folder.name}`}
-                            className="opacity-70 hover:opacity-100 focus-visible:opacity-100"
-                            onClick={() => openRenameDialog(folder)}
-                          >
-                            <PencilIcon />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">Rename</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label={`Delete ${folder.name}`}
-                            className="opacity-70 hover:text-destructive hover:opacity-100 focus-visible:opacity-100"
-                            onClick={() => {
-                              setActionError(null);
-                              setDeleteTarget(folder);
-                            }}
-                          >
-                            <Trash2Icon />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">Delete</TooltipContent>
-                      </Tooltip>
+                        <button
+                          type="button"
+                          aria-current={active ? "page" : undefined}
+                          className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={() => onSelectFolder(folder.name)}
+                          title={folder.name}
+                        >
+                          <FolderIcon className="size-4 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">
+                            {folder.name}
+                          </span>
+                        </button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-label={`Rename ${folder.name}`}
+                              className="opacity-70 hover:opacity-100 focus-visible:opacity-100"
+                              onClick={() => openRenameDialog(folder)}
+                            >
+                              <PencilIcon />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">Rename</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              aria-label={`Delete ${folder.name}`}
+                              className="opacity-70 hover:text-destructive hover:opacity-100 focus-visible:opacity-100"
+                              onClick={() => {
+                                setActionError(null);
+                                setDeleteTarget(folder);
+                              }}
+                            >
+                              <Trash2Icon />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">Delete</TooltipContent>
+                        </Tooltip>
+                      </div>
+                      {active && (
+                        <ResearchChatList
+                          folderName={folder.name}
+                          chats={chats}
+                          activeChatId={activeChatId}
+                          status={chatsStatus}
+                          onNewChat={onNewResearchChat}
+                          onSelectChat={onSelectChat}
+                        />
+                      )}
                     </div>
                   );
                 })}
@@ -427,4 +452,105 @@ export function ResearchSidebar({
       </AlertDialog>
     </>
   );
+}
+
+interface ResearchChatListProps {
+  folderName: string;
+  chats: ResearchChatSummary[];
+  activeChatId: string | null;
+  status: "idle" | "loading" | "ready" | "error";
+  onNewChat: (folderName: string) => void;
+  onSelectChat: (folderName: string, chatId: string) => void;
+}
+
+function ResearchChatList({
+  folderName,
+  chats,
+  activeChatId,
+  status,
+  onNewChat,
+  onSelectChat,
+}: ResearchChatListProps) {
+  return (
+    <div className="ml-6 mt-1 space-y-1 pb-2">
+      <button
+        type="button"
+        className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => onNewChat(folderName)}
+      >
+        <PlusIcon className="size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">New chat</span>
+      </button>
+
+      <div className="px-2 pt-1 text-[11px] font-medium uppercase text-muted-foreground">
+        Previous Chats
+      </div>
+
+      {status === "loading" && (
+        <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+          <LoaderIcon className="size-3.5 animate-spin" />
+          Loading chats...
+        </div>
+      )}
+
+      {status === "error" && (
+        <div className="px-2 py-1.5 text-xs text-destructive">
+          Could not load chats.
+        </div>
+      )}
+
+      {status === "ready" && chats.length === 0 && (
+        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+          No saved chats
+        </div>
+      )}
+
+      {status === "ready" &&
+        chats.map((chat) => {
+          const active = chat.id === activeChatId;
+
+          return (
+            <button
+              key={chat.id}
+              type="button"
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex min-h-10 w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                active
+                  ? "bg-accent text-accent-foreground"
+                  : "text-sidebar-foreground hover:bg-accent hover:text-accent-foreground",
+              )}
+              onClick={() => onSelectChat(folderName, chat.id)}
+              title={chat.title}
+            >
+              <MessageSquareIcon className="mt-0.5 size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs">{chat.title}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {formatChatTimestamp(chat.updatedAt ?? chat.createdAt)}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+    </div>
+  );
+}
+
+function formatChatTimestamp(value: string | null) {
+  if (!value) {
+    return "Legacy chat";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Saved chat";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
