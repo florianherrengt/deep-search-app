@@ -8,15 +8,15 @@ The AI agent saves research findings as files under `AppData/search-results/<fol
 
 ## Solution
 
-Build a fully local, offline-capable hybrid search system using:
+Build a hybrid search system using:
 
-- **sqlite-vec** for vector similarity search (KNN)
-- **SQLite FTS5** for keyword search (BM25)
+- **sqlite-vec** for vector similarity search (KNN) — local, offline
+- **SQLite FTS5** for keyword search (BM25) — local, offline
 - **Adaptive Reciprocal Rank Fusion (RRF)** to combine both
-- **Cross-encoder reranking** for final result quality
-- **ONNX Runtime** (Rust) for embedding and reranker inference
+- **Cohere reranking** via OpenRouter API (`cohere/rerank-4-pro`, free) for final result quality
+- **OpenRouter API** for embedding inference (`qwen/qwen3-embedding-4b`, $0.02/M tokens)
 
-All compute runs natively in the Rust backend. No Python dependency, no API calls, no internet required.
+Search index and retrieval run locally in the Rust backend. Both embedding and reranking use the user's existing OpenRouter API key (already configured in settings). One API key, no local model files, no ONNX dependency, no pooling bugs.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ All compute runs natively in the Rust backend. No Python dependency, no API call
 │              │     │                                              │
 │  UI search   │────>│  search_research(query, folder?, limit?)     │
 │  Agent tool  │────>│     │                                        │
-│              │     │     ├─► ONNX embed query (Qwen3-4B, 1024d)  │
+│              │     │     ├─► OpenRouter embed (Qwen3-4B, 1024d)  │
 │              │     │     │                                        │
 │              │     │     ├─► vec0 KNN (top 50) ─┐                 │
 │              │     │     ├─► FTS5 BM25 (top 50)─┤                 │
@@ -35,7 +35,7 @@ All compute runs natively in the Rust backend. No Python dependency, no API call
 │              │     │          │                                    │
 │              │     │          ├─► Post-filter (folder scope)      │
 │              │     │          ├─► MMR dedup (~15 candidates)      │
-│              │     │          ├─► Cross-encoder rerank (top 5-8)  │
+│              │     │          ├─► Cohere rerank via OpenRouter    │
 │              │     │          └─► Context expansion (+/-1 chunks) │
 │              │     │               │                               │
 │  Results     │<────│               └─► Vec<SearchResult>          │
@@ -44,7 +44,7 @@ All compute runs natively in the Rust backend. No Python dependency, no API call
 │  Index       │────>│     │                                        │
 │  trigger     │     │     ├─► Markdown-aware chunking (512 tokens)│
 │              │     │     ├─► Content hash check (skip unchanged)  │
-│              │     │     ├─► ONNX batch embed chunks              │
+│              │     │     ├─► OpenRouter batch embed chunks        │
 │              │     │     └─► INSERT into chunks + embeddings + FTS│
 └─────────────┘     └──────────────────────────────────────────────┘
 ```
@@ -115,31 +115,29 @@ Markdown-aware recursive character splitting, based on 2026 benchmark consensus:
 
 ## Embedding Model
 
-- **Model:** Qwen3-Embedding-4B (Apache 2.0)
-- **ONNX export:** `majentik/Qwen3-Embedding-4B-ONNX-INT8` (dynamic INT8 quantization, ready to use)
-- **Native dimensions:** 2560 (Matryoshka-capable)
-- **Truncated dimensions:** 1024 (good quality/storage balance, configurable)
-- **Model size:** ~3.8 GB (INT8)
-- **Inference:** ONNX Runtime via `ort` crate, native Apple Silicon performance (~18K tok/s)
-- **Storage:** Model downloaded once to `AppData/models/qwen3-embedding-4b-int8/` and cached
-- **Pooling:** Mean pooling (required by Qwen3-Embedding — using CLS or last-token will silently degrade retrieval quality by 1-5% with no errors). The ONNX model output shape is `[batch, seq_len, hidden_dim]` — average across the `seq_len` dimension after inference, before Matryoshka truncation to 1024 dims.
+- **Model:** `qwen/qwen3-embedding-4b` via OpenRouter API
+- **API:** OpenAI-compatible embeddings endpoint at `https://openrouter.ai/api/v1/embeddings`
+- **Dimensions:** 1024 (Matryoshka-truncated from native 2560 via `dimensions` parameter)
+- **Authentication:** Uses the user's existing `openrouter_api_key` from app settings
+- **Pooling:** Handled server-side by OpenRouter. No client-side pooling needed.
 - **Instruction prefix:** Qwen3 benefits from query-side instructions. Use `"Represent this sentence for searching relevant passages: "` prefix on queries, no prefix on documents
-- **Note:** The FP32 ONNX export (~16GB) is too large for practical use. The `optimum` CLI doesn't yet support full graph optimisation for Qwen3 (`NotImplementedError`). Use the pre-exported INT8 model from majentik.
+- **Batching:** OpenRouter supports batch embedding (multiple inputs per request). Batch chunks during indexing for efficiency.
+- **Cost:** OpenRouter embedding API is typically very cheap (~$0.01/1M tokens). For a research library with 10K chunks at ~500 tokens each, full indexing costs ~$0.05.
 
 ## Reranker
 
-- **Model:** ms-marco-MiniLM-L-6-v2 (MIT license)
-- **Size:** 22M params, ~90MB
+- **Model:** `cohere/rerank-4-pro` via OpenRouter API (free tier)
+- **API:** Cohere reranking endpoint via OpenRouter
 - **Role:** Re-scores top ~15 MMR-deduplicated candidates after RRF fusion
 - **Output:** Top 5-8 final results
-- **Inference:** ONNX Runtime via `ort` crate
-- **Storage:** Model at `AppData/models/ms-marco-MiniLM-L-6-v2/`
+- **Cost:** Free on OpenRouter
+- **Input:** Query + array of document texts. Returns relevance scores.
 
 ## Search Pipeline
 
 ### Step 1: Embed Query
 
-Rust runs the Qwen3-Embedding-4B model via ONNX Runtime on the raw query string. Produces a 1024-dim float vector. Query instruction prefix applied.
+Rust calls the OpenRouter embeddings API with the raw query string (with instruction prefix). Produces a 1024-dim float vector. Uses the user's existing `openrouter_api_key`.
 
 ### Step 2: Parallel Retrieval
 
@@ -186,12 +184,13 @@ Maximal Marginal Relevance to ensure result diversity:
 - Skip candidates that are too similar (>0.85 cosine) to already-selected results
 - Reduces from ~50 fused results to ~15 diverse candidates
 
-### Step 6: Cross-Encoder Rerank
+### Step 6: Cohere Rerank via OpenRouter
 
-Re-score ~15 candidates using ms-marco-MiniLM-L-6-v2:
-- Input: (query, chunk_content) pairs
-- Output: relevance scores
+Re-score ~15 candidates using `cohere/rerank-4-pro` via OpenRouter API:
+- Input: query + array of chunk contents
+- Output: relevance scores per document
 - Sort by score, return top 5-8
+- Free on OpenRouter
 
 ### Step 7: Context Expansion
 
@@ -207,7 +206,7 @@ Include adjacent chunks (+/-1 by chunk_index within same file) for richer contex
    - Chunk the file content
    - Compute content hash per chunk, compare with stored hashes
    - Skip unchanged chunks (no re-embedding needed)
-   - Batch embed new/changed chunks via ONNX Runtime
+   - Batch embed new/changed chunks via OpenRouter API
    - Insert/update `chunks` table (ON CONFLICT DO UPDATE)
    - Insert/update `chunk_embeddings` (delete old vectors for replaced chunks, insert new)
    - FTS5 content-sync handles text index updates automatically
@@ -233,31 +232,31 @@ src-tauri/src/
     ├── mod.rs                    # Module root, Database struct, init
     ├── schema.rs                 # CREATE TABLE/FTS5/vec0 SQL
     ├── chunking.rs               # Markdown-aware text splitter
-    ├── embeddings.rs             # ONNX model loading + batch inference
-    ├── reranker.rs               # Cross-encoder reranking
+    ├── embeddings.rs             # OpenRouter embedding API client
+    ├── reranker.rs               # OpenRouter Cohere rerank API client
     ├── search.rs                 # KNN + FTS5 + RRF + MMR pipeline
     └── indexing.rs               # File indexing orchestration
 ```
 
 ## Tauri Commands
 
-All commands are synchronous (`fn`, not `async fn`). Tauri runs them on a dedicated thread pool, avoiding Mutex-across-await issues.
+All commands are synchronous (`fn`, not `async fn`). Tauri runs them on a dedicated thread pool, avoiding Mutex-across-await issues. The exception is embedding calls to OpenRouter, which are blocking HTTP requests made via `tauri-plugin-http`'s `reqwest` client.
 
 ```rust
 #[tauri::command]
 fn register_research_folder(name: String, query: String) -> Result<i64, String>;
 
 #[tauri::command]
-fn index_research_file(folder: String, filename: String, content: String) -> Result<(), String>;
+fn index_research_file(api_key: String, folder: String, filename: String, content: String) -> Result<(), String>;
 
 #[tauri::command]
-fn search_research(query: String, folder: Option<String>, limit: Option<u32>) -> Result<Vec<SearchResult>, String>;
+fn search_research(api_key: String, query: String, folder: Option<String>, limit: Option<u32>) -> Result<Vec<SearchResult>, String>;
 
 #[tauri::command]
 fn list_research_folders() -> Result<Vec<ResearchFolder>, String>;
 
 #[tauri::command]
-fn backfill_index() -> Result<(), String>;
+fn backfill_index(api_key: String) -> Result<(), String>;
 ```
 
 **Return types:**
@@ -295,15 +294,12 @@ struct ResearchFolder {
 ```rust
 struct ResearchState {
     db: Mutex<rusqlite::Connection>,
-    embedding_session: Arc<ort::Session>,   // Send + Sync, no mutex needed
-    reranker_session: Arc<ort::Session>,    // Send + Sync, no mutex needed
-    tokenizer: Arc<Tokenizer>,              // Send + Sync
 }
 ```
 
 - `db`: Mutex-wrapped SQLite connection. Locked only during actual SQL operations.
-- `embedding_session` / `reranker_session`: `Arc`-wrapped ONNX sessions, lock-free for inference.
-- Models loaded lazily on first use (avoids slow startup). Show loading indicator in UI.
+- No local model state. Both embedding and reranking are API calls to OpenRouter.
+- The `api_key` is passed per-command from TypeScript (already available in settings).
 
 ## TypeScript Integration
 
@@ -360,37 +356,34 @@ export async function listResearchFolders() {
 [dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }
 sqlite-vec = "0.1"
-ort = { version = "2", features = ["load-dynamic"] }
-tokenizers = "0.21"
 sha2 = "0.10"
+serde_json = "1"                                       # parsing API responses
 ```
 
 ## File Size Estimates
 
 | Component | Size | Notes |
 |-----------|------|-------|
-| Qwen3-Embedding-4B (INT8) | ~3.8 GB | Downloaded once, cached in AppData |
-| ms-marco-MiniLM-L-6-v2 | ~90 MB | Downloaded once, cached in AppData |
-| ONNX Runtime library | ~50 MB | Bundled with app |
 | research.db (1K chunks) | ~10 MB | 1000 chunks x 1024 floats x 4 bytes + metadata |
 | research.db (10K chunks) | ~60 MB | Scales linearly |
+
+No local model files. Embedding and reranking use OpenRouter API.
 
 ## Performance Targets
 
 | Operation | Target | Notes |
 |-----------|--------|-------|
-| Query embedding | <100ms | Single query, ONNX on Apple Silicon |
+| Query embedding (OpenRouter) | <500ms | API round-trip |
 | KNN + FTS5 retrieval | <10ms | SQLite WAL mode, parallel queries |
 | RRF + MMR fusion | <5ms | In-memory rank merge |
-| Cross-encoder rerank (15 candidates) | <200ms | MiniLM on CPU |
-| Full search pipeline | <350ms | End-to-end, cold query |
-| File indexing (per file) | <2s | Chunking + batch embed + insert |
-| Backfill (100 files) | <5min | Background, non-blocking |
+| Cohere rerank (OpenRouter, 15 candidates) | <500ms | API round-trip |
+| Full search pipeline | <1.5s | Two API calls + local retrieval |
+| File indexing (per file) | <3s | Chunking + batch embed API + insert |
+| Backfill (100 files) | <10min | Background, non-blocking |
 
 ## Future Enhancements
 
 - **Adaptive IDF RRF weighting** — per-query weights based on query term IDF
-- **Self-supervised embedding refinement** — mine disagreement between vector and keyword search to fine-tune embeddings on the user's corpus (vstash approach)
 - **Matryoshka dimension tuning** — test if 512 dims suffice vs 1024 for storage savings
 - **Query cache** — LRU cache for repeated queries (vstash reports 700x speedup on cache hits)
 - **Incremental FTS reindex** — only update changed chunks in FTS5 index
