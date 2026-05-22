@@ -122,6 +122,7 @@ Markdown-aware recursive character splitting, based on 2026 benchmark consensus:
 - **Model size:** ~3.8 GB (INT8)
 - **Inference:** ONNX Runtime via `ort` crate, native Apple Silicon performance (~18K tok/s)
 - **Storage:** Model downloaded once to `AppData/models/qwen3-embedding-4b-int8/` and cached
+- **Pooling:** Mean pooling (required by Qwen3-Embedding — using CLS or last-token will silently degrade retrieval quality by 1-5% with no errors). The ONNX model output shape is `[batch, seq_len, hidden_dim]` — average across the `seq_len` dimension after inference, before Matryoshka truncation to 1024 dims.
 - **Instruction prefix:** Qwen3 benefits from query-side instructions. Use `"Represent this sentence for searching relevant passages: "` prefix on queries, no prefix on documents
 - **Note:** The FP32 ONNX export (~16GB) is too large for practical use. The `optimum` CLI doesn't yet support full graph optimisation for Qwen3 (`NotImplementedError`). Use the pre-exported INT8 model from majentik.
 
