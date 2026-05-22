@@ -4,8 +4,12 @@ import {
   SafePathSegmentSchema,
   writeAppFile,
 } from "@/lib/app-file-storage";
+import { indexResearchFile } from "@/lib/research-search";
 
-export function createSaveResearchFileTool(researchFolder: string) {
+export function createSaveResearchFileTool(
+  researchFolder: string,
+  apiKey?: string,
+) {
   return tool({
     description:
       "Save or update a file in the current research folder in app data.",
@@ -33,6 +37,12 @@ export function createSaveResearchFileTool(researchFolder: string) {
         filename,
         content,
       });
+
+      if (apiKey) {
+        await indexResearchFile(apiKey, researchFolder, filename, content).catch(
+          () => {},
+        );
+      }
 
       return {
         savedTo: `AppData/${targetSubfolder}/${filename}`,

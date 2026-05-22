@@ -9,3 +9,4 @@ export { createExtractPageContentTool } from "./extract-page-content-tool";
 export { createSaveResearchFileTool } from "./research-file-tool";
 export { createResearchCheckpointTool } from "./research-checkpoint-tool";
 export { createSequentialThinkingTool } from "./sequential-thinking-tool";
+export { createSearchResearchTool } from "./search-research-tool";

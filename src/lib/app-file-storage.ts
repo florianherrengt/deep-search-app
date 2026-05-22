@@ -3,7 +3,10 @@ import {
   BaseDirectory,
   exists,
   mkdir,
+  readDir,
   readTextFile,
+  remove,
+  rename,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
 
@@ -58,8 +61,30 @@ export const ReadAppFileInputSchema = z.object({
   filename: SafePathSegmentSchema,
 });
 
+export const ListAppSubfoldersInputSchema = z.object({
+  subfolder: SafeSubfolderSchema,
+});
+
+export const DeleteAppSubfolderInputSchema = z.object({
+  subfolder: SafeSubfolderSchema,
+});
+
+export const RenameAppSubfolderInputSchema = z.object({
+  oldSubfolder: SafeSubfolderSchema,
+  newSubfolder: SafeSubfolderSchema,
+});
+
 export type WriteAppFileInput = z.infer<typeof WriteAppFileInputSchema>;
 export type ReadAppFileInput = z.infer<typeof ReadAppFileInputSchema>;
+export type ListAppSubfoldersInput = z.infer<
+  typeof ListAppSubfoldersInputSchema
+>;
+export type DeleteAppSubfolderInput = z.infer<
+  typeof DeleteAppSubfolderInputSchema
+>;
+export type RenameAppSubfolderInput = z.infer<
+  typeof RenameAppSubfolderInputSchema
+>;
 
 export async function writeAppFile(input: WriteAppFileInput): Promise<void> {
   const parsed = WriteAppFileInputSchema.parse(input);
@@ -94,5 +119,73 @@ export async function readAppFile(
 
   return readTextFile(path, {
     baseDir: BaseDirectory.AppData,
+  });
+}
+
+export async function listAppSubfolders(
+  input: ListAppSubfoldersInput,
+): Promise<string[]> {
+  const parsed = ListAppSubfoldersInputSchema.parse(input);
+
+  const folderExists = await exists(parsed.subfolder, {
+    baseDir: BaseDirectory.AppData,
+  });
+
+  if (!folderExists) {
+    return [];
+  }
+
+  const entries = await readDir(parsed.subfolder, {
+    baseDir: BaseDirectory.AppData,
+  });
+
+  return entries
+    .filter(
+      (entry) =>
+        entry.isDirectory && SafePathSegmentSchema.safeParse(entry.name).success,
+    )
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+export async function deleteAppSubfolder(
+  input: DeleteAppSubfolderInput,
+): Promise<void> {
+  const parsed = DeleteAppSubfolderInputSchema.parse(input);
+
+  const folderExists = await exists(parsed.subfolder, {
+    baseDir: BaseDirectory.AppData,
+  });
+
+  if (!folderExists) {
+    return;
+  }
+
+  await remove(parsed.subfolder, {
+    baseDir: BaseDirectory.AppData,
+    recursive: true,
+  });
+}
+
+export async function renameAppSubfolder(
+  input: RenameAppSubfolderInput,
+): Promise<void> {
+  const parsed = RenameAppSubfolderInputSchema.parse(input);
+
+  if (parsed.oldSubfolder === parsed.newSubfolder) {
+    return;
+  }
+
+  const targetExists = await exists(parsed.newSubfolder, {
+    baseDir: BaseDirectory.AppData,
+  });
+
+  if (targetExists) {
+    throw new Error("A folder with that name already exists.");
+  }
+
+  await rename(parsed.oldSubfolder, parsed.newSubfolder, {
+    oldPathBaseDir: BaseDirectory.AppData,
+    newPathBaseDir: BaseDirectory.AppData,
   });
 }

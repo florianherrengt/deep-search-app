@@ -1,9 +1,12 @@
+mod research_search;
+
 use std::sync::mpsc;
 use std::time::Duration;
 
 use tauri::{
     AppHandle, LogicalPosition, LogicalSize, Manager, WebviewBuilder, WebviewUrl,
 };
+use research_search::{Database, SearchResult, ResearchFolder};
 
 const TAB_BAR_HEIGHT: f64 = 40.0;
 const PAGE_LOAD_TIMEOUT_SECS: u64 = 30;
@@ -97,6 +100,126 @@ async fn extract_content(app: AppHandle, id: String) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn register_research_folder(
+    app: AppHandle,
+    name: String,
+    query: String,
+) -> Result<i64, String> {
+    let db = app.state::<Database>();
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    research_search::indexing::register_folder(&conn, &name, &query)
+}
+
+#[tauri::command]
+async fn index_research_file(
+    app: AppHandle,
+    api_key: String,
+    folder: String,
+    filename: String,
+    content: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let db = app.state::<Database>();
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
+        research_search::indexing::index_file(&conn, &api_key, &folder, &filename, &content)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn search_research(
+    app: AppHandle,
+    api_key: String,
+    query: String,
+    folder: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<SearchResult>, String> {
+    tokio::task::spawn_blocking(move || {
+        let db = app.state::<Database>();
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
+        research_search::search::search(&conn, &api_key, &query, folder.as_deref(), limit)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn list_research_folders_db(app: AppHandle) -> Result<Vec<ResearchFolder>, String> {
+    let db = app.state::<Database>();
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    research_search::indexing::list_folders(&conn)
+}
+
+#[tauri::command]
+async fn backfill_index(
+    app: AppHandle,
+    api_key: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let db = app.state::<Database>();
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let search_results_dir = app_data.join("search-results");
+
+    if !search_results_dir.exists() {
+        return Ok(());
+    }
+
+    let entries = std::fs::read_dir(&search_results_dir).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let folder_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        if folder_name.is_empty() {
+            continue;
+        }
+
+        let _ = research_search::indexing::register_folder(&conn, &folder_name, "");
+
+        let md_files = std::fs::read_dir(&path).map_err(|e| e.to_string())?;
+        for file_entry in md_files {
+            let file_entry = file_entry.map_err(|e| e.to_string())?;
+            let file_path = file_entry.path();
+            if !file_path.is_file() {
+                continue;
+            }
+            let ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext != "md" && ext != "txt" && ext != "json" {
+                continue;
+            }
+
+            let filename = file_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+            let content = std::fs::read_to_string(&file_path).unwrap_or_default();
+            if content.is_empty() {
+                continue;
+            }
+
+            let _ = research_search::indexing::index_file(
+                &conn, &api_key, &folder_name, &filename, &content,
+            );
+        }
+    }
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -104,11 +227,23 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .setup(|app| {
+            let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(&app_data).map_err(|e| e.to_string())?;
+            let db = research_search::init_database(&app_data)?;
+            app.manage(db);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             open_tab,
             switch_tab,
             close_tab,
             extract_content,
+            register_research_folder,
+            index_research_file,
+            search_research,
+            list_research_folders_db,
+            backfill_index,
         ]);
 
     #[cfg(debug_assertions)]

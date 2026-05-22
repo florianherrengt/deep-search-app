@@ -46,6 +46,10 @@ import { createExtractPageContentTool } from "@/tools/extract-page-content-tool"
 import { createSaveResearchFileTool } from "@/tools/research-file-tool";
 import { createResearchCheckpointTool } from "@/tools/research-checkpoint-tool";
 import { createSequentialThinkingTool } from "@/tools/sequential-thinking-tool";
+import { createSearchResearchTool } from "@/tools/search-research-tool";
+import {
+  registerResearchFolder,
+} from "@/lib/research-search";
 import {
   SafePathSegmentSchema,
   writeAppFile,
@@ -115,6 +119,8 @@ async function generateResearchFolder(
     content: `# ${folderName}\n\nQuery: ${firstMessage}\n`,
   });
 
+  await registerResearchFolder(folderName, firstMessage).catch(() => {});
+
   return folderName;
 }
 
@@ -124,7 +130,13 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   constructor(
     private getApiKey: () => string,
     private getModel: () => string,
-  ) {}
+    researchFolder?: string | null,
+    private onResearchFolderChange?: (folderName: string) => void,
+  ) {
+    this.researchFolder = researchFolder
+      ? SafePathSegmentSchema.parse(researchFolder)
+      : null;
+  }
 
   async sendMessages({
     messages,
@@ -144,11 +156,13 @@ export class DirectTransport implements ChatTransport<UIMessage> {
 
     if (!this.researchFolder) {
       this.researchFolder = await generateResearchFolder(model, messages);
+      this.onResearchFolderChange?.(this.researchFolder);
     }
 
     return createGuardedStream({
       model,
       researchFolder: this.researchFolder,
+      apiKey: this.getApiKey(),
       messages,
       abortSignal,
     });
@@ -159,7 +173,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   }
 }
 
-function createTools(model: LanguageModel, researchFolder: string) {
+function createTools(model: LanguageModel, researchFolder: string, apiKey: string) {
   return {
     ask_questions: questionsTool,
     disambiguate: disambiguateTool,
@@ -169,9 +183,10 @@ function createTools(model: LanguageModel, researchFolder: string) {
     ...(getTavilyApiKey() ? { tavily_search: tavilySearchTool } : {}),
     ...(getSearXNGBaseUrl() ? { searxng_search: searxngSearchTool } : {}),
     extract_page_content: createExtractPageContentTool(model, researchFolder),
-    save_research_file: createSaveResearchFileTool(researchFolder),
+    save_research_file: createSaveResearchFileTool(researchFolder, apiKey),
     research_checkpoint: createResearchCheckpointTool(model),
     sequential_thinking: createSequentialThinkingTool(),
+    search_research: createSearchResearchTool(apiKey),
   } as const satisfies ToolSet;
 }
 
@@ -186,11 +201,13 @@ type AttemptFinish = {
 export function createGuardedStream({
   model,
   researchFolder,
+  apiKey,
   messages,
   abortSignal,
 }: {
   model: LanguageModel;
   researchFolder: string;
+  apiKey: string;
   messages: UIMessage[];
   abortSignal: AbortSignal | undefined;
 }): ReadableStream<UIMessageChunk> {
@@ -207,7 +224,7 @@ export function createGuardedStream({
       let lastFinish: AttemptFinish | undefined;
 
       try {
-        const tools = createTools(model, researchFolder);
+        const tools = createTools(model, researchFolder, apiKey);
 
         currentModelMessages = await convertToModelMessages(currentUiMessages, {
           tools,

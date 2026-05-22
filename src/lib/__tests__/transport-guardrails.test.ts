@@ -60,6 +60,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
+        apiKey: "test-key",
         messages: [userMessage("Pick a color")],
         abortSignal: undefined,
       }),
@@ -102,6 +103,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
+        apiKey: "test-key",
         messages: [userMessage("Find the latest pricing for Acme Search")],
         abortSignal: undefined,
       }),
@@ -157,6 +159,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
+        apiKey: "test-key",
         messages: [userMessage("Hello")],
         abortSignal: undefined,
       }),

@@ -4,6 +4,9 @@ const fsMocks = vi.hoisted(() => ({
   mkdir: vi.fn(),
   writeTextFile: vi.fn(),
   readTextFile: vi.fn(),
+  readDir: vi.fn(),
+  remove: vi.fn(),
+  rename: vi.fn(),
   exists: vi.fn(),
 }));
 
@@ -16,7 +19,10 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 
 import { BaseDirectory } from "@tauri-apps/plugin-fs";
 import {
+  deleteAppSubfolder,
+  listAppSubfolders,
   readAppFile,
+  renameAppSubfolder,
   writeAppFile,
 } from "@/lib/app-file-storage";
 
@@ -100,6 +106,103 @@ describe("app file storage", () => {
     expect(fsMocks.readTextFile).not.toHaveBeenCalled();
   });
 
+  it("lists safe app data subfolders", async () => {
+    fsMocks.exists.mockResolvedValueOnce(true);
+    fsMocks.readDir.mockResolvedValueOnce([
+      {
+        name: "zebra-research",
+        isDirectory: true,
+        isFile: false,
+        isSymlink: false,
+      },
+      {
+        name: "notes.md",
+        isDirectory: false,
+        isFile: true,
+        isSymlink: false,
+      },
+      {
+        name: "apartment-dogs",
+        isDirectory: true,
+        isFile: false,
+        isSymlink: false,
+      },
+      {
+        name: "..",
+        isDirectory: true,
+        isFile: false,
+        isSymlink: false,
+      },
+    ]);
+
+    await expect(
+      listAppSubfolders({ subfolder: "search-results" }),
+    ).resolves.toEqual(["apartment-dogs", "zebra-research"]);
+
+    expect(fsMocks.readDir).toHaveBeenCalledWith("search-results", {
+      baseDir: BaseDirectory.AppData,
+    });
+  });
+
+  it("returns an empty list when the app data subfolder does not exist", async () => {
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await expect(
+      listAppSubfolders({ subfolder: "search-results" }),
+    ).resolves.toEqual([]);
+
+    expect(fsMocks.readDir).not.toHaveBeenCalled();
+  });
+
+  it("deletes app data subfolders recursively", async () => {
+    fsMocks.exists.mockResolvedValueOnce(true);
+
+    await deleteAppSubfolder({ subfolder: "search-results/apartment-dogs" });
+
+    expect(fsMocks.remove).toHaveBeenCalledWith(
+      "search-results/apartment-dogs",
+      {
+        baseDir: BaseDirectory.AppData,
+        recursive: true,
+      },
+    );
+  });
+
+  it("skips deleting app data subfolders that do not exist", async () => {
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await deleteAppSubfolder({ subfolder: "search-results/apartment-dogs" });
+
+    expect(fsMocks.remove).not.toHaveBeenCalled();
+  });
+
+  it("renames app data subfolders without overwriting an existing target", async () => {
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await renameAppSubfolder({
+      oldSubfolder: "search-results/apartment-dogs",
+      newSubfolder: "search-results/city-dogs",
+    });
+
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      "search-results/apartment-dogs",
+      "search-results/city-dogs",
+      {
+        oldPathBaseDir: BaseDirectory.AppData,
+        newPathBaseDir: BaseDirectory.AppData,
+      },
+    );
+
+    fsMocks.exists.mockResolvedValueOnce(true);
+
+    await expect(
+      renameAppSubfolder({
+        oldSubfolder: "search-results/apartment-dogs",
+        newSubfolder: "search-results/city-dogs",
+      }),
+    ).rejects.toThrow("already exists");
+  });
+
   it("rejects unsafe path segments before touching the filesystem", async () => {
     await expect(
       writeAppFile({
@@ -118,6 +221,9 @@ describe("app file storage", () => {
 
     expect(fsMocks.mkdir).not.toHaveBeenCalled();
     expect(fsMocks.exists).not.toHaveBeenCalled();
+    expect(fsMocks.readDir).not.toHaveBeenCalled();
+    expect(fsMocks.remove).not.toHaveBeenCalled();
+    expect(fsMocks.rename).not.toHaveBeenCalled();
     expect(fsMocks.writeTextFile).not.toHaveBeenCalled();
     expect(fsMocks.readTextFile).not.toHaveBeenCalled();
   });
