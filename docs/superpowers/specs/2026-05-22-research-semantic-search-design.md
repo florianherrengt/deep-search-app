@@ -116,11 +116,14 @@ Markdown-aware recursive character splitting, based on 2026 benchmark consensus:
 ## Embedding Model
 
 - **Model:** Qwen3-Embedding-4B (Apache 2.0)
-- **Dimensions:** 1024 (Matryoshka-truncated from native 4096)
-- **Quantization:** Q4 (~2.5GB)
+- **ONNX export:** `majentik/Qwen3-Embedding-4B-ONNX-INT8` (dynamic INT8 quantization, ready to use)
+- **Native dimensions:** 2560 (Matryoshka-capable)
+- **Truncated dimensions:** 1024 (good quality/storage balance, configurable)
+- **Model size:** ~3.8 GB (INT8)
 - **Inference:** ONNX Runtime via `ort` crate, native Apple Silicon performance (~18K tok/s)
-- **Storage:** Model downloaded once to `AppData/models/qwen3-embedding-4b-q4/` and cached
+- **Storage:** Model downloaded once to `AppData/models/qwen3-embedding-4b-int8/` and cached
 - **Instruction prefix:** Qwen3 benefits from query-side instructions. Use `"Represent this sentence for searching relevant passages: "` prefix on queries, no prefix on documents
+- **Note:** The FP32 ONNX export (~16GB) is too large for practical use. The `optimum` CLI doesn't yet support full graph optimisation for Qwen3 (`NotImplementedError`). Use the pre-exported INT8 model from majentik.
 
 ## Reranker
 
@@ -158,6 +161,8 @@ WHERE chunks_fts MATCH ?
 ORDER BY rank
 LIMIT 50
 ```
+
+**FTS5 query sanitization:** Raw user/agent queries can contain FTS5 operators (`AND`, `OR`, `NOT`, `(`, `)`, `"`, `*`) that will cause parse errors or unintended logic. Sanitize the query before passing to `MATCH` by wrapping the entire query in double-quotes: `format!("\"{}\"", query.replace('"', "\"\""))`. This treats the input as a single phrase query, disabling all operator interpretation.
 
 ### Step 3: Adaptive Reciprocal Rank Fusion (RRF)
 
@@ -363,7 +368,7 @@ sha2 = "0.10"
 
 | Component | Size | Notes |
 |-----------|------|-------|
-| Qwen3-Embedding-4B (Q4) | ~2.5 GB | Downloaded once, cached in AppData |
+| Qwen3-Embedding-4B (INT8) | ~3.8 GB | Downloaded once, cached in AppData |
 | ms-marco-MiniLM-L-6-v2 | ~90 MB | Downloaded once, cached in AppData |
 | ONNX Runtime library | ~50 MB | Bundled with app |
 | research.db (1K chunks) | ~10 MB | 1000 chunks x 1024 floats x 4 bytes + metadata |
