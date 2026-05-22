@@ -47,6 +47,7 @@ import { createSaveResearchFileTool } from "@/tools/research-file-tool";
 import { createResearchCheckpointTool } from "@/tools/research-checkpoint-tool";
 import { createSequentialThinkingTool } from "@/tools/sequential-thinking-tool";
 import { createSearchResearchTool } from "@/tools/search-research-tool";
+import { createSwitchResearchFolderTool } from "@/tools/switch-research-folder-tool";
 import {
   registerResearchFolder,
 } from "@/lib/research-search";
@@ -154,17 +155,16 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     const openrouter = createOpenRouter({ apiKey: this.getApiKey() });
     const model = openrouter(this.getModel());
 
-    if (!this.researchFolder) {
-      this.researchFolder = await generateResearchFolder(model, messages);
-      this.onResearchFolderChange?.(this.researchFolder);
-    }
-
     return createGuardedStream({
       model,
       researchFolder: this.researchFolder,
       apiKey: this.getApiKey(),
       messages,
       abortSignal,
+      onResearchFolderChange: (folderName) => {
+        this.researchFolder = folderName;
+        this.onResearchFolderChange?.(folderName);
+      },
     });
   }
 
@@ -173,7 +173,17 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   }
 }
 
-function createTools(model: LanguageModel, researchFolder: string, apiKey: string) {
+function createTools({
+  model,
+  getResearchFolder,
+  switchResearchFolder,
+  apiKey,
+}: {
+  model: LanguageModel;
+  getResearchFolder: () => Promise<string>;
+  switchResearchFolder: (folderName: string) => void;
+  apiKey: string;
+}) {
   return {
     ask_questions: questionsTool,
     disambiguate: disambiguateTool,
@@ -182,11 +192,12 @@ function createTools(model: LanguageModel, researchFolder: string, apiKey: strin
     ...(getSerperApiKey() ? { serper_search: serperSearchTool } : {}),
     ...(getTavilyApiKey() ? { tavily_search: tavilySearchTool } : {}),
     ...(getSearXNGBaseUrl() ? { searxng_search: searxngSearchTool } : {}),
-    extract_page_content: createExtractPageContentTool(model, researchFolder),
-    save_research_file: createSaveResearchFileTool(researchFolder, apiKey),
+    extract_page_content: createExtractPageContentTool(model, getResearchFolder),
+    save_research_file: createSaveResearchFileTool(getResearchFolder, apiKey),
     research_checkpoint: createResearchCheckpointTool(model),
     sequential_thinking: createSequentialThinkingTool(),
     search_research: createSearchResearchTool(apiKey),
+    switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
   } as const satisfies ToolSet;
 }
 
@@ -204,15 +215,21 @@ export function createGuardedStream({
   apiKey,
   messages,
   abortSignal,
+  onResearchFolderChange,
 }: {
   model: LanguageModel;
-  researchFolder: string;
+  researchFolder: string | null;
   apiKey: string;
   messages: UIMessage[];
   abortSignal: AbortSignal | undefined;
+  onResearchFolderChange?: (folderName: string) => void;
 }): ReadableStream<UIMessageChunk> {
   return new ReadableStream<UIMessageChunk>({
     async start(controller) {
+      let activeResearchFolder = researchFolder
+        ? SafePathSegmentSchema.parse(researchFolder)
+        : null;
+      let researchFolderPromise: Promise<string> | null = null;
       const retries: Record<GuardName, number> = {
         question_tool: 0,
         research_checkpoint: 0,
@@ -224,7 +241,33 @@ export function createGuardedStream({
       let lastFinish: AttemptFinish | undefined;
 
       try {
-        const tools = createTools(model, researchFolder, apiKey);
+        const tools = createTools({
+          model,
+          getResearchFolder: async () => {
+            if (activeResearchFolder) return activeResearchFolder;
+
+            researchFolderPromise ??= generateResearchFolder(
+              model,
+              messages,
+            ).then((folderName) => {
+              if (!activeResearchFolder) {
+                activeResearchFolder = SafePathSegmentSchema.parse(folderName);
+                onResearchFolderChange?.(activeResearchFolder);
+              }
+
+              return activeResearchFolder;
+            }).finally(() => {
+              researchFolderPromise = null;
+            });
+
+            return researchFolderPromise;
+          },
+          switchResearchFolder: (folderName) => {
+            activeResearchFolder = SafePathSegmentSchema.parse(folderName);
+            onResearchFolderChange?.(activeResearchFolder);
+          },
+          apiKey,
+        });
 
         currentModelMessages = await convertToModelMessages(currentUiMessages, {
           tools,

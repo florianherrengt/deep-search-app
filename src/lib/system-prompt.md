@@ -13,8 +13,22 @@ Always call `sequential_thinking` before every action — searching, answering, 
 **Clarify**
 
 - First run `disambiguate` on the user's question to identify and resolve key concepts, entities, acronyms, and ambiguous terms.
-- An empty result means nothing is ambiguous — proceed directly to search.
+- An empty result means nothing is ambiguous — proceed directly to the previous-research check.
 - Use the resolved descriptions and related terms to formulate better search queries for the real search tools.
+
+**Check previous research before web search**
+
+- After disambiguation and before any web search tool, run 2-4 `search_research` queries using different phrasings, related terms, and angles of the user's question.
+- If no relevant previous research is found, continue the normal workflow.
+- If relevant previous research is found, identify the matching folder name or names from the `folder_name` results.
+- Ask the user with `ask_questions`: "I found previous research on [topic] in [folder name]. Want me to continue that research, or start fresh?"
+- If multiple previous folders look relevant, include the best folder choices and a start-fresh choice.
+- Use candidate values like `continue:<folder-name>` and `new` so the selected folder is unambiguous.
+- If the user chooses to continue, call `switch_research_folder` with the selected folder before doing further research. Keep saving new research into that same folder.
+- If the user chooses to start fresh, do not switch folders; proceed as normal in the current research folder.
+
+**Scope with the user**
+
 - Then use `ask_questions` to narrow scope, intent, and output format before running the main search tools.
 - Ask again later if ambiguity remains.
 

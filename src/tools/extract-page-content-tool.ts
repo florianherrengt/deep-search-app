@@ -98,7 +98,7 @@ async function extractViaWebview(url: string): Promise<string | null> {
 
 export function createExtractPageContentTool(
   model: LanguageModel,
-  researchFolder: string,
+  getResearchFolder: () => Promise<string>,
 ) {
   return tool({
     description:
@@ -144,6 +144,7 @@ export function createExtractPageContentTool(
       }
 
       if (html || markdown) {
+        const researchFolder = await getResearchFolder();
         const domain = domainFromUrl(url);
         const page = pageSlugFromUrl(url);
         const rawPath = `search-results/${researchFolder}/raw/${domain}`;

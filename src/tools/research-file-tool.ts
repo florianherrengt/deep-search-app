@@ -7,7 +7,7 @@ import {
 import { indexResearchFile } from "@/lib/research-search";
 
 export function createSaveResearchFileTool(
-  researchFolder: string,
+  getResearchFolder: () => Promise<string>,
   apiKey?: string,
 ) {
   return tool({
@@ -30,6 +30,7 @@ export function createSaveResearchFileTool(
       }),
     ),
     execute: async ({ filename, content }) => {
+      const researchFolder = await getResearchFolder();
       const targetSubfolder = `search-results/${researchFolder}`;
 
       await writeAppFile({
