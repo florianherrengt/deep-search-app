@@ -82,7 +82,7 @@ export function TabPanel({
           </div>
         ))}
       </div>
-      <div className="flex-1 min-h-0 overflow-auto">{content}</div>
+      <div className="flex-1 min-h-0 overflow-hidden">{content}</div>
     </div>
   );
 }

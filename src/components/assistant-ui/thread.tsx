@@ -1,4 +1,3 @@
-import { useRef, useState, useCallback, useEffect } from "react";
 import {
   ThreadPrimitive,
   ComposerPrimitive,
@@ -35,36 +34,6 @@ const groupBy = (
   return null;
 };
 
-function ScrollToBottomThreshold() {
-  const [visible, setVisible] = useState(false);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-
-  const handleScroll = useCallback(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setVisible(distanceFromBottom > SCROLL_THRESHOLD);
-  }, []);
-
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
-  }, [handleScroll]);
-
-  return (
-    <>
-      <div ref={viewportRef} className="sr-only" aria-hidden />
-      {visible && (
-        <ThreadPrimitive.ScrollToBottom className="absolute -top-10 left-1/2 -translate-x-1/2 rounded-full border bg-background p-2 shadow-md hover:bg-accent disabled:invisible">
-          <ArrowDownIcon className="h-4 w-4" />
-        </ThreadPrimitive.ScrollToBottom>
-      )}
-    </>
-  );
-}
-
 interface ThreadProps {
   models: ModelOption[];
   selectedModelId: string;
@@ -78,7 +47,7 @@ export function Thread({
 }: ThreadProps) {
   return (
     <ThreadPrimitive.Root className="relative flex h-full flex-col">
-      <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto px-6 py-4">
+      <ThreadPrimitive.Viewport className="flex flex-1 flex-col gap-3 overflow-y-auto px-6 py-4">
         <AuiIf condition={(s) => s.thread.isEmpty}>
           <div className="flex h-[60vh] flex-col items-center justify-center text-center opacity-60">
             <h1 className="mb-1 text-2xl font-bold">Deep Search</h1>
@@ -91,7 +60,12 @@ export function Thread({
       </ThreadPrimitive.Viewport>
 
       <ThreadPrimitive.ViewportFooter className="relative border-t border-zinc-200 px-6 py-3 dark:border-zinc-700">
-        <ScrollToBottomThreshold />
+        <ThreadPrimitive.ScrollToBottom
+          className="absolute -top-10 left-1/2 -translate-x-1/2 rounded-full border bg-background p-2 shadow-md hover:bg-accent disabled:invisible"
+          style={{ "--aui-scroll-to-bottom-threshold": `${SCROLL_THRESHOLD}px` } as React.CSSProperties}
+        >
+          <ArrowDownIcon className="h-4 w-4" />
+        </ThreadPrimitive.ScrollToBottom>
         <ComposerPrimitive.Root className="space-y-2">
           <ComposerPrimitive.Input
             placeholder="Ask something..."
@@ -191,7 +165,7 @@ function ThreadMessage() {
                   return <ReasoningText />;
                 case "text": {
                   return (
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <div className="prose prose-sm dark:prose-invert max-w-none overflow-x-auto">
                       <MarkdownText />
                     </div>
                   );
