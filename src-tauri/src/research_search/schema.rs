@@ -28,7 +28,22 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
   content_rowid='id',
   tokenize='porter'
 );
+
+CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
+  INSERT INTO chunks_fts(rowid, content) VALUES (new.id, new.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
+  INSERT INTO chunks_fts(chunks_fts, rowid, content) VALUES('delete', old.id, old.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+  INSERT INTO chunks_fts(chunks_fts, rowid, content) VALUES('delete', old.id, old.content);
+  INSERT INTO chunks_fts(rowid, content) VALUES (new.id, new.content);
+END;
 "#;
+
+pub const REBUILD_CHUNKS_FTS: &str = "INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')";
 
 pub const INSERT_CHUNK: &str = r#"
 INSERT INTO chunks (folder_id, filename, header_path, chunk_index, content, content_hash)
@@ -43,9 +58,19 @@ pub const INSERT_EMBEDDING: &str = "INSERT INTO chunk_embeddings(rowid, embeddin
 
 pub const DELETE_EMBEDDING: &str = "DELETE FROM chunk_embeddings WHERE rowid = ?1";
 
-pub const GET_FOLDER_BY_NAME: &str = "SELECT id, name, query, created_at FROM research_folders WHERE name = ?1";
+pub const GET_FOLDER_BY_NAME: &str =
+    "SELECT id, name, query, created_at FROM research_folders WHERE name = ?1";
 
-pub const INSERT_FOLDER: &str = "INSERT INTO research_folders (name, query) VALUES (?1, ?2) RETURNING id";
+pub const INSERT_FOLDER: &str =
+    "INSERT INTO research_folders (name, query) VALUES (?1, ?2) RETURNING id";
+
+pub const UPDATE_FOLDER_QUERY_IF_EMPTY: &str = r#"
+UPDATE research_folders
+SET query = ?2
+WHERE id = ?1
+  AND TRIM(COALESCE(?2, '')) <> ''
+  AND TRIM(COALESCE(query, '')) = ''
+"#;
 
 pub const LIST_FOLDERS: &str = r#"
 SELECT f.id, f.name, f.query, f.created_at, COUNT(c.id) as chunk_count
@@ -78,7 +103,8 @@ JOIN research_folders f ON f.id = c.folder_id
 WHERE c.id = ?1
 "#;
 
-pub const GET_CHUNK_HASH: &str = "SELECT content_hash FROM chunks WHERE folder_id = ?1 AND filename = ?2 AND chunk_index = ?3";
+pub const GET_CHUNK_HASH: &str =
+    "SELECT content_hash FROM chunks WHERE folder_id = ?1 AND filename = ?2 AND chunk_index = ?3";
 
 pub const _GET_ADJACENT_CHUNKS: &str = r#"
 SELECT chunk_index, content

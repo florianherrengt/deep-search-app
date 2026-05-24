@@ -152,7 +152,7 @@ export const disambiguateTool = tool({
 
     for (const entity of entities) {
       const ddgResult = await fetchDuckDuckGo(entity);
-      results.push(`${entity}: ${ddgResult || "No results."}`);
+      results.push(`${entity}: ${ddgResult || "no ambiguity."}`);
     }
 
     return results;

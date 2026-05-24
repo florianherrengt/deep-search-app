@@ -137,8 +137,11 @@ async fn search_research(
     limit: Option<u32>,
 ) -> Result<Vec<SearchResult>, String> {
     tokio::task::spawn_blocking(move || {
+        let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let search_results_dir = app_data.join("search-results");
         let db = app.state::<Database>();
         let conn = db.conn.lock().map_err(|e| e.to_string())?;
+        research_search::indexing::sync_folders_from_dir(&conn, &search_results_dir)?;
         research_search::search::search(&conn, &api_key, &query, folder.as_deref(), limit)
     })
     .await

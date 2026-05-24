@@ -1,13 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { setWebViewExtractor } from "../reddit-extractor";
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-}));
+const mockWebview = vi.fn<() => Promise<string | null>>();
+setWebViewExtractor(mockWebview);
 
-import { invoke } from "@tauri-apps/api/core";
 import { RedditExtractor } from "../reddit-extractor";
-
-const mockInvoke = vi.mocked(invoke);
 
 const OLD_REDDIT_HTML = `
 <html>
@@ -57,10 +54,7 @@ describe("RedditExtractor", () => {
 
   describe("extract", () => {
     it("opens old.reddit.com in webview and returns markdown", async () => {
-      mockInvoke
-        .mockResolvedValueOnce(undefined)
-        .mockResolvedValueOnce(OLD_REDDIT_HTML)
-        .mockResolvedValueOnce(undefined);
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
 
       const result = await extractor.extract(
         "https://www.reddit.com/r/test/comments/abc/test_post/",
@@ -68,16 +62,23 @@ describe("RedditExtractor", () => {
 
       expect(result).toContain("# Test Post");
       expect(result).toContain("## Comments");
-      expect(mockInvoke).toHaveBeenCalledWith(
-        "open_tab",
-        expect.objectContaining({
-          url: "https://old.reddit.com/r/test/comments/abc/test_post/",
-        }),
+      expect(mockWebview).toHaveBeenCalledWith(
+        "https://old.reddit.com/r/test/comments/abc/test_post/",
       );
     });
 
     it("returns empty string when webview fails", async () => {
-      mockInvoke.mockRejectedValue(new Error("webview error"));
+      mockWebview.mockResolvedValueOnce(null);
+
+      const result = await extractor.extract(
+        "https://www.reddit.com/r/test/comments/abc/test_post/",
+      );
+
+      expect(result).toBe("");
+    });
+
+    it("returns empty string when parsing fails", async () => {
+      mockWebview.mockResolvedValueOnce("<html><body>challenge page</body></html>");
 
       const result = await extractor.extract(
         "https://www.reddit.com/r/test/comments/abc/test_post/",
@@ -92,7 +93,7 @@ describe("RedditExtractor", () => {
       );
 
       expect(result).toBe("");
-      expect(mockInvoke).not.toHaveBeenCalled();
+      expect(mockWebview).not.toHaveBeenCalled();
     });
   });
 });

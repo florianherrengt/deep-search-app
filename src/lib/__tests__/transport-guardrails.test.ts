@@ -31,32 +31,23 @@ describe("createGuardedStream", () => {
         });
         return {
           stream: simulateReadableStream({
-            chunks: [
-              { type: "stream-start", warnings: [] },
-              {
-                type: "tool-call",
-                toolCallId: "call-question",
-                toolName: "ask_questions",
-                input: JSON.stringify({
-                  questions: [
-                    {
-                      question: "Which color do you prefer?",
-                      candidates: [
-                        { label: "Red", value: "red" },
-                        { label: "Blue", value: "blue" },
-                      ],
-                    },
+            chunks: toolCallChunks("ask_questions", "call-question", {
+              questions: [
+                {
+                  question: "Which color do you prefer?",
+                  candidates: [
+                    { label: "Red", value: "red" },
+                    { label: "Blue", value: "blue" },
                   ],
-                }),
-              },
-              finishChunk("tool-calls"),
-            ],
+                },
+              ],
+            }),
           }),
         };
       },
     });
 
-    const chunks = await convertReadableStreamToArray(
+    const chunks = await collectChunks(
       createGuardedStream({
         model,
         researchFolder: "test-folder",
@@ -83,7 +74,7 @@ describe("createGuardedStream", () => {
         toolName: "ask_questions",
       }),
     );
-    expect(chunks[chunks.length - 1]).toMatchObject({ type: "finish" });
+    expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
   });
 
   it("bounds repeated research retries and emits a warning instead of looping forever", async () => {
@@ -99,7 +90,7 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await convertReadableStreamToArray(
+    const chunks = await collectChunks(
       createGuardedStream({
         model,
         researchFolder: "test-folder",
@@ -155,7 +146,7 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await convertReadableStreamToArray(
+    const chunks = await collectChunks(
       createGuardedStream({
         model,
         researchFolder: "test-folder",
@@ -169,6 +160,340 @@ describe("createGuardedStream", () => {
     expect(chunks.some((chunk) => chunk.type === "data-guardrail_event")).toBe(
       false,
     );
+  });
+
+  it("bounds question_tool retries and emits a warning", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        callCount += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: textChunks("What is your favorite color? Please let me know."),
+          }),
+        };
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Pick a color")],
+        abortSignal: undefined,
+      }),
+    );
+
+    const guardEvents = chunks.filter(
+      (chunk) => chunk.type === "data-guardrail_event",
+    );
+
+    expect(callCount).toBe(3);
+    expect(guardEvents).toHaveLength(3);
+    expect(guardEvents[0]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          kind: "question_tool",
+          status: "retrying",
+          attempt: 1,
+        }),
+      }),
+    );
+    expect(guardEvents[1]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          kind: "question_tool",
+          status: "retrying",
+          attempt: 2,
+        }),
+      }),
+    );
+    expect(guardEvents[2]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          kind: "question_tool",
+          status: "warning",
+          title: "Guardrail retry limit reached",
+        }),
+      }),
+    );
+  });
+
+  it("retries with research_checkpoint forced when research tools are used without a checkpoint", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (options): Promise<LanguageModelV3StreamResult> => {
+        callCount += 1;
+        if (callCount === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: "stream-start", warnings: [] },
+                {
+                  type: "tool-call",
+                  toolCallId: "call-brave",
+                  toolName: "brave_search",
+                  input: JSON.stringify({ query: "Acme Search pricing" }),
+                },
+                { type: "tool-result", toolCallId: "call-brave", output: "results" },
+                { type: "text-start", id: "text-1" },
+                { type: "text-delta", id: "text-1", delta: "Acme Search costs $10/month." },
+                { type: "text-end", id: "text-1" },
+                finishChunk("stop"),
+              ],
+            }),
+          };
+        }
+
+        expect(options.toolChoice).toEqual({ type: "required" });
+        return {
+          stream: simulateReadableStream({
+            chunks: toolCallChunks("research_checkpoint", "call-cp", {
+              originalQuestion: "Acme Search pricing",
+              searchesRun: ["acme search pricing"],
+              sourcesOpened: [
+                { url: "https://acme.com/pricing", title: "Pricing" },
+                { url: "https://acme.com/plans", title: "Plans" },
+              ],
+              claimsVerified: ["$10/month"],
+              unresolvedQuestions: [],
+              confidence: "high",
+              readyToAnswer: true,
+            }),
+          }),
+        };
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Find the latest pricing for Acme Search")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(callCount).toBe(2);
+    const guardEvents = chunks.filter(
+      (chunk) => chunk.type === "data-guardrail_event",
+    );
+    expect(guardEvents).toHaveLength(1);
+    expect(guardEvents[0]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          kind: "research_checkpoint",
+          status: "retrying",
+        }),
+      }),
+    );
+    expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
+  });
+
+  it("accepts immediately when research checkpoint is approved", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        callCount += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: "stream-start", warnings: [] },
+              {
+                type: "tool-call",
+                toolCallId: "call-checkpoint",
+                toolName: "research_checkpoint",
+                input: JSON.stringify({
+                  originalQuestion: "Acme Search pricing",
+                  searchesRun: ["acme search pricing"],
+                  sourcesOpened: [
+                    { url: "https://acme.com/pricing", title: "Pricing" },
+                    { url: "https://acme.com/plans", title: "Plans" },
+                  ],
+                  claimsVerified: ["Price is $10/mo", "Free tier available"],
+                  unresolvedQuestions: [],
+                  confidence: "high",
+                  readyToAnswer: true,
+                }),
+              },
+              { type: "tool-result", toolCallId: "call-checkpoint", output: { approved: true, severity: "none", visibleSummary: "OK", missingAngles: [], weakClaims: [], requiredNextActions: [] } },
+              finishChunk("tool-calls"),
+            ],
+          }),
+        };
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Find the latest pricing for Acme Search")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(callCount).toBe(1);
+    expect(chunks.some((chunk) => chunk.type === "data-guardrail_event")).toBe(
+      false,
+    );
+    expect(lastChunk(chunks)).toMatchObject({
+      type: "finish",
+    });
+  });
+
+  it("emits an abort chunk when the abort signal fires during streaming", async () => {
+    const abortController = new AbortController();
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        abortController.abort();
+        return {
+          stream: simulateReadableStream({
+            chunks: textChunks("Some response"),
+          }),
+        };
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Hello")],
+        abortSignal: abortController.signal,
+      }),
+    );
+
+    expect(chunks).toContainEqual({ type: "abort", reason: "aborted" });
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({ type: "finish", finishReason: "stop" }),
+    );
+  });
+
+  it("emits an abort chunk without calling the model when signal is already aborted", async () => {
+    const abortController = new AbortController();
+    abortController.abort();
+
+    let called = false;
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        called = true;
+        return {
+          stream: simulateReadableStream({
+            chunks: textChunks("Should not reach here"),
+          }),
+        };
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Hello")],
+        abortSignal: abortController.signal,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(chunks).toContainEqual({ type: "abort", reason: "aborted" });
+  });
+
+  it("surfaces model errors as stream chunks", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        throw new Error("Model connection failed");
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Hello")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorText: "Model connection failed",
+      }),
+    );
+    expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
+  });
+
+  it("converts non-Error throws to error chunks", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        throw "something weird";
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Hello")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+      }),
+    );
+    expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
+  });
+
+  it("always ends the stream with exactly one finish or abort event", async () => {
+    const endings: string[] = [];
+
+    for (const scenario of [
+      {
+        messages: [userMessage("Hello")],
+        chunks: () => textChunks("Hi there"),
+      },
+      {
+        messages: [userMessage("Hello")],
+        chunks: () => {
+          throw new Error("fail");
+        },
+      },
+    ]) {
+      const model = new MockLanguageModelV3({
+        doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+          stream: simulateReadableStream({ chunks: scenario.chunks() }),
+        }),
+      });
+
+      const chunks = await collectChunks(
+        createGuardedStream({
+          model,
+          researchFolder: "test-folder",
+          apiKey: "test-key",
+          messages: scenario.messages,
+          abortSignal: undefined,
+        }),
+      );
+
+      const terminal = chunks.filter(
+        (c) => c.type === "finish" || c.type === "abort",
+      );
+      endings.push(...terminal.map((c) => c.type));
+    }
+
+    expect(endings).toHaveLength(2);
+    expect(endings.every((e) => e === "finish")).toBe(true);
   });
 });
 
@@ -187,6 +512,23 @@ function textChunks(text: string): LanguageModelV3StreamPart[] {
     { type: "text-delta" as const, id: "text-1", delta: text },
     { type: "text-end" as const, id: "text-1" },
     finishChunk("stop"),
+  ];
+}
+
+function toolCallChunks(
+  toolName: string,
+  toolCallId: string,
+  input: unknown,
+): LanguageModelV3StreamPart[] {
+  return [
+    { type: "stream-start", warnings: [] },
+    {
+      type: "tool-call",
+      toolCallId,
+      toolName,
+      input: JSON.stringify(input),
+    },
+    finishChunk("tool-calls"),
   ];
 }
 
@@ -210,4 +552,12 @@ function finishChunk(
       },
     },
   };
+}
+
+function lastChunk(chunks: unknown[]) {
+  return chunks[chunks.length - 1];
+}
+
+async function collectChunks(stream: ReadableStream<unknown>) {
+  return convertReadableStreamToArray(stream) as Promise<unknown[]>;
 }

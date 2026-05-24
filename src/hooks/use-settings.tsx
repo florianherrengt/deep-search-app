@@ -6,14 +6,16 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { z } from "zod";
 import {
   settingsStore,
   settingsSchema,
   settingsDefaults,
+  type Settings,
 } from "@/lib/settings-store";
 
-export type Settings = z.infer<typeof settingsSchema>;
+export type { Settings };
+
+const DEV_TEST_SETTINGS_KEY = "deep-search-test-settings";
 
 interface SettingsContextValue {
   settings: Settings;
@@ -46,6 +48,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const updateSetting = useCallback(
     async (key: keyof Settings, value: string) => {
+      if (hasDevTestSettings()) {
+        setSettings((prev) => {
+          const next = settingsSchema.parse({ ...prev, [key]: value });
+          window.localStorage.setItem(
+            DEV_TEST_SETTINGS_KEY,
+            JSON.stringify(next),
+          );
+          return next;
+        });
+        return;
+      }
+
       await settingsStore.set(key, value);
       setSettings((prev) => ({ ...prev, [key]: value }));
     },
@@ -53,6 +67,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const resetAll = useCallback(async () => {
+    if (hasDevTestSettings()) {
+      window.localStorage.setItem(
+        DEV_TEST_SETTINGS_KEY,
+        JSON.stringify(settingsDefaults),
+      );
+      setSettings(settingsDefaults);
+      return;
+    }
+
     await settingsStore.reset();
     setSettings(settingsDefaults);
   }, []);
@@ -75,10 +98,21 @@ function getDevTestSettings(): Settings | null {
   if (!import.meta.env.DEV || typeof window === "undefined") return null;
 
   try {
-    const raw = window.localStorage.getItem("deep-search-test-settings");
+    const raw = window.localStorage.getItem(DEV_TEST_SETTINGS_KEY);
     if (!raw) return null;
-    return settingsSchema.parse(JSON.parse(raw));
+    return settingsSchema.parse({
+      ...settingsDefaults,
+      ...JSON.parse(raw),
+    });
   } catch {
     return null;
   }
+}
+
+function hasDevTestSettings() {
+  return (
+    import.meta.env.DEV &&
+    typeof window !== "undefined" &&
+    window.localStorage.getItem(DEV_TEST_SETTINGS_KEY) !== null
+  );
 }

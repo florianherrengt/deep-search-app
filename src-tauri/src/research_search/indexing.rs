@@ -1,27 +1,58 @@
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
+use std::path::Path;
 
 use crate::research_search::chunking;
 use crate::research_search::embeddings;
-use crate::research_search::{get_folder_id, serialize_f32_vec, ResearchFolder};
 use crate::research_search::schema;
+use crate::research_search::{get_folder_id, serialize_f32_vec, ResearchFolder};
 
-pub fn register_folder(
-    conn: &Connection,
-    name: &str,
-    query: &str,
-) -> Result<i64, String> {
+pub fn register_folder(conn: &Connection, name: &str, query: &str) -> Result<i64, String> {
     if let Some(id) = get_folder_id(conn, name)? {
+        conn.execute(
+            schema::UPDATE_FOLDER_QUERY_IF_EMPTY,
+            rusqlite::params![id, query],
+        )
+        .map_err(|e| e.to_string())?;
         return Ok(id);
     }
 
     let id: i64 = conn
-        .query_row(schema::INSERT_FOLDER, rusqlite::params![name, query], |row| {
-            row.get(0)
-        })
+        .query_row(
+            schema::INSERT_FOLDER,
+            rusqlite::params![name, query],
+            |row| row.get(0),
+        )
         .map_err(|e| e.to_string())?;
 
     Ok(id)
+}
+
+pub fn sync_folders_from_dir(conn: &Connection, search_results_dir: &Path) -> Result<(), String> {
+    if !search_results_dir.exists() {
+        return Ok(());
+    }
+
+    let entries = std::fs::read_dir(search_results_dir).map_err(|e| e.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let Some(folder_name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+
+        if folder_name.is_empty() {
+            continue;
+        }
+
+        register_folder(conn, folder_name, "")?;
+    }
+
+    Ok(())
 }
 
 pub fn index_file(
@@ -75,7 +106,10 @@ pub fn index_file(
         return Ok(());
     }
 
-    let texts: Vec<String> = new_or_changed.iter().map(|(_, content, _)| content.clone()).collect();
+    let texts: Vec<String> = new_or_changed
+        .iter()
+        .map(|(_, content, _)| content.clone())
+        .collect();
     let all_embeddings = embeddings::embed_texts(api_key, &texts, false)?;
 
     for (i, (chunk_index, content, hash)) in new_or_changed.iter().enumerate() {
@@ -84,7 +118,14 @@ pub fn index_file(
 
         conn.execute(
             schema::INSERT_CHUNK,
-            rusqlite::params![folder_id, filename, header_path, *chunk_index as i32, content, hash],
+            rusqlite::params![
+                folder_id,
+                filename,
+                header_path,
+                *chunk_index as i32,
+                content,
+                hash
+            ],
         )
         .map_err(|e| e.to_string())?;
 

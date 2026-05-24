@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import TurndownService from "turndown";
 import { Readability } from "@mozilla/readability";
 import { writeAppFile } from "@/lib/app-file-storage";
-import { registry } from "./extractors";
+import { registry, setWebViewExtractor } from "./extractors";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -119,6 +119,8 @@ async function extractViaWebview(url: string): Promise<string | null> {
     } catch {}
   }
 }
+
+setWebViewExtractor(extractViaWebview);
 
 export function createExtractPageContentTool(
   model: LanguageModel,

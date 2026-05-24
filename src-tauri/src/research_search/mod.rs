@@ -56,6 +56,8 @@ pub fn init_database(app_data_dir: &std::path::Path) -> Result<Database, String>
 
     conn.execute_batch(schema::CREATE_TABLES)
         .map_err(|e| e.to_string())?;
+    conn.execute(schema::REBUILD_CHUNKS_FTS, [])
+        .map_err(|e| e.to_string())?;
 
     Ok(Database {
         conn: Mutex::new(conn),

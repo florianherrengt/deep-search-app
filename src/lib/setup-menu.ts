@@ -5,7 +5,17 @@ import {
   PredefinedMenuItem,
 } from "@tauri-apps/api/menu";
 
-export async function setupMenu(onPreferences: () => void) {
+export async function setupMenu(
+  onPreferences: () => void,
+  onNewChat: () => void,
+) {
+  const newChat = await MenuItem.new({
+    id: "new-chat",
+    text: "New Chat",
+    accelerator: "CmdOrCtrl+N",
+    action: onNewChat,
+  });
+
   const preferences = await MenuItem.new({
     id: "preferences",
     text: "Preferences...",
@@ -21,7 +31,7 @@ export async function setupMenu(onPreferences: () => void) {
 
   const appSubmenu = await Submenu.new({
     text: "Deep Search",
-    items: [preferences, separator, quit],
+    items: [newChat, separator, preferences, separator, quit],
   });
 
   const editSeparator = await PredefinedMenuItem.new({ item: "Separator" });

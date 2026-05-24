@@ -5,13 +5,19 @@ export async function ensureChatUI() {
     window.localStorage.setItem(
       'deep-search-test-settings',
       JSON.stringify({
+        chat_provider: 'openrouter',
         openrouter_api_key: 'test-key-123',
+        anthropic_api_key: '',
+        zhipu_api_key: '',
+        zhipu_base_url: '',
         searxng_url: '',
         brave_api_key: '',
         exa_api_key: '',
         serper_api_key: '',
         tavily_api_key: '',
         default_model: 'openrouter/free',
+        anthropic_model: 'claude-sonnet-4-5',
+        zhipu_model: 'glm-4.7-flash',
       }),
     );
   });

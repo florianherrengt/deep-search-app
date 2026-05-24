@@ -3,6 +3,11 @@ import type { UIMessage } from "ai";
 import { SettingsProvider, useSettings } from "@/hooks/use-settings";
 import { setupMenu } from "@/lib/setup-menu";
 import {
+  getChatModelOptions,
+  getDefaultChatModelId,
+} from "@/lib/chat-provider-settings";
+import { type ChatProvider } from "@/lib/chat-providers";
+import {
   setBraveApiKey,
   setExaApiKey,
   setSerperApiKey,
@@ -11,6 +16,7 @@ import {
 } from "@/lib/transport";
 import { Chat } from "@/components/chat";
 import { SettingsPanel } from "@/components/settings-panel";
+import { ToolsPanel } from "@/components/tools-panel";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { TabPanel } from "@/components/tab-panel";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
@@ -34,7 +40,7 @@ declare global {
 }
 
 function AppInner() {
-  const { settings, loading } = useSettings();
+  const { settings, loading, updateSetting } = useSettings();
   const { tabs, activeTabId, switchToTab, closeTab } = useBrowserTabs();
   const [researchFolders, setResearchFolders] = useState<ResearchFolder[]>([]);
   const [researchFoldersStatus, setResearchFoldersStatus] = useState<
@@ -54,6 +60,18 @@ function AppInner() {
   );
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
   const [chatSessionId, setChatSessionId] = useState(() => createChatSessionId());
+
+  const handleNewChat = useCallback(() => {
+    const nextChatId = createResearchChatId();
+
+    setActiveResearchFolder(null);
+    setActiveResearchChatId(nextChatId);
+    setResearchChats([]);
+    setResearchChatsStatus("idle");
+    setInitialMessages([]);
+    setChatSessionId(createChatSessionId());
+    switchToTab("main");
+  }, [switchToTab]);
 
   const refreshResearchFolders = useCallback(async () => {
     setResearchFoldersStatus("loading");
@@ -79,8 +97,11 @@ function AppInner() {
   }, []);
 
   useEffect(() => {
-    setupMenu(() => switchToTab("settings"));
-  }, [switchToTab]);
+    setupMenu(
+      () => switchToTab("settings"),
+      handleNewChat,
+    );
+  }, [switchToTab, handleNewChat]);
 
   useEffect(() => {
     void refreshResearchFolders();
@@ -94,9 +115,24 @@ function AppInner() {
     if (settings.searxng_url) setSearXNGBaseUrl(settings.searxng_url);
   }, [settings]);
 
+  const updateDefaultChatProvider = useCallback(
+    (provider: ChatProvider) => {
+      if (provider !== settings.chat_provider) {
+        void updateSetting("chat_provider", provider);
+      }
+    },
+    [settings.chat_provider, updateSetting],
+  );
+
   if (loading) return null;
 
-  if (!settings.openrouter_api_key) {
+  const chatModelOptions = getChatModelOptions(settings);
+  const hasConfiguredChatProvider = chatModelOptions.some(
+    (option) => !option.disabled,
+  );
+  const defaultChatModelId = getDefaultChatModelId(settings, chatModelOptions);
+
+  if (!hasConfiguredChatProvider) {
     return (
       <>
         <main className="flex flex-col items-center justify-center pt-[10vh] text-center">
@@ -106,7 +142,7 @@ function AppInner() {
             <kbd className="rounded border px-1.5 py-0.5 text-xs">
               Cmd+,
             </kbd>{" "}
-            to open settings and add your OpenRouter API key.
+            to open settings and add at least one chat provider API key.
           </p>
         </main>
         <SettingsDialog
@@ -116,18 +152,6 @@ function AppInner() {
       </>
     );
   }
-
-  const handleNewChat = () => {
-    const nextChatId = createResearchChatId();
-
-    setActiveResearchFolder(null);
-    setActiveResearchChatId(nextChatId);
-    setResearchChats([]);
-    setResearchChatsStatus("idle");
-    setInitialMessages([]);
-    setChatSessionId(createChatSessionId());
-    switchToTab("main");
-  };
 
   const handleSelectResearchFolder = async (folderName: string) => {
     setActiveResearchFolder(folderName);
@@ -267,8 +291,9 @@ function AppInner() {
               key={chatSessionId}
               chatId={chatSessionId}
               researchChatId={activeResearchChatId}
-              apiKey={settings.openrouter_api_key}
-              defaultModel={settings.default_model}
+              modelOptions={chatModelOptions}
+              defaultModelId={defaultChatModelId}
+              researchApiKey={settings.openrouter_api_key}
               researchFolder={activeResearchFolder}
               initialMessages={initialMessages}
               onResearchFolderChange={handleResearchFolderChange}
@@ -277,11 +302,15 @@ function AppInner() {
                   void refreshResearchChats(folderName);
                 }
               }}
+              onModelChange={(model) => {
+                updateDefaultChatProvider(model.provider);
+              }}
             />
           </div>
         </div>
       }
       settingsPanel={<SettingsPanel />}
+      toolsPanel={<ToolsPanel config={{ researchFolder: activeResearchFolder, apiKey: settings.openrouter_api_key }} />}
       tabs={tabs}
       activeTabId={activeTabId}
       onSwitchTab={switchToTab}

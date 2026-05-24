@@ -6,6 +6,7 @@ const TAB_BAR_HEIGHT = 40;
 
 interface TabPanelProps {
   chatPanel: ReactNode;
+  toolsPanel: ReactNode;
   settingsPanel: ReactNode;
   tabs: BrowserTab[];
   activeTabId: string;
@@ -15,6 +16,7 @@ interface TabPanelProps {
 
 export function TabPanel({
   chatPanel,
+  toolsPanel,
   settingsPanel,
   tabs,
   activeTabId,
@@ -22,7 +24,11 @@ export function TabPanel({
   onCloseTab,
 }: TabPanelProps) {
   const content =
-    activeTabId === "settings" ? settingsPanel : chatPanel;
+    activeTabId === "settings"
+      ? settingsPanel
+      : activeTabId === "tools"
+        ? toolsPanel
+        : chatPanel;
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -45,6 +51,14 @@ export function TabPanel({
           onClick={() => onSwitchTab("settings")}
         >
           Settings
+        </Button>
+        <Button
+          variant={activeTabId === "tools" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 px-3 text-xs"
+          onClick={() => onSwitchTab("tools")}
+        >
+          Tools
         </Button>
         {tabs.map((tab) => (
           <div key={tab.id} className="flex items-center">

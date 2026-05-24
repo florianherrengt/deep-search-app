@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
@@ -9,34 +9,62 @@ import {
   DirectTransport,
   shouldContinueAfterToolResult,
 } from "@/lib/transport";
+import {
+  type ChatModelConfig,
+  type ConfiguredChatModelOption,
+} from "@/lib/chat-providers";
 import { saveResearchChatMessages } from "@/lib/research-history";
 
-const DEFAULT_MODEL = "openrouter/free";
-
 export function Chat({
-  apiKey,
-  defaultModel,
+  modelOptions,
+  defaultModelId,
+  researchApiKey,
   chatId,
   researchChatId,
   researchFolder,
   initialMessages = [],
   onResearchFolderChange,
   onResearchChatSaved,
+  onModelChange,
 }: {
-  apiKey: string;
-  defaultModel: string;
+  modelOptions: ConfiguredChatModelOption[];
+  defaultModelId: string;
+  researchApiKey: string;
   chatId: string;
   researchChatId: string;
   researchFolder: string | null;
   initialMessages?: UIMessage[];
   onResearchFolderChange?: (folderName: string) => void;
   onResearchChatSaved?: (folderName: string, chatId: string) => void;
+  onModelChange?: (model: ConfiguredChatModelOption) => void;
 }) {
-  const apiKeyRef = useRef(apiKey);
-  apiKeyRef.current = apiKey;
+  const enabledModels = useMemo(
+    () => modelOptions.filter((option) => !option.disabled),
+    [modelOptions],
+  );
+  const firstEnabledModelId = enabledModels[0]?.id ?? "";
+  const resolvedDefaultModelId =
+    enabledModels.some((option) => option.id === defaultModelId)
+      ? defaultModelId
+      : firstEnabledModelId;
+  const [selectedModelId, setSelectedModelId] = useState(
+    resolvedDefaultModelId,
+  );
 
-  const modelRef = useRef(defaultModel.trim() || DEFAULT_MODEL);
-  modelRef.current = defaultModel.trim() || DEFAULT_MODEL;
+  useEffect(() => {
+    if (!enabledModels.some((option) => option.id === selectedModelId)) {
+      setSelectedModelId(resolvedDefaultModelId);
+    }
+  }, [enabledModels, resolvedDefaultModelId, selectedModelId]);
+
+  const modelOptionsRef = useRef(modelOptions);
+  modelOptionsRef.current = modelOptions;
+
+  const selectedModelIdRef = useRef(selectedModelId);
+  selectedModelIdRef.current = selectedModelId;
+
+  const researchApiKeyRef = useRef(researchApiKey);
+  researchApiKeyRef.current = researchApiKey;
 
   const researchFolderRef = useRef(researchFolder);
   if (researchFolder) {
@@ -49,10 +77,34 @@ export function Chat({
   const onResearchChatSavedRef = useRef(onResearchChatSaved);
   onResearchChatSavedRef.current = onResearchChatSaved;
 
+  function getSelectedChatModel(): ChatModelConfig | null {
+    const selected = modelOptionsRef.current.find(
+      (option) => option.id === selectedModelIdRef.current,
+    );
+    if (!selected || selected.disabled) return null;
+
+    return {
+      provider: selected.provider,
+      apiKey: selected.apiKey,
+      model: selected.model,
+      baseURL: selected.baseURL,
+    };
+  }
+
+  function handleModelChange(modelId: string) {
+    const selected = modelOptions.find(
+      (option) => option.id === modelId && !option.disabled,
+    );
+    if (!selected) return;
+
+    setSelectedModelId(modelId);
+    onModelChange?.(selected);
+  }
+
   const transportRef = useRef(
     new DirectTransport(
-      () => apiKeyRef.current,
-      () => modelRef.current,
+      getSelectedChatModel,
+      () => researchApiKeyRef.current,
       researchFolder,
       (folderName) => {
         researchFolderRef.current = folderName;
@@ -84,7 +136,11 @@ export function Chat({
     <AssistantRuntimeProvider runtime={runtime}>
       <QuestionsToolUI />
       <div className="h-full">
-        <Thread />
+        <Thread
+          models={enabledModels}
+          selectedModelId={selectedModelId}
+          onSelectedModelIdChange={handleModelChange}
+        />
       </div>
     </AssistantRuntimeProvider>
   );

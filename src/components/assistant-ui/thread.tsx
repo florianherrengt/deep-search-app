@@ -10,6 +10,10 @@ import {
   type PartState,
 } from "@assistant-ui/react";
 import { CopyIcon, CheckIcon, RefreshCwIcon, ArrowDownIcon } from "lucide-react";
+import {
+  ModelSelector,
+  type ModelOption,
+} from "@/components/assistant-ui/model-selector";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { GuardrailCard } from "@/components/assistant-ui/guardrail-card";
@@ -61,7 +65,17 @@ function ScrollToBottomThreshold() {
   );
 }
 
-export function Thread() {
+interface ThreadProps {
+  models: ModelOption[];
+  selectedModelId: string;
+  onSelectedModelIdChange: (modelId: string) => void;
+}
+
+export function Thread({
+  models,
+  selectedModelId,
+  onSelectedModelIdChange,
+}: ThreadProps) {
   return (
     <ThreadPrimitive.Root className="relative flex h-full flex-col">
       <ThreadPrimitive.Viewport className="flex-1 overflow-y-auto px-6 py-4">
@@ -78,23 +92,35 @@ export function Thread() {
 
       <ThreadPrimitive.ViewportFooter className="relative border-t border-zinc-200 px-6 py-3 dark:border-zinc-700">
         <ScrollToBottomThreshold />
-        <ComposerPrimitive.Root className="flex items-end gap-2">
+        <ComposerPrimitive.Root className="space-y-2">
           <ComposerPrimitive.Input
             placeholder="Ask something..."
-            className="flex-1 resize-none rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+            className="w-full resize-none rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
             rows={1}
             autoFocus
           />
-          <AuiIf condition={(s) => !s.thread.isRunning}>
-            <ComposerPrimitive.Send className="rounded-xl bg-blue-600 px-4 py-3 text-sm text-white hover:bg-blue-700">
-              Send
-            </ComposerPrimitive.Send>
-          </AuiIf>
-          <AuiIf condition={(s) => s.thread.isRunning}>
-            <ComposerPrimitive.Cancel className="rounded-xl bg-red-500 px-4 py-3 text-sm text-white hover:bg-red-600">
-              Stop
-            </ComposerPrimitive.Cancel>
-          </AuiIf>
+          <div className="flex items-center justify-between gap-2">
+            <ModelSelector
+              models={models}
+              value={selectedModelId}
+              onValueChange={onSelectedModelIdChange}
+              size="sm"
+              variant="ghost"
+              contentClassName="w-[min(24rem,calc(100vw-3rem))]"
+            />
+            <div className="flex shrink-0 items-center gap-2">
+              <AuiIf condition={(s) => !s.thread.isRunning}>
+                <ComposerPrimitive.Send className="rounded-xl bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
+                  Send
+                </ComposerPrimitive.Send>
+              </AuiIf>
+              <AuiIf condition={(s) => s.thread.isRunning}>
+                <ComposerPrimitive.Cancel className="rounded-xl bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-600">
+                  Stop
+                </ComposerPrimitive.Cancel>
+              </AuiIf>
+            </div>
+          </div>
         </ComposerPrimitive.Root>
       </ThreadPrimitive.ViewportFooter>
     </ThreadPrimitive.Root>

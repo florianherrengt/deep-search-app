@@ -1,7 +1,14 @@
-import { invoke } from "@tauri-apps/api/core";
 import { load } from "cheerio";
 import { PageExtractor } from "./base-extractor";
 import { parseRedditJson, type RedditComment, type RedditPost } from "./reddit-json-parser";
+
+type WebViewExtractor = (url: string) => Promise<string | null>;
+
+let getExtractViaWebview: WebViewExtractor | null = null;
+
+export function setWebViewExtractor(fn: WebViewExtractor): void {
+  getExtractViaWebview = fn;
+}
 
 function isRedditUrl(url: string): boolean {
   try {
@@ -19,18 +26,8 @@ function toOldRedditUrl(url: string): string {
 }
 
 async function extractViaWebview(url: string): Promise<string | null> {
-  const id = `reddit-${Date.now()}`;
-  try {
-    await invoke("open_tab", { url, id });
-    const html: string = await invoke("extract_content", { id });
-    return html;
-  } catch {
-    return null;
-  } finally {
-    try {
-      await invoke("close_tab", { id });
-    } catch {}
-  }
+  if (!getExtractViaWebview) return null;
+  return getExtractViaWebview(url);
 }
 
 function parseOldRedditHtml(html: string): string | null {
