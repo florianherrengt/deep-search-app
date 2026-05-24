@@ -2,11 +2,9 @@ import { tool, zodSchema, generateText, type LanguageModel } from "ai";
 import { z } from "zod";
 import { fetch } from "@tauri-apps/plugin-http";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  stripNoise,
-  htmlToMarkdown,
-} from "@/lib/content-extraction";
+import { htmlToMarkdown } from "@/lib/content-extraction";
 import { writeAppFile } from "@/lib/app-file-storage";
+import { registry } from "./extractors";
 
 const MIN_CONTENT_LENGTH = 200;
 const FETCH_TIMEOUT_MS = 10_000;
@@ -78,7 +76,7 @@ async function summarizeContent(
 }
 
 function processHtml(html: string): string {
-  return htmlToMarkdown(stripNoise(html));
+  return htmlToMarkdown(html);
 }
 
 async function extractViaWebview(url: string): Promise<string | null> {
@@ -131,7 +129,10 @@ export function createExtractPageContentTool(
       let html: string | null = null;
       let markdown = "";
 
-      if (forced === "webview") {
+      const extractor = registry.find(url);
+      if (extractor) {
+        markdown = await extractor.extract(url);
+      } else if (forced === "webview") {
         html = await extractViaWebview(url);
         markdown = html ? processHtml(html) : "";
       } else {
