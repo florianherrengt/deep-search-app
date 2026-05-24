@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import TurndownService from "turndown";
 import { Readability } from "@mozilla/readability";
 import { writeAppFile } from "@/lib/app-file-storage";
-import { registry, setWebViewExtractor } from "./extractors";
+import { registry, setWebViewExtractor, type WebViewExtractorOptions } from "./extractors";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -14,6 +14,18 @@ const turndown = new TurndownService({
 
 const MIN_CONTENT_LENGTH = 200;
 const FETCH_TIMEOUT_MS = 10_000;
+const DEFAULT_WEBVIEW_RETRY_INTERVAL_MS = 5_000;
+const DEFAULT_WEBVIEW_MAX_WAIT_MS = 5 * 60_000;
+
+type ExtractionMethod = "auto" | "fetch" | "webview";
+
+interface ExtractPageContentOptions {
+  query?: string;
+  summarize?: boolean;
+  method?: ExtractionMethod;
+  model?: LanguageModel;
+  getResearchFolder?: () => Promise<string | null | undefined>;
+}
 
 function domainFromUrl(url: string): string {
   try {
@@ -105,12 +117,51 @@ export function processHtml(html: string, url: string): string {
   return htmlToMarkdown(html);
 }
 
-async function extractViaWebview(url: string): Promise<string | null> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeWebviewHtml(html: string): string {
+  const trimmed = html.trim();
+  if (!trimmed.startsWith('"') && !trimmed.startsWith("{")) return html;
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (typeof parsed === "string") return parsed;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "value" in parsed &&
+      typeof parsed.value === "string"
+    ) {
+      return parsed.value;
+    }
+  } catch {}
+
+  return html;
+}
+
+async function extractViaWebview(
+  url: string,
+  options?: WebViewExtractorOptions,
+): Promise<string | null> {
   const id = `tab-${Date.now()}`;
   try {
     await invoke("open_tab", { url, id });
-    const html: string = await invoke("extract_content", { id });
-    return html;
+    const startedAt = Date.now();
+
+    while (true) {
+      const rawHtml: string = await invoke("extract_content", { id });
+      const html = normalizeWebviewHtml(rawHtml);
+      const shouldRetry = options?.shouldRetry?.(html) ?? false;
+
+      if (!shouldRetry) return html;
+
+      const maxWaitMs = options?.maxWaitMs ?? DEFAULT_WEBVIEW_MAX_WAIT_MS;
+      if (Date.now() - startedAt >= maxWaitMs) return html;
+
+      await sleep(options?.retryIntervalMs ?? DEFAULT_WEBVIEW_RETRY_INTERVAL_MS);
+    }
   } catch {
     return null;
   } finally {
@@ -121,6 +172,84 @@ async function extractViaWebview(url: string): Promise<string | null> {
 }
 
 setWebViewExtractor(extractViaWebview);
+
+export async function extractPageContent(
+  url: string,
+  options: ExtractPageContentOptions = {},
+): Promise<string> {
+  const forced = options.method ?? "auto";
+  let html: string | null = null;
+  let markdown = "";
+  let usedCustomExtractor = false;
+
+  const extractor = registry.find(url);
+  if (extractor) {
+    usedCustomExtractor = true;
+    markdown = await extractor.extract(url);
+  } else if (forced === "webview") {
+    html = await extractViaWebview(url);
+    markdown = html ? processHtml(html, url) : "";
+  } else {
+    html = await fetchHtml(url);
+    markdown = html ? processHtml(html, url) : "";
+    if (forced === "auto" && markdown.length < MIN_CONTENT_LENGTH) {
+      html = await extractViaWebview(url);
+      markdown = html ? processHtml(html, url) : "";
+    }
+  }
+
+  if (html || markdown) {
+    const shouldSummarize =
+      options.summarize === true ||
+      (!usedCustomExtractor && options.summarize !== false);
+    const researchFolder = await options.getResearchFolder?.();
+    if (researchFolder) {
+      const domain = domainFromUrl(url);
+      const page = pageSlugFromUrl(url);
+      const rawPath = `search-results/${researchFolder}/raw/${domain}`;
+
+      if (html) {
+        await writeAppFile({
+          subfolder: rawPath,
+          filename: `${page}.html`,
+          content: html,
+        });
+      }
+
+      if (markdown) {
+        await writeAppFile({
+          subfolder: rawPath,
+          filename: `${page}.md`,
+          content: markdown,
+        });
+      }
+
+      if (shouldSummarize && markdown.trim() && options.model) {
+        try {
+          const summary = await summarizeContent(options.model, markdown, options.query);
+          if (summary) {
+            await writeAppFile({
+              subfolder: rawPath,
+              filename: `${page}-summary.md`,
+              content: summary,
+            });
+          }
+          return summary;
+        } catch {}
+      }
+    } else if (
+      shouldSummarize &&
+      markdown.trim() &&
+      options.model
+    ) {
+      try {
+        return await summarizeContent(options.model, markdown, options.query);
+      } catch {}
+    }
+  }
+
+  return markdown;
+}
 
 export function createExtractPageContentTool(
   model: LanguageModel,
@@ -152,68 +281,13 @@ export function createExtractPageContentTool(
       }),
     ),
     outputSchema: zodSchema(z.string().describe("Extracted page content")),
-    execute: async ({ url, query, summarize: doSummarize, method }) => {
-      const forced = method ?? "auto";
-      let html: string | null = null;
-      let markdown = "";
-
-      const extractor = registry.find(url);
-      if (extractor) {
-        markdown = await extractor.extract(url);
-      }
-
-      if (!markdown) {
-        if (forced === "webview") {
-          html = await extractViaWebview(url);
-          markdown = html ? processHtml(html, url) : "";
-        } else {
-          html = await fetchHtml(url);
-          markdown = html ? processHtml(html, url) : "";
-          if (forced === "auto" && markdown.length < MIN_CONTENT_LENGTH) {
-            html = await extractViaWebview(url);
-            markdown = html ? processHtml(html, url) : "";
-          }
-        }
-      }
-
-      if (html || markdown) {
-        const researchFolder = await getResearchFolder();
-        const domain = domainFromUrl(url);
-        const page = pageSlugFromUrl(url);
-        const rawPath = `search-results/${researchFolder}/raw/${domain}`;
-
-        if (html) {
-          await writeAppFile({
-            subfolder: rawPath,
-            filename: `${page}.html`,
-            content: html,
-          });
-        }
-
-        if (markdown) {
-          await writeAppFile({
-            subfolder: rawPath,
-            filename: `${page}.md`,
-            content: markdown,
-          });
-        }
-
-        if (doSummarize !== false && markdown.trim()) {
-          try {
-            const summary = await summarizeContent(model, markdown, query);
-            if (summary) {
-              await writeAppFile({
-                subfolder: rawPath,
-                filename: `${page}-summary.md`,
-                content: summary,
-              });
-            }
-            return summary;
-          } catch {}
-        }
-      }
-
-      return markdown;
-    },
+    execute: async ({ url, query, summarize: doSummarize, method }) =>
+      extractPageContent(url, {
+        query,
+        summarize: doSummarize,
+        method,
+        model,
+        getResearchFolder,
+      }),
   });
 }

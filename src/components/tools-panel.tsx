@@ -80,7 +80,7 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
   const unavailableTools = tools.filter((t) => !t.available);
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6">
+    <div className="mx-auto max-w-4xl px-4 py-6 overflow-y-auto h-full">
       <h2 className="text-lg font-semibold">Tools</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Call tools directly with custom parameters and inspect the results.
@@ -252,7 +252,9 @@ function ResultCard({ entry }: { entry: ToolResult }) {
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-1">Output</p>
               <pre className="rounded bg-muted p-2 text-xs overflow-auto max-h-80">
-                {JSON.stringify(entry.result, null, 2)}
+                {typeof entry.result === "string"
+                  ? entry.result
+                  : JSON.stringify(entry.result, null, 2)}
               </pre>
             </div>
           )}

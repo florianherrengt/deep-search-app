@@ -7,3 +7,4 @@ registry.register(new RedditExtractor());
 export { registry, setWebViewExtractor };
 export { PageExtractor } from "./base-extractor";
 export { ExtractorRegistry } from "./registry";
+export type { WebViewExtractorOptions } from "./reddit-extractor";

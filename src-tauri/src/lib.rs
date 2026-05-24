@@ -65,14 +65,30 @@ async fn extract_content(app: AppHandle, id: String) -> Result<String, String> {
     loop {
         let (tx, rx) = mpsc::channel::<String>();
         match wv.eval_with_callback(
-            "(function(){return document.readyState})()",
+            r##"(function(){
+                var text = (document.body && document.body.innerText || "").toLowerCase();
+                var hasOldRedditPost = location.hostname === "old.reddit.com" && !!document.querySelector(".thing.link p.title > a.title");
+                var hasChallenge =
+                    !!document.querySelector("#challenge-form, .g-recaptcha, .h-captcha, [class*='cf-challenge'], iframe[src*='recaptcha'], iframe[src*='hcaptcha']") ||
+                    text.includes("captcha challenge") ||
+                    text.includes("captcha required") ||
+                    text.includes("verify you are human") ||
+                    text.includes("checking if the site connection is secure") ||
+                    text.includes("checking your browser") ||
+                    text.includes("are you a robot") ||
+                    text.includes("security check");
+                return document.readyState + "|" + (hasOldRedditPost ? "old-reddit-post" : "") + "|" + (hasChallenge ? "challenge" : "");
+            })()"##,
             move |result| {
                 let _ = tx.send(result);
             },
         ) {
             Ok(_) => {
-                if let Ok(ready) = rx.recv_timeout(Duration::from_secs(EVAL_RECV_TIMEOUT_SECS)) {
-                    if ready.contains("complete") {
+                if let Ok(status) = rx.recv_timeout(Duration::from_secs(EVAL_RECV_TIMEOUT_SECS)) {
+                    if status.contains("complete")
+                        || status.contains("old-reddit-post")
+                        || status.contains("challenge")
+                    {
                         break;
                     }
                 }
@@ -89,15 +105,18 @@ async fn extract_content(app: AppHandle, id: String) -> Result<String, String> {
 
     let (tx, rx) = mpsc::channel::<String>();
     wv.eval_with_callback(
-        "document.documentElement.innerHTML",
+        "document.documentElement.outerHTML",
         move |result| {
             let _ = tx.send(result);
         },
     )
     .map_err(|e| e.to_string())?;
 
-    rx.recv_timeout(Duration::from_secs(EVAL_RECV_TIMEOUT_SECS))
-        .map_err(|e| e.to_string())
+    let result = rx
+        .recv_timeout(Duration::from_secs(EVAL_RECV_TIMEOUT_SECS))
+        .map_err(|e| e.to_string())?;
+
+    Ok(serde_json::from_str::<String>(&result).unwrap_or(result))
 }
 
 #[tauri::command]

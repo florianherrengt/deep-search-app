@@ -134,28 +134,21 @@ export function getAvailableTools(config?: ToolExecuteConfig): ToolDescriptor[] 
 
     {
       name: "extract_page_content",
-      description: "Extract the text content of a web page via HTTP fetch (no LLM summarization in standalone mode).",
+      description: "Extract the text content of a web page. Uses custom extractors and webview fallback where needed.",
       parameters: {
         url: { type: "string", required: true, description: "URL to extract content from" },
       },
       available: true,
       execute: async (params) => {
-        const { fetchHtml, processHtml } = await import("@/tools/extract-page-content-tool");
+        const { extractPageContent } = await import("@/tools/extract-page-content-tool");
         const url = params.url as string;
-        const html = await fetchHtml(url);
-        if (!html) return { content: "", error: "Failed to fetch page" };
-        const markdown = processHtml(html, url);
+        const markdown = await extractPageContent(url, {
+          summarize: false,
+          getResearchFolder: researchFolder ? async () => researchFolder : undefined,
+        });
+        if (!markdown) throw new Error("Failed to extract page");
 
-        if (researchFolder && markdown) {
-          try {
-            const domain = new URL(url).hostname.replace(/^www\./, "");
-            const slug = url.toLowerCase().replace(/[^\w\s-]/g, "").replace(/[\s_]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "page";
-            const rawPath = `search-results/${researchFolder}/raw/${domain}`;
-            await writeAppFile({ subfolder: rawPath, filename: `${slug}.md`, content: markdown });
-          } catch {}
-        }
-
-        return { content: markdown };
+        return markdown;
       },
     },
 
