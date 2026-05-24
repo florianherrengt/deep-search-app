@@ -2,9 +2,15 @@ import { tool, zodSchema, generateText, type LanguageModel } from "ai";
 import { z } from "zod";
 import { fetch } from "@tauri-apps/plugin-http";
 import { invoke } from "@tauri-apps/api/core";
-import { htmlToMarkdown } from "@/lib/content-extraction";
+import TurndownService from "turndown";
+import { Readability } from "@mozilla/readability";
 import { writeAppFile } from "@/lib/app-file-storage";
 import { registry } from "./extractors";
+
+const turndown = new TurndownService({
+  headingStyle: "atx",
+  codeBlockStyle: "fenced",
+});
 
 const MIN_CONTENT_LENGTH = 200;
 const FETCH_TIMEOUT_MS = 10_000;
@@ -37,7 +43,7 @@ function pageSlugFromUrl(url: string): string {
   }
 }
 
-async function fetchHtml(url: string): Promise<string | null> {
+export async function fetchHtml(url: string): Promise<string | null> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -75,7 +81,27 @@ async function summarizeContent(
   return text;
 }
 
-function processHtml(html: string): string {
+function extractReadableContent(html: string, url: string): string | null {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+  const base = doc.createElement("base");
+  base.href = url;
+  doc.head.prepend(base);
+  const reader = new Readability(doc);
+  const article = reader.parse();
+  return article?.content ?? null;
+}
+
+function htmlToMarkdown(html: string): string {
+  return turndown
+    .turndown(html)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function processHtml(html: string, url: string): string {
+  const content = extractReadableContent(html, url);
+  if (content) return htmlToMarkdown(content);
   return htmlToMarkdown(html);
 }
 
@@ -132,15 +158,19 @@ export function createExtractPageContentTool(
       const extractor = registry.find(url);
       if (extractor) {
         markdown = await extractor.extract(url);
-      } else if (forced === "webview") {
-        html = await extractViaWebview(url);
-        markdown = html ? processHtml(html) : "";
-      } else {
-        html = await fetchHtml(url);
-        markdown = html ? processHtml(html) : "";
-        if (forced === "auto" && markdown.length < MIN_CONTENT_LENGTH) {
+      }
+
+      if (!markdown) {
+        if (forced === "webview") {
           html = await extractViaWebview(url);
-          markdown = html ? processHtml(html) : "";
+          markdown = html ? processHtml(html, url) : "";
+        } else {
+          html = await fetchHtml(url);
+          markdown = html ? processHtml(html, url) : "";
+          if (forced === "auto" && markdown.length < MIN_CONTENT_LENGTH) {
+            html = await extractViaWebview(url);
+            markdown = html ? processHtml(html, url) : "";
+          }
         }
       }
 

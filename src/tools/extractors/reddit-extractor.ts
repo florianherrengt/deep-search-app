@@ -52,16 +52,15 @@ function parseReplies(replies: unknown): RedditComment[] {
     }));
 }
 
-async function fetchWithTimeout(url: string): Promise<Response | null> {
+const UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+async function fetchJson(url: string): Promise<Response | null> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     const response = await fetch(url, {
-      headers: {
-        accept: "application/json",
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-      },
+      headers: { accept: "application/json", "user-agent": UA },
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -71,13 +70,44 @@ async function fetchWithTimeout(url: string): Promise<Response | null> {
   }
 }
 
+async function fetchHtml(url: string): Promise<Response | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const response = await fetch(url, {
+      headers: { accept: "text/html,application/xhtml+xml", "user-agent": UA },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return response;
+  } catch {
+    return null;
+  }
+}
+
+function isChallengePage(html: string): boolean {
+  const lower = html.toLowerCase();
+  return (
+    lower.includes("please wait for verification") ||
+    lower.includes("are you a robot") ||
+    lower.includes("are you human") ||
+    lower.includes("cf-challenge") ||
+    lower.includes("captcha") ||
+    lower.includes("blocked") ||
+    lower.includes("access denied")
+  );
+}
+
 async function extractViaJson(url: string): Promise<string | null> {
   const jsonUrl = toJsonUrl(url);
-  const response = await fetchWithTimeout(jsonUrl);
+  const response = await fetchJson(jsonUrl);
   if (!response || response.status !== 200) return null;
 
   try {
-    const data = (await response.json()) as Array<{
+    const text = await response.text();
+    if (isChallengePage(text)) return null;
+
+    const data = JSON.parse(text) as Array<{
       data: { children: Array<{ kind: string; data: Record<string, unknown> }> };
     }>;
 
@@ -112,12 +142,12 @@ async function extractViaJson(url: string): Promise<string | null> {
 
 async function extractViaOldReddit(url: string): Promise<string | null> {
   const oldUrl = toOldRedditUrl(url);
-  const response = await fetchWithTimeout(oldUrl);
+  const response = await fetchHtml(oldUrl);
   if (!response) return null;
 
   try {
     const html = await response.text();
-    if (!html) return null;
+    if (!html || isChallengePage(html)) return null;
 
     const { load } = await import("cheerio");
     const $ = load(html);
