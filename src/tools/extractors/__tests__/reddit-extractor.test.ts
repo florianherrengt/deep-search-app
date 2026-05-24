@@ -71,7 +71,7 @@ describe("RedditExtractor", () => {
       expect(mockInvoke).toHaveBeenCalledWith(
         "open_tab",
         expect.objectContaining({
-          url: "https://old.reddit.com/r/test/comments/abc/test_post/",
+          url: "https://www.reddit.com/r/test/comments/abc/test_post/",
         }),
       );
     });

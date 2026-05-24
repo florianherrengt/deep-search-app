@@ -12,12 +12,6 @@ function isRedditUrl(url: string): boolean {
   }
 }
 
-function toOldRedditUrl(url: string): string {
-  const u = new URL(url);
-  u.hostname = "old.reddit.com";
-  return u.toString();
-}
-
 async function extractViaWebview(url: string): Promise<string | null> {
   const id = `reddit-${Date.now()}`;
   try {
@@ -76,8 +70,7 @@ export class RedditExtractor extends PageExtractor {
   async extract(url: string): Promise<string> {
     if (url.includes(".json")) return "";
 
-    const oldUrl = toOldRedditUrl(url);
-    const html = await extractViaWebview(oldUrl);
+    const html = await extractViaWebview(url);
     if (!html) return "";
 
     const result = parseOldRedditHtml(html);
