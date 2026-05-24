@@ -1,71 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@tauri-apps/plugin-http", () => ({
-  fetch: vi.fn(),
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
 }));
 
-import { fetch } from "@tauri-apps/plugin-http";
+import { invoke } from "@tauri-apps/api/core";
 import { RedditExtractor } from "../reddit-extractor";
 
-const mockFetch = vi.mocked(fetch);
+const mockInvoke = vi.mocked(invoke);
 
-const mockRedditJson = [
-  {
-    kind: "Listing",
-    data: {
-      children: [
-        {
-          kind: "t3",
-          data: {
-            title: "Test Post",
-            selftext: "Body text",
-            author: "tester",
-            score: 10,
-            created_utc: 1779386106,
-            num_comments: 2,
-          },
-        },
-      ],
-    },
-  },
-  {
-    kind: "Listing",
-    data: {
-      children: [
-        {
-          kind: "t1",
-          data: {
-            author: "commenter1",
-            body: "Hello",
-            score: 3,
-            created_utc: 1779387000,
-            replies: "",
-          },
-        },
-        {
-          kind: "t1",
-          data: {
-            author: "commenter2",
-            body: "World",
-            score: 1,
-            created_utc: 1779387100,
-            replies: "",
-          },
-        },
-      ],
-    },
-  },
-];
-
-function jsonResponse(data: unknown, status = 200) {
-  return {
-    status,
-    headers: new Headers({ "content-type": "application/json" }),
-    json: () => Promise.resolve(data),
-    text: () => Promise.resolve(JSON.stringify(data)),
-    ok: status < 400,
-  } as unknown as Response;
-}
+const OLD_REDDIT_HTML = `
+<html>
+<body>
+<div class="content">
+  <div class="thing link">
+    <p class="title"><a class="title">Test Post</a></p>
+    <div class="tagline"><a class="author">tester</a></div>
+    <div class="expando"><div class="usertext-body">Body text</div></div>
+  </div>
+  <div class="comment">
+    <div class="tagline"><a class="author">commenter1</a></div>
+    <div class="usertext-body">Hello</div>
+    <span class="score unvoted">3 points</span>
+  </div>
+  <div class="comment">
+    <div class="tagline"><a class="author">commenter2</a></div>
+    <div class="usertext-body">World</div>
+    <span class="score unvoted">1 point</span>
+  </div>
+</div>
+</body>
+</html>
+`;
 
 describe("RedditExtractor", () => {
   let extractor: RedditExtractor;
@@ -90,8 +56,11 @@ describe("RedditExtractor", () => {
   });
 
   describe("extract", () => {
-    it("fetches .json and returns markdown", async () => {
-      mockFetch.mockResolvedValueOnce(jsonResponse(mockRedditJson) as never);
+    it("opens old.reddit.com in webview and returns markdown", async () => {
+      mockInvoke
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(OLD_REDDIT_HTML)
+        .mockResolvedValueOnce(undefined);
 
       const result = await extractor.extract(
         "https://www.reddit.com/r/test/comments/abc/test_post/",
@@ -99,20 +68,31 @@ describe("RedditExtractor", () => {
 
       expect(result).toContain("# Test Post");
       expect(result).toContain("## Comments");
-      expect(mockFetch).toHaveBeenCalledWith(
-        "https://www.reddit.com/r/test/comments/abc/test_post.json",
-        expect.any(Object),
+      expect(mockInvoke).toHaveBeenCalledWith(
+        "open_tab",
+        expect.objectContaining({
+          url: "https://old.reddit.com/r/test/comments/abc/test_post/",
+        }),
       );
     });
 
-    it("returns empty string when both strategies fail", async () => {
-      mockFetch.mockRejectedValue(new Error("network error"));
+    it("returns empty string when webview fails", async () => {
+      mockInvoke.mockRejectedValue(new Error("webview error"));
 
       const result = await extractor.extract(
         "https://www.reddit.com/r/test/comments/abc/test_post/",
       );
 
       expect(result).toBe("");
+    });
+
+    it("returns empty string for .json URLs", async () => {
+      const result = await extractor.extract(
+        "https://www.reddit.com/r/test/comments/abc/test_post.json",
+      );
+
+      expect(result).toBe("");
+      expect(mockInvoke).not.toHaveBeenCalled();
     });
   });
 });
