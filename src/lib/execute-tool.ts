@@ -1,21 +1,13 @@
 import { z } from "zod";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  braveSearchTool,
-  getBraveApiKey,
-} from "@/tools/brave-search-tool";
-import {
-  exaSearchTool,
-  getExaApiKey,
-} from "@/tools/exa-search-tool";
-import {
-  serperSearchTool,
-  getSerperApiKey,
-} from "@/tools/serper-search-tool";
-import {
-  tavilySearchTool,
-  getTavilyApiKey,
-} from "@/tools/tavily-search-tool";
+  createChatLanguageModel,
+  type ChatModelConfig,
+} from "@/lib/chat-providers";
+import { braveSearchTool, getBraveApiKey } from "@/tools/brave-search-tool";
+import { exaSearchTool, getExaApiKey } from "@/tools/exa-search-tool";
+import { serperSearchTool, getSerperApiKey } from "@/tools/serper-search-tool";
+import { tavilySearchTool, getTavilyApiKey } from "@/tools/tavily-search-tool";
 import {
   searxngSearchTool,
   getSearXNGBaseUrl,
@@ -35,6 +27,7 @@ export interface ToolParameter {
   description?: string;
   default?: unknown;
   enum?: string[];
+  isArray?: boolean;
 }
 
 export interface ToolDescriptor {
@@ -48,9 +41,12 @@ export interface ToolDescriptor {
 export interface ToolExecuteConfig {
   researchFolder: string | null;
   apiKey: string;
+  getChatModel?: () => ChatModelConfig | null;
 }
 
-function zodToParams(schema: z.ZodObject<Record<string, z.ZodTypeAny>>): Record<string, ToolParameter> {
+function zodToParams(
+  schema: z.ZodObject<Record<string, z.ZodTypeAny>>,
+): Record<string, ToolParameter> {
   const params: Record<string, ToolParameter> = {};
 
   for (const [key, rawField] of Object.entries(schema.shape)) {
@@ -67,7 +63,9 @@ function zodToParams(schema: z.ZodObject<Record<string, z.ZodTypeAny>>): Record<
     }
     if (hasDefault) {
       required = false;
-      defaultValue = (inner._def as { defaultValue: () => unknown }).defaultValue();
+      defaultValue = (
+        inner._def as { defaultValue: () => unknown }
+      ).defaultValue();
     }
 
     const resolved = hasDefault ? inner.removeDefault() : inner;
@@ -120,31 +118,73 @@ function makeDescriptor(
   };
 }
 
-export function getAvailableTools(config?: ToolExecuteConfig): ToolDescriptor[] {
+export function getAvailableTools(
+  config?: ToolExecuteConfig,
+): ToolDescriptor[] {
   const researchFolder = config?.researchFolder;
   const apiKey = config?.apiKey;
+  const getChatModel = config?.getChatModel;
 
   return [
-    makeDescriptor("brave_search", braveSearchTool as unknown as AnyTool, z.object({ query: z.string() }), !!getBraveApiKey()),
-    makeDescriptor("exa_search", exaSearchTool as unknown as AnyTool, z.object({ query: z.string() }), !!getExaApiKey()),
-    makeDescriptor("serper_search", serperSearchTool as unknown as AnyTool, z.object({ query: z.string() }), !!getSerperApiKey()),
-    makeDescriptor("tavily_search", tavilySearchTool as unknown as AnyTool, z.object({ query: z.string() }), !!getTavilyApiKey()),
-    makeDescriptor("searxng_search", searxngSearchTool as unknown as AnyTool, z.object({ query: z.string() }), !!getSearXNGBaseUrl() && getSearXNGBaseUrl() !== "http://localhost:8080"),
-    makeDescriptor("disambiguate", disambiguateTool as unknown as AnyTool, z.object({ question: z.string() }), true),
+    makeDescriptor(
+      "brave_search",
+      braveSearchTool as unknown as AnyTool,
+      z.object({ query: z.string() }),
+      !!getBraveApiKey(),
+    ),
+    makeDescriptor(
+      "exa_search",
+      exaSearchTool as unknown as AnyTool,
+      z.object({ query: z.string() }),
+      !!getExaApiKey(),
+    ),
+    makeDescriptor(
+      "serper_search",
+      serperSearchTool as unknown as AnyTool,
+      z.object({ query: z.string() }),
+      !!getSerperApiKey(),
+    ),
+    makeDescriptor(
+      "tavily_search",
+      tavilySearchTool as unknown as AnyTool,
+      z.object({ query: z.string() }),
+      !!getTavilyApiKey(),
+    ),
+    makeDescriptor(
+      "searxng_search",
+      searxngSearchTool as unknown as AnyTool,
+      z.object({ query: z.string() }),
+      !!getSearXNGBaseUrl() &&
+        getSearXNGBaseUrl() !== "http://localhost:8080",
+    ),
+    makeDescriptor(
+      "disambiguate",
+      disambiguateTool as unknown as AnyTool,
+      z.object({ question: z.string() }),
+      true,
+    ),
 
     {
       name: "extract_page_content",
-      description: "Extract the text content of a web page. Uses custom extractors and webview fallback where needed.",
+      description:
+        "Extract the text content of a web page. Uses custom extractors and webview fallback where needed.",
       parameters: {
-        url: { type: "string", required: true, description: "URL to extract content from" },
+        url: {
+          type: "string",
+          required: true,
+          description: "URL to extract content from",
+        },
       },
       available: true,
       execute: async (params) => {
-        const { extractPageContent } = await import("@/tools/extract-page-content-tool");
+        const { extractPageContent } =
+          await import("@/tools/extract-page-content-tool");
         const url = params.url as string;
         const markdown = await extractPageContent(url, {
           summarize: false,
-          getResearchFolder: researchFolder ? async () => researchFolder : undefined,
+          getResearchFolder: researchFolder
+            ? async () => researchFolder
+            : undefined,
         });
         if (!markdown) throw new Error("Failed to extract page");
 
@@ -154,41 +194,98 @@ export function getAvailableTools(config?: ToolExecuteConfig): ToolDescriptor[] 
 
     {
       name: "sequential_thinking",
-      description: "Dynamic and reflective problem-solving through structured thoughts.",
+      description:
+        "Dynamic and reflective problem-solving through structured thoughts.",
       parameters: {
-        thought: { type: "string", required: true, description: "Your current thinking step" },
-        nextThoughtNeeded: { type: "boolean", required: true, description: "Whether another thought step is needed" },
-        thoughtNumber: { type: "number", required: true, description: "Current thought number" },
-        totalThoughts: { type: "number", required: true, description: "Estimated total thoughts needed" },
-        isRevision: { type: "boolean", required: false, description: "Whether this thought revises previous thinking" },
-        revisesThought: { type: "number", required: false, description: "Which thought number is being reconsidered" },
-        branchFromThought: { type: "number", required: false, description: "Thought number to branch from" },
-        branchId: { type: "string", required: false, description: "Identifier for the current branch" },
-        needsMoreThoughts: { type: "boolean", required: false, description: "If more thoughts are needed" },
+        thought: {
+          type: "string",
+          required: true,
+          description: "Your current thinking step",
+        },
+        nextThoughtNeeded: {
+          type: "boolean",
+          required: true,
+          description: "Whether another thought step is needed",
+        },
+        thoughtNumber: {
+          type: "number",
+          required: true,
+          description: "Current thought number",
+        },
+        totalThoughts: {
+          type: "number",
+          required: true,
+          description: "Estimated total thoughts needed",
+        },
+        isRevision: {
+          type: "boolean",
+          required: false,
+          description: "Whether this thought revises previous thinking",
+        },
+        revisesThought: {
+          type: "number",
+          required: false,
+          description: "Which thought number is being reconsidered",
+        },
+        branchFromThought: {
+          type: "number",
+          required: false,
+          description: "Thought number to branch from",
+        },
+        branchId: {
+          type: "string",
+          required: false,
+          description: "Identifier for the current branch",
+        },
+        needsMoreThoughts: {
+          type: "boolean",
+          required: false,
+          description: "If more thoughts are needed",
+        },
       },
       available: true,
       execute: async (params) => {
         const tool = await import("@/tools/sequential-thinking-tool");
         const instance = tool.createSequentialThinkingTool();
-        const exec = instance.execute as (input: Record<string, unknown>) => Promise<unknown>;
+        const exec = instance.execute as (
+          input: Record<string, unknown>,
+        ) => Promise<unknown>;
         return exec(params);
       },
     },
 
     {
       name: "search_research",
-      description: "Search across all past research sessions for matching research folders.",
+      description:
+        "Search across all past research sessions for matching research folders.",
       parameters: {
-        query: { type: "string", required: true, description: "Natural language search query" },
-        folder: { type: "string", required: false, description: "Limit to a specific research folder" },
-        limit: { type: "number", required: false, description: "Max results (default 8)" },
+        query: {
+          type: "string",
+          required: true,
+          description:
+            "Natural language search query, or an array of queries to search in parallel",
+          isArray: true,
+        },
+        folder: {
+          type: "string",
+          required: false,
+          description: "Limit to a specific research folder",
+        },
+        limit: {
+          type: "number",
+          required: false,
+          description: "Max results (default 8)",
+        },
       },
       available: !!apiKey,
       execute: async (params) => {
         type RawResult = { folder_name: string };
+        const queries = Array.isArray(params.query)
+          ? params.query
+          : [params.query];
         const results = await invoke<RawResult[]>("search_research", {
           apiKey,
-          query: params.query,
+          queries,
           folder: params.folder ?? null,
           limit: params.limit ?? 8,
         }).catch(() => []);
@@ -206,8 +303,16 @@ export function getAvailableTools(config?: ToolExecuteConfig): ToolDescriptor[] 
       name: "save_research_file",
       description: "Save a file to the current research folder.",
       parameters: {
-        filename: { type: "string", required: true, description: "Filename, e.g. 'notes.md'" },
-        content: { type: "string", required: true, description: "File content to write" },
+        filename: {
+          type: "string",
+          required: true,
+          description: "Filename, e.g. 'notes.md'",
+        },
+        content: {
+          type: "string",
+          required: true,
+          description: "File content to write",
+        },
       },
       available: !!researchFolder,
       execute: async (params) => {
@@ -219,7 +324,12 @@ export function getAvailableTools(config?: ToolExecuteConfig): ToolDescriptor[] 
         await writeAppFile({ subfolder, filename, content });
 
         if (apiKey) {
-          await indexResearchFile(apiKey, researchFolder, filename, content).catch(() => {});
+          await indexResearchFile(
+            apiKey,
+            researchFolder,
+            filename,
+            content,
+          ).catch(() => {});
         }
 
         return { savedTo: `AppData/${subfolder}/${filename}` };
@@ -230,12 +340,18 @@ export function getAvailableTools(config?: ToolExecuteConfig): ToolDescriptor[] 
       name: "switch_research_folder",
       description: "Check if a research folder exists.",
       parameters: {
-        folder: { type: "string", required: true, description: "Research folder name" },
+        folder: {
+          type: "string",
+          required: true,
+          description: "Research folder name",
+        },
       },
       available: true,
       execute: async (params) => {
         const folder = SafePathSegmentSchema.parse(params.folder as string);
-        const folders = await listAppSubfolders({ subfolder: SEARCH_RESULTS_SUBFOLDER });
+        const folders = await listAppSubfolders({
+          subfolder: SEARCH_RESULTS_SUBFOLDER,
+        });
         const exists = folders.includes(folder);
         return { folder, exists, availableFolders: folders };
       },
@@ -243,15 +359,45 @@ export function getAvailableTools(config?: ToolExecuteConfig): ToolDescriptor[] 
 
     {
       name: "research_checkpoint",
-      description: "Submit a research quality checkpoint (standalone: returns input as-is without LLM review).",
+      description:
+        "Submit a research quality checkpoint (standalone: returns input as-is without LLM review).",
       parameters: {
-        originalQuestion: { type: "string", required: true, description: "The original research question" },
-        searchesRun: { type: "string", required: false, description: "Comma-separated list of searches run" },
-        sourcesOpened: { type: "string", required: false, description: "Comma-separated list of source URLs" },
-        claimsVerified: { type: "string", required: false, description: "Comma-separated list of verified claims" },
-        unresolvedQuestions: { type: "string", required: false, description: "Comma-separated list of unresolved questions" },
-        confidence: { type: "string", required: false, description: "Confidence level", enum: ["low", "medium", "high"] },
-        readyToAnswer: { type: "boolean", required: true, description: "Whether you're ready to answer" },
+        originalQuestion: {
+          type: "string",
+          required: true,
+          description: "The original research question",
+        },
+        searchesRun: {
+          type: "string",
+          required: false,
+          description: "Comma-separated list of searches run",
+        },
+        sourcesOpened: {
+          type: "string",
+          required: false,
+          description: "Comma-separated list of source URLs",
+        },
+        claimsVerified: {
+          type: "string",
+          required: false,
+          description: "Comma-separated list of verified claims",
+        },
+        unresolvedQuestions: {
+          type: "string",
+          required: false,
+          description: "Comma-separated list of unresolved questions",
+        },
+        confidence: {
+          type: "string",
+          required: false,
+          description: "Confidence level",
+          enum: ["low", "medium", "high"],
+        },
+        readyToAnswer: {
+          type: "boolean",
+          required: true,
+          description: "Whether you're ready to answer",
+        },
       },
       available: true,
       execute: async (params) => {
@@ -259,6 +405,38 @@ export function getAvailableTools(config?: ToolExecuteConfig): ToolDescriptor[] 
           received: params,
           note: "Standalone mode: no LLM review performed. Input echoed back.",
         };
+      },
+    },
+
+    {
+      name: "create_research_plan",
+      description:
+        "Create a research plan. Classifies intent, generates questions, search queries, passes and source rules.",
+      parameters: {
+        query: {
+          type: "string",
+          required: true,
+          description: "The user's research question",
+        },
+      },
+      available: !!getChatModel,
+      execute: async (params) => {
+        const chatModel = getChatModel?.();
+        if (!chatModel) throw new Error("No chat model configured");
+
+        const { generateText } = await import("ai");
+        const RESEARCH_PLANNER_SYSTEM = (
+          await import("@/tools/research-planner-prompt.md?raw")
+        ).default;
+        const model = createChatLanguageModel(chatModel);
+
+        const { text } = await generateText({
+          model,
+          system: RESEARCH_PLANNER_SYSTEM,
+          prompt: params.query as string,
+        });
+
+        return text;
       },
     },
   ];

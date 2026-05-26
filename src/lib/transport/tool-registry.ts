@@ -27,6 +27,8 @@ import { createResearchCheckpointTool } from "@/tools/research-checkpoint-tool";
 import { createSequentialThinkingTool } from "@/tools/sequential-thinking-tool";
 import { createSearchResearchTool } from "@/tools/search-research-tool";
 import { createSwitchResearchFolderTool } from "@/tools/switch-research-folder-tool";
+import { createResearchPlanTool } from "@/tools/research-plan-tool";
+import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
 
 export function createTools({
   model,
@@ -39,7 +41,7 @@ export function createTools({
   switchResearchFolder: (folderName: string) => void;
   apiKey: string;
 }) {
-  return {
+  const tools = {
     ask_questions: questionsTool,
     disambiguate: disambiguateTool,
     ...(getBraveApiKey() ? { brave_search: braveSearchTool } : {}),
@@ -53,7 +55,10 @@ export function createTools({
     sequential_thinking: createSequentialThinkingTool(),
     search_research: createSearchResearchTool(apiKey),
     switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
+    create_research_plan: createResearchPlanTool(model),
   } as const satisfies ToolSet;
+
+  return applyToolCallRequirementSafeguards(tools);
 }
 
 export type AppToolSet = ReturnType<typeof createTools>;

@@ -15,6 +15,7 @@ import {
   type GuardrailEvent,
   type GuardDecision,
 } from "@/lib/agent-guards";
+import { getActiveToolNamesForMessages } from "@/lib/tool-call-requirements";
 import systemPrompt from "../system-prompt.md?raw";
 import { generateResearchFolder } from "./research-folder";
 import { createTools, type AppToolSet } from "./tool-registry";
@@ -49,6 +50,7 @@ export function createGuardedStream({
       const retries: Record<GuardName, number> = {
         question_tool: 0,
         research_checkpoint: 0,
+        tool_call_requirement: 0,
       };
       let currentUiMessages = messages;
       let currentModelMessages: ModelMessage[];
@@ -95,6 +97,10 @@ export function createGuardedStream({
             model,
             tools,
             messages: currentModelMessages,
+            activeTools: getActiveToolNamesForMessages(
+              tools,
+              currentUiMessages,
+            ),
             toolChoice,
             originalMessages: currentUiMessages,
             sendStart,
@@ -103,7 +109,7 @@ export function createGuardedStream({
           });
 
           const decision = evaluateAssistantStep<AppToolSet>({
-            messages,
+            messages: currentUiMessages,
             responseMessage: lastFinish.responseMessage,
           });
 
@@ -163,6 +169,7 @@ async function runAttempt({
   model,
   tools,
   messages,
+  activeTools,
   toolChoice,
   originalMessages,
   sendStart,
@@ -172,6 +179,7 @@ async function runAttempt({
   model: LanguageModel;
   tools: AppToolSet;
   messages: ModelMessage[];
+  activeTools: Array<keyof AppToolSet>;
   toolChoice: ToolChoice<AppToolSet> | undefined;
   originalMessages: UIMessage[];
   sendStart: boolean;
@@ -184,6 +192,7 @@ async function runAttempt({
     system: systemPrompt,
     messages,
     tools,
+    activeTools,
     toolChoice,
     abortSignal,
   });

@@ -165,6 +165,31 @@ describe("evaluateAssistantStep", () => {
     expect(decision).toMatchObject({ action: "accept" });
   });
 
+  it("retries tool calls that are missing required previous tool calls", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Research the market")],
+      responseMessage: assistantWithResearchPlanTool(),
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "tool_call_requirement",
+      toolChoice: { type: "tool", toolName: "ask_questions" },
+    });
+  });
+
+  it("accepts prerequisite-gated tools after the required tool was called", () => {
+    const decision = evaluateAssistantStep({
+      messages: [
+        userMessage("Research the market"),
+        assistantWithQuestionTool(),
+      ],
+      responseMessage: assistantWithResearchPlanTool(),
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+  });
+
   it("accepts non-research answers without checkpoint", () => {
     const decision = evaluateAssistantStep({
       messages: [userMessage("Thanks")],
@@ -276,6 +301,23 @@ function assistantWithQuestionTool(): UIMessage {
               candidates: [{ label: "Red", value: "red" }],
             },
           ],
+        },
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantWithResearchPlanTool(): UIMessage {
+  return {
+    id: "assistant-research-plan",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-create_research_plan",
+        toolCallId: "plan-1",
+        state: "input-available",
+        input: {
+          query: "Research the market",
         },
       } as UIMessage["parts"][number],
     ],

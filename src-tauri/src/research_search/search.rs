@@ -30,6 +30,37 @@ struct ChunkInfo {
     folder_name: String,
 }
 
+pub fn search_multi(
+    conn: &Connection,
+    api_key: &str,
+    queries: &[String],
+    folder: Option<&str>,
+    limit: Option<u32>,
+) -> Result<Vec<SearchResult>, String> {
+    let limit = limit.unwrap_or(8) as usize;
+
+    let mut all_results: Vec<SearchResult> = Vec::new();
+    let mut seen_chunk_ids: HashSet<i64> = HashSet::new();
+
+    for query in queries {
+        let results = search(conn, api_key, query, folder, Some(limit as u32))?;
+        for result in results {
+            if seen_chunk_ids.insert(result.chunk_id) {
+                all_results.push(result);
+            }
+        }
+    }
+
+    all_results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    all_results.truncate(limit);
+
+    Ok(all_results)
+}
+
 pub fn search(
     conn: &Connection,
     api_key: &str,

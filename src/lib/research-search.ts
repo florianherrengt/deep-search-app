@@ -25,12 +25,13 @@ export interface ResearchFolderInfo {
 
 export async function searchResearch(
   apiKey: string,
-  query: string,
+  query: string | string[],
   options?: { folder?: string; limit?: number },
 ): Promise<SearchResult[]> {
+  const queries = Array.isArray(query) ? query : [query];
   return invoke<SearchResult[]>("search_research", {
     apiKey,
-    query,
+    queries,
     folder: options?.folder ?? null,
     limit: options?.limit ?? 8,
   });

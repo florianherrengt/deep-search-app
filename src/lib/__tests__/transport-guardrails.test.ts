@@ -4,7 +4,7 @@ import {
   MockLanguageModelV3,
   simulateReadableStream,
 } from "ai/test";
-import type { UIMessage } from "ai";
+import type { UIMessage, UIMessageChunk } from "ai";
 import type {
   LanguageModelV3StreamPart,
   LanguageModelV3StreamResult,
@@ -12,6 +12,69 @@ import type {
 import { createGuardedStream } from "@/lib/transport";
 
 describe("createGuardedStream", () => {
+  it("retries when a provider calls a gated tool before its prerequisite", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (options): Promise<LanguageModelV3StreamResult> => {
+        callCount += 1;
+        if (callCount === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: toolCallChunks("create_research_plan", "call-plan", {
+                query: "Research the market",
+              }),
+            }),
+          };
+        }
+
+        expect(options.toolChoice).toEqual({
+          type: "tool",
+          toolName: "ask_questions",
+        });
+        return {
+          stream: simulateReadableStream({
+            chunks: toolCallChunks("ask_questions", "call-question", {
+              questions: [
+                {
+                  question: "What market should I research?",
+                  candidates: [{ label: "AI search", value: "ai-search" }],
+                },
+              ],
+            }),
+          }),
+        };
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Research the market")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(callCount).toBe(2);
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "data-guardrail_event",
+        data: expect.objectContaining({
+          kind: "tool_call_requirement",
+          status: "retrying",
+          attempt: 1,
+        }),
+      }),
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "tool-input-available",
+        toolName: "ask_questions",
+      }),
+    );
+  });
+
   it("emits a visible guardrail event and retries plain-text questions with ask_questions forced", async () => {
     let callCount = 0;
     const model = new MockLanguageModelV3({
@@ -236,7 +299,7 @@ describe("createGuardedStream", () => {
                   toolName: "brave_search",
                   input: JSON.stringify({ query: "Acme Search pricing" }),
                 },
-                { type: "tool-result", toolCallId: "call-brave", output: "results" },
+                { type: "tool-result" as const, toolCallId: "call-brave", toolName: "brave_search", result: "results" },
                 { type: "text-start", id: "text-1" },
                 { type: "text-delta", id: "text-1", delta: "Acme Search costs $10/month." },
                 { type: "text-end", id: "text-1" },
@@ -318,7 +381,7 @@ describe("createGuardedStream", () => {
                   readyToAnswer: true,
                 }),
               },
-              { type: "tool-result", toolCallId: "call-checkpoint", output: { approved: true, severity: "none", visibleSummary: "OK", missingAngles: [], weakClaims: [], requiredNextActions: [] } },
+              { type: "tool-result" as const, toolCallId: "call-checkpoint", toolName: "research_checkpoint", result: { approved: true, severity: "none", visibleSummary: "OK", missingAngles: [], weakClaims: [], requiredNextActions: [] } },
               finishChunk("tool-calls"),
             ],
           }),
@@ -554,10 +617,10 @@ function finishChunk(
   };
 }
 
-function lastChunk(chunks: unknown[]) {
+function lastChunk(chunks: UIMessageChunk[]) {
   return chunks[chunks.length - 1];
 }
 
-async function collectChunks(stream: ReadableStream<unknown>) {
-  return convertReadableStreamToArray(stream) as Promise<unknown[]>;
+async function collectChunks(stream: ReadableStream<UIMessageChunk>): Promise<UIMessageChunk[]> {
+  return convertReadableStreamToArray(stream) as Promise<UIMessageChunk[]>;
 }

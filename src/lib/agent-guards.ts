@@ -5,9 +5,17 @@ import {
   type UIMessage,
 } from "ai";
 import { z } from "zod";
+import {
+  evaluateToolCallRequirementForResponse,
+  type ToolCallRequirementViolation,
+} from "@/lib/tool-call-requirements";
 
 export const guardrailEventSchema = z.object({
-  kind: z.enum(["question_tool", "research_checkpoint"]),
+  kind: z.enum([
+    "question_tool",
+    "research_checkpoint",
+    "tool_call_requirement",
+  ]),
   status: z.enum(["retrying", "warning", "passed"]),
   title: z.string(),
   message: z.string(),
@@ -50,7 +58,10 @@ export type ResearchCheckpointResult = z.infer<
   typeof researchCheckpointResultSchema
 >;
 
-export type GuardName = "question_tool" | "research_checkpoint";
+export type GuardName =
+  | "question_tool"
+  | "research_checkpoint"
+  | "tool_call_requirement";
 
 export type GuardDecision<TOOLS extends ToolSet = ToolSet> =
   | { action: "accept" }
@@ -268,6 +279,14 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
   messages: UIMessage[];
   responseMessage: UIMessage;
 }): GuardDecision<TOOLS> {
+  const toolRequirementViolation = evaluateToolCallRequirementForResponse({
+    messages,
+    responseMessage,
+  });
+  if (toolRequirementViolation) {
+    return toolRequirementRetry(toolRequirementViolation);
+  }
+
   const text = getMessageText(responseMessage);
   if (!text) return { action: "accept" };
 
@@ -344,6 +363,28 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
   }
 
   return { action: "accept" };
+}
+
+function toolRequirementRetry<TOOLS extends ToolSet>(
+  violation: ToolCallRequirementViolation,
+): GuardDecision<TOOLS> {
+  const nextTool = violation.missingPreviousTools[0];
+  return {
+    action: "retry",
+    guard: "tool_call_requirement",
+    event: {
+      kind: "tool_call_requirement",
+      status: "retrying",
+      title: "Tool prerequisite enforced",
+      message: `Prompted the agent to call ${nextTool} before ${violation.toolName}.`,
+      reason: `The agent tried to call ${violation.toolName} before required previous tool calls: ${violation.missingPreviousTools.join(", ")}.`,
+    },
+    retryInstruction: `Your previous response tried to call ${violation.toolName} too early. ${violation.instruction}`,
+    toolChoice: {
+      type: "tool",
+      toolName: nextTool,
+    } as ToolChoice<TOOLS>,
+  };
 }
 
 function getCurrentTurnMessages(messages: UIMessage[], responseMessage: UIMessage) {

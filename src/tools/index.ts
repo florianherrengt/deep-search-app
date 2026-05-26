@@ -11,3 +11,4 @@ export { createResearchCheckpointTool } from "./research-checkpoint-tool";
 export { createSequentialThinkingTool } from "./sequential-thinking-tool";
 export { createSearchResearchTool } from "./search-research-tool";
 export { createSwitchResearchFolderTool } from "./switch-research-folder-tool";
+export { createResearchPlanTool } from "./research-plan-tool";
