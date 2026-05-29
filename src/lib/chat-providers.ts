@@ -4,6 +4,13 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 import { createZhipu } from "zhipu-ai-provider";
+import { validateUrl } from "@/lib/url-validation";
+
+declare global {
+  interface Window {
+    __deepSearchProviderFetchMock?: typeof fetch;
+  }
+}
 
 export const chatProviderSchema = z.enum(["openrouter", "anthropic", "zhipu"]);
 
@@ -36,6 +43,11 @@ export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
   anthropic: "claude-sonnet-4-5",
   zhipu: "glm-4.7-flash",
 };
+
+const ALLOWED_ZHIPU_BASE_URL_ORIGINS = new Set([
+  "https://open.bigmodel.cn",
+  "https://api.z.ai",
+]);
 
 export function getChatProviderLabel(provider: ChatProvider): string {
   return CHAT_PROVIDER_LABELS[provider];
@@ -73,19 +85,43 @@ export function createChatLanguageModel({
     case "zhipu":
       return createZhipu({
         apiKey: trimmedApiKey,
-        baseURL: trimmedBaseURL || undefined,
+        baseURL: normalizeZhipuBaseURL(trimmedBaseURL),
         fetch: providerFetch,
       })(modelId);
   }
 }
 
+function normalizeZhipuBaseURL(baseURL: string | undefined): string | undefined {
+  if (!baseURL) return undefined;
+
+  const parsed = validateUrl(baseURL);
+  if (!ALLOWED_ZHIPU_BASE_URL_ORIGINS.has(parsed.origin)) {
+    throw new Error("Zhipu base URL must use the official BigModel or Z.ai API host.");
+  }
+
+  return parsed.toString().replace(/\/$/, "");
+}
+
 const providerFetch: typeof fetch = (input, init) => {
+  const mock = getDevProviderFetchMock();
+  if (mock) {
+    return mock(input, init);
+  }
+
   if (isTauriRuntime()) {
     return tauriFetch(input, init);
   }
 
   return globalThis.fetch(input, init);
 };
+
+function getDevProviderFetchMock(): typeof fetch | null {
+  if (!import.meta.env.DEV || typeof window === "undefined") {
+    return null;
+  }
+
+  return window.__deepSearchProviderFetchMock ?? null;
+}
 
 function isTauriRuntime() {
   if (typeof window === "undefined") return false;

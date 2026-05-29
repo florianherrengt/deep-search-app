@@ -1,0 +1,61 @@
+# AGENTS.md
+
+## Project
+
+Deep Search — a Tauri v2 desktop app for AI-powered research. React/TypeScript frontend, Rust backend. No separate server; LLM calls go directly from the frontend via Vercel AI SDK provider packages.
+
+## Commands
+
+- `npm run dev` — Vite dev server only (port 1420). To run the full desktop app: `npm run tauri dev`
+- `npm run build` — runs `tsc && vite build` (typecheck is baked in, no separate typecheck script)
+- `npm test` / `npm run test:watch` — Vitest unit tests
+- `npm run test:e2e` — WebdriverIO e2e tests in `e2e-tests/` (requires cargo build + running Tauri binary)
+- Rust tests: `cargo test` in `src-tauri/`
+- No dedicated lint command exists
+
+## Architecture
+
+```
+src/                        # React frontend (Vite + Tailwind CSS 4)
+  lib/                      # Core logic: providers, transport, guards, settings
+    transport/              # Chat transport layer — DirectTransport, tool registry, guardrails
+    system-prompt.md        # Loaded as raw text for the AI
+  tools/                    # AI tool definitions (search, extract, research, etc.)
+  components/
+    ui/                     # shadcn/ui components (new-york style)
+    assistant-ui/           # Chat UI built on @assistant-ui/react
+src-tauri/                  # Rust backend (Tauri v2)
+  src/
+    lib.rs                  # Tauri commands: tabs, fetch, content extraction
+    research_search/        # SQLite + sqlite-vec vector search (chunking, embeddings, indexing)
+e2e-tests/                  # WebdriverIO e2e (separate npm package)
+```
+
+## Key Facts
+
+- **Path alias**: `@/*` → `./src/*` (in tsconfig, vite.config, vitest.config)
+- **AI providers**: Anthropic, OpenRouter, Zhipu — configured at runtime via settings, not env vars
+- **Search backends**: Brave, Exa, Serper, Tavily, SearXNG — all optional, enabled per-API-key
+- **Tool registration**: `src/lib/transport/tool-registry.ts` — tools are conditionally included based on configured keys
+- **Guardrail system**: `src/lib/agent-guards.ts` evaluates assistant steps; applied in `src/lib/transport/guarded-stream.ts`
+- **API key storage**: Tauri plugin-store (not `.env` files)
+
+## Adding New API Domains
+
+When adding a new external API endpoint, update **both** files:
+1. `src-tauri/tauri.conf.json` → `app.security.csp.connect-src`
+2. `src-tauri/capabilities/default.json` → `http:default`, `http:allow-fetch-send`, `http:allow-fetch-read-body` allow lists
+
+## Testing
+
+- Unit test files are co-located in `__tests__/` directories within each module
+- Rust tests are inline (`#[cfg(test)]` modules) in `src-tauri/src/lib.rs`
+- E2E tests build and launch the actual Tauri app (expensive, not part of normal dev flow)
+
+## Conventions
+
+- shadcn/ui components live in `src/components/ui/` — use `npx shadcn@latest add <component>` to add new ones
+- `components.json` configures shadcn with `@/` aliases
+- Tauri webview children are used for browser tabs (see `use-browser-tabs` hook)
+- Markdown prompts are imported via `?raw` suffix (e.g., `system-prompt.md?raw`)
+- Zod v4 is used for validation schemas

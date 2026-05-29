@@ -97,8 +97,6 @@ const REQUEST_PATTERNS = [
   /\bplease\s+confirm\b/i,
   /\blet me know\b/i,
   /\btell me\b/i,
-  /\bchoose\b/i,
-  /\bpick\b/i,
   /\bi need your\b/i,
   /\bbefore i continue\b/i,
   /\bto proceed\b/i,
@@ -201,13 +199,20 @@ export function asksUserForInput(text: string): boolean {
   const requestsInput = REQUEST_PATTERNS.some((pattern) =>
     pattern.test(normalized),
   );
+  const choiceNeedsReply =
+    /(?:^|[.!?]\s+|\n\s*)(?:please\s+)?(?:choose|pick)\b[\s\S]{0,120}\b(?:before i continue|to proceed|so i can|then i can|and i(?:'ll| will| can))\b/i.test(
+      normalized,
+    );
   const strongImperativeRequest =
     /\bplease\s+(provide|confirm)\b/i.test(normalized) ||
     /\b(let me know|tell me|before i continue|to proceed)\b/i.test(
       normalized,
     );
 
-  return requestsInput && (userDirected || strongImperativeRequest);
+  return (
+    choiceNeedsReply ||
+    (requestsInput && (userDirected || strongImperativeRequest))
+  );
 }
 
 export function getMessageText(message: UIMessage | undefined): string {

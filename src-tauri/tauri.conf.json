@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.deep-search-app.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run prepare:sidecars && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run prepare:sidecars && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -18,7 +18,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self'; connect-src 'self' https://api.anthropic.com https://api.duckduckgo.com https://api.exa.ai https://api.search.brave.com https://api.tavily.com https://api.z.ai https://google.serper.dev https://open.bigmodel.cn https://openrouter.ai; frame-src https:; media-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'"
     }
   },
   "bundle": {
@@ -30,6 +30,10 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "../node_modules/chrome-devtools-mcp": "mcp/chrome-devtools-mcp"
+    },
+    "externalBin": ["binaries/node"]
   }
 }

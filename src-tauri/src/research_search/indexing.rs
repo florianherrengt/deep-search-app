@@ -5,7 +5,7 @@ use std::path::Path;
 use crate::research_search::chunking;
 use crate::research_search::embeddings;
 use crate::research_search::schema;
-use crate::research_search::{get_folder_id, serialize_f32_vec, ResearchFolder};
+use crate::research_search::{get_folder_id, serialize_f32_vec, Database, ResearchFolder};
 
 pub fn register_folder(conn: &Connection, name: &str, query: &str) -> Result<i64, String> {
     if let Some(id) = get_folder_id(conn, name)? {
@@ -55,65 +55,131 @@ pub fn sync_folders_from_dir(conn: &Connection, search_results_dir: &Path) -> Re
     Ok(())
 }
 
+struct PendingChunk {
+    chunk_index: usize,
+    content: String,
+    hash: String,
+    header_path: Option<String>,
+}
+
 pub fn index_file(
-    conn: &Connection,
+    db: &Database,
     api_key: &str,
     folder: &str,
     filename: &str,
     content: &str,
 ) -> Result<(), String> {
-    let folder_id = match get_folder_id(conn, folder)? {
-        Some(id) => id,
-        None => {
-            let id: i64 = conn
+    let _index_guard = db.indexing.lock().map_err(|e| e.to_string())?;
+    let (folder_id, new_or_changed, orphan_ids, new_chunk_count) = {
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
+        let folder_id = match get_folder_id(&conn, folder)? {
+            Some(id) => id,
+            None => {
+                let id: i64 = conn
+                    .query_row(
+                        schema::INSERT_FOLDER,
+                        rusqlite::params![folder, ""],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| e.to_string())?;
+                id
+            }
+        };
+
+        let chunks = chunking::chunk_markdown(content);
+
+        if chunks.is_empty() {
+            delete_file_chunks(&conn, folder_id, filename)?;
+            return Ok(());
+        }
+
+        let new_chunk_count = chunks.len() as i32;
+
+        let mut new_or_changed: Vec<PendingChunk> = Vec::new();
+
+        for chunk in &chunks {
+            let hash = compute_hash(&chunk.content);
+            let existing_hash: Option<String> = conn
                 .query_row(
-                    schema::INSERT_FOLDER,
-                    rusqlite::params![folder, ""],
+                    schema::GET_CHUNK_HASH,
+                    rusqlite::params![folder_id, filename, chunk.index as i32],
                     |row| row.get(0),
                 )
-                .map_err(|e| e.to_string())?;
-            id
-        }
-    };
+                .ok()
+                .flatten();
 
-    let chunks = chunking::chunk_markdown(content);
-    if chunks.is_empty() {
-        return Ok(());
-    }
-
-    let mut new_or_changed: Vec<(usize, String, String)> = Vec::new();
-
-    for chunk in &chunks {
-        let hash = compute_hash(&chunk.content);
-        let existing_hash: Option<String> = conn
-            .query_row(
-                schema::GET_CHUNK_HASH,
-                rusqlite::params![folder_id, filename, chunk.index as i32],
-                |row| row.get(0),
-            )
-            .ok()
-            .flatten();
-
-        match existing_hash {
-            Some(h) if h == hash => continue,
-            _ => {
-                new_or_changed.push((chunk.index, chunk.content.clone(), hash));
+            match existing_hash {
+                Some(h) if h == hash => continue,
+                _ => {
+                    new_or_changed.push(PendingChunk {
+                        chunk_index: chunk.index,
+                        content: chunk.content.clone(),
+                        hash,
+                        header_path: chunk.header_path.clone(),
+                    });
+                }
             }
         }
-    }
 
-    if new_or_changed.is_empty() {
+        let orphan_ids = get_chunk_ids_above_index(&conn, folder_id, filename, new_chunk_count)?;
+
+        (folder_id, new_or_changed, orphan_ids, new_chunk_count)
+    };
+
+    if new_or_changed.is_empty() && orphan_ids.is_empty() {
         return Ok(());
     }
 
-    let texts: Vec<String> = new_or_changed
-        .iter()
-        .map(|(_, content, _)| content.clone())
-        .collect();
-    let all_embeddings = embeddings::embed_texts(api_key, &texts, false)?;
+    let all_embeddings = if new_or_changed.is_empty() {
+        Vec::new()
+    } else {
+        let texts: Vec<String> = new_or_changed.iter().map(|p| p.content.clone()).collect();
+        embeddings::embed_texts(api_key, &texts, false)?
+    };
 
-    for (i, (chunk_index, content, hash)) in new_or_changed.iter().enumerate() {
-        let chunk = &chunks[*chunk_index];
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    let result = index_file_commit(
+        &tx,
+        folder_id,
+        filename,
+        &new_or_changed,
+        &all_embeddings,
+        &orphan_ids,
+        new_chunk_count,
+    );
+
+    match result {
+        Ok(()) => tx.commit().map_err(|e| e.to_string()),
+        Err(e) => {
+            let _ = tx.rollback();
+            Err(e)
+        }
+    }
+}
+
+fn index_file_commit(
+    conn: &Connection,
+    folder_id: i64,
+    filename: &str,
+    new_or_changed: &[PendingChunk],
+    all_embeddings: &[Vec<f32>],
+    orphan_ids: &[i64],
+    new_chunk_count: i32,
+) -> Result<(), String> {
+    for id in orphan_ids {
+        let _ = conn.execute(schema::DELETE_EMBEDDING, rusqlite::params![id]);
+    }
+    if !orphan_ids.is_empty() {
+        conn.execute(
+            schema::DELETE_CHUNKS_ABOVE_INDEX,
+            rusqlite::params![folder_id, filename, new_chunk_count],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    for (i, chunk) in new_or_changed.iter().enumerate() {
         let header_path = chunk.header_path.as_deref();
 
         conn.execute(
@@ -122,16 +188,16 @@ pub fn index_file(
                 folder_id,
                 filename,
                 header_path,
-                *chunk_index as i32,
-                content,
-                hash
+                chunk.chunk_index as i32,
+                &chunk.content,
+                &chunk.hash
             ],
         )
         .map_err(|e| e.to_string())?;
 
         let chunk_id: i64 = conn.last_insert_rowid();
 
-        let old_id = find_existing_chunk_id(conn, folder_id, filename, *chunk_index as i32)?;
+        let old_id = find_existing_chunk_id(conn, folder_id, filename, chunk.chunk_index as i32)?;
         let actual_id = old_id.unwrap_or(chunk_id);
 
         if let Some(emb) = all_embeddings.get(i) {
@@ -147,6 +213,67 @@ pub fn index_file(
     }
 
     Ok(())
+}
+
+pub fn delete_file_chunks(conn: &Connection, folder_id: i64, filename: &str) -> Result<(), String> {
+    let ids = get_file_chunk_ids(conn, folder_id, filename)?;
+
+    if ids.is_empty() {
+        return Ok(());
+    }
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    for id in &ids {
+        let _ = tx.execute(schema::DELETE_EMBEDDING, rusqlite::params![id]);
+    }
+    match tx.execute(
+        schema::DELETE_FILE_CHUNKS,
+        rusqlite::params![folder_id, filename],
+    ) {
+        Ok(_) => tx.commit().map_err(|e| e.to_string()),
+        Err(e) => {
+            let _ = tx.rollback();
+            Err(e.to_string())
+        }
+    }
+}
+
+fn get_file_chunk_ids(
+    conn: &Connection,
+    folder_id: i64,
+    filename: &str,
+) -> Result<Vec<i64>, String> {
+    let mut stmt = conn
+        .prepare(schema::GET_FILE_CHUNK_IDS)
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt
+        .query(rusqlite::params![folder_id, filename])
+        .map_err(|e| e.to_string())?;
+    let mut ids = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        ids.push(row.get(0).map_err(|e| e.to_string())?);
+    }
+    Ok(ids)
+}
+
+fn get_chunk_ids_above_index(
+    conn: &Connection,
+    folder_id: i64,
+    filename: &str,
+    max_index: i32,
+) -> Result<Vec<i64>, String> {
+    let mut stmt = conn
+        .prepare(schema::GET_CHUNK_IDS_ABOVE_INDEX)
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt
+        .query(rusqlite::params![folder_id, filename, max_index])
+        .map_err(|e| e.to_string())?;
+    let mut ids = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        ids.push(row.get(0).map_err(|e| e.to_string())?);
+    }
+    Ok(ids)
 }
 
 fn find_existing_chunk_id(
@@ -190,4 +317,201 @@ fn compute_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::research_search::schema;
+
+    fn test_db() -> Connection {
+        crate::research_search::register_sqlite_vec_extension();
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        conn.execute_batch(schema::CREATE_TABLES).unwrap();
+        conn
+    }
+
+    fn insert_test_folder(conn: &Connection, name: &str) -> i64 {
+        conn.query_row(
+            schema::INSERT_FOLDER,
+            rusqlite::params![name, "test query"],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn insert_test_chunk(
+        conn: &Connection,
+        folder_id: i64,
+        filename: &str,
+        chunk_index: i32,
+        content: &str,
+    ) -> i64 {
+        let hash = compute_hash(content);
+        conn.execute(
+            schema::INSERT_CHUNK,
+            rusqlite::params![
+                folder_id,
+                filename,
+                None::<String>,
+                chunk_index,
+                content,
+                hash
+            ],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    fn count_chunks(conn: &Connection, folder_id: i64, filename: &str) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM chunks WHERE folder_id = ?1 AND filename = ?2",
+            rusqlite::params![folder_id, filename],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    fn get_chunk_indices(conn: &Connection, folder_id: i64, filename: &str) -> Vec<i32> {
+        let mut stmt = conn
+            .prepare("SELECT chunk_index FROM chunks WHERE folder_id = ?1 AND filename = ?2 ORDER BY chunk_index")
+            .unwrap();
+        let mut rows = stmt.query(rusqlite::params![folder_id, filename]).unwrap();
+        let mut indices = Vec::new();
+        while let Some(row) = rows.next().unwrap() {
+            indices.push(row.get(0).unwrap());
+        }
+        indices
+    }
+
+    #[test]
+    fn empty_content_deletes_all_chunks() {
+        let conn = test_db();
+        let folder_id = insert_test_folder(&conn, "test-folder");
+
+        let _id1 = insert_test_chunk(&conn, folder_id, "notes.md", 0, "chunk 0");
+        let _id2 = insert_test_chunk(&conn, folder_id, "notes.md", 1, "chunk 1");
+        let _id3 = insert_test_chunk(&conn, folder_id, "notes.md", 2, "chunk 2");
+
+        assert_eq!(count_chunks(&conn, folder_id, "notes.md"), 3);
+
+        delete_file_chunks(&conn, folder_id, "notes.md").unwrap();
+
+        assert_eq!(count_chunks(&conn, folder_id, "notes.md"), 0);
+    }
+
+    #[test]
+    fn shorter_file_deletes_orphaned_chunks() {
+        let conn = test_db();
+        let folder_id = insert_test_folder(&conn, "test-folder");
+
+        insert_test_chunk(&conn, folder_id, "notes.md", 0, "chunk 0");
+        insert_test_chunk(&conn, folder_id, "notes.md", 1, "chunk 1");
+        insert_test_chunk(&conn, folder_id, "notes.md", 2, "chunk 2");
+        insert_test_chunk(&conn, folder_id, "notes.md", 3, "chunk 3");
+
+        assert_eq!(count_chunks(&conn, folder_id, "notes.md"), 4);
+
+        let orphan_ids = get_chunk_ids_above_index(&conn, folder_id, "notes.md", 3).unwrap();
+        assert_eq!(orphan_ids.len(), 1);
+
+        conn.execute("BEGIN", []).unwrap();
+        for id in &orphan_ids {
+            let _ = conn.execute(schema::DELETE_EMBEDDING, rusqlite::params![id]);
+        }
+        conn.execute(
+            schema::DELETE_CHUNKS_ABOVE_INDEX,
+            rusqlite::params![folder_id, "notes.md", 3],
+        )
+        .unwrap();
+        conn.execute("COMMIT", []).unwrap();
+
+        assert_eq!(count_chunks(&conn, folder_id, "notes.md"), 3);
+        assert_eq!(
+            get_chunk_indices(&conn, folder_id, "notes.md"),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn same_length_file_preserves_all_chunks() {
+        let conn = test_db();
+        let folder_id = insert_test_folder(&conn, "test-folder");
+
+        insert_test_chunk(&conn, folder_id, "notes.md", 0, "chunk 0");
+        insert_test_chunk(&conn, folder_id, "notes.md", 1, "chunk 1");
+        insert_test_chunk(&conn, folder_id, "notes.md", 2, "chunk 2");
+
+        let orphan_ids = get_chunk_ids_above_index(&conn, folder_id, "notes.md", 3).unwrap();
+        assert!(orphan_ids.is_empty());
+
+        assert_eq!(count_chunks(&conn, folder_id, "notes.md"), 3);
+    }
+
+    #[test]
+    fn delete_only_affects_target_file() {
+        let conn = test_db();
+        let folder_id = insert_test_folder(&conn, "test-folder");
+
+        insert_test_chunk(&conn, folder_id, "notes.md", 0, "notes 0");
+        insert_test_chunk(&conn, folder_id, "notes.md", 1, "notes 1");
+        insert_test_chunk(&conn, folder_id, "other.md", 0, "other 0");
+        insert_test_chunk(&conn, folder_id, "other.md", 1, "other 1");
+
+        delete_file_chunks(&conn, folder_id, "notes.md").unwrap();
+
+        assert_eq!(count_chunks(&conn, folder_id, "notes.md"), 0);
+        assert_eq!(count_chunks(&conn, folder_id, "other.md"), 2);
+    }
+
+    #[test]
+    fn delete_empty_file_is_noop() {
+        let conn = test_db();
+        let folder_id = insert_test_folder(&conn, "test-folder");
+
+        insert_test_chunk(&conn, folder_id, "notes.md", 0, "chunk 0");
+
+        let result = delete_file_chunks(&conn, folder_id, "nonexistent.md");
+        assert!(result.is_ok());
+        assert_eq!(count_chunks(&conn, folder_id, "notes.md"), 1);
+    }
+
+    #[test]
+    fn chunk_markdown_empty_returns_no_chunks() {
+        let chunks = chunking::chunk_markdown("");
+        assert!(chunks.is_empty());
+
+        let chunks = chunking::chunk_markdown("   \n  \n  ");
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn reindex_from_many_to_one() {
+        let conn = test_db();
+        let folder_id = insert_test_folder(&conn, "test-folder");
+
+        for i in 0..5 {
+            insert_test_chunk(&conn, folder_id, "doc.md", i, &format!("chunk {}", i));
+        }
+        assert_eq!(count_chunks(&conn, folder_id, "doc.md"), 5);
+
+        let orphan_ids = get_chunk_ids_above_index(&conn, folder_id, "doc.md", 1).unwrap();
+        assert_eq!(orphan_ids.len(), 4);
+
+        conn.execute("BEGIN", []).unwrap();
+        for id in &orphan_ids {
+            let _ = conn.execute(schema::DELETE_EMBEDDING, rusqlite::params![id]);
+        }
+        conn.execute(
+            schema::DELETE_CHUNKS_ABOVE_INDEX,
+            rusqlite::params![folder_id, "doc.md", 1],
+        )
+        .unwrap();
+        conn.execute("COMMIT", []).unwrap();
+
+        assert_eq!(count_chunks(&conn, folder_id, "doc.md"), 1);
+        assert_eq!(get_chunk_indices(&conn, folder_id, "doc.md"), vec![0]);
+    }
 }

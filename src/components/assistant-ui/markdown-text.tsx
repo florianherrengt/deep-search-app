@@ -5,8 +5,9 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type FC, useState } from "react";
+import { type AnchorHTMLAttributes, type FC, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { cn } from "@/lib/utils";
 
 const MarkdownTextImpl = () => {
@@ -51,6 +52,19 @@ const CodeHeader: FC<{
 };
 
 const defaultComponents = memoizeMarkdownComponents({
+  a: ({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) openUrl(href);
+      }}
+      className="text-blue-500 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+      {...props}
+    >
+      {children}
+    </a>
+  ),
   pre: ({ className, ...props }) => (
     <pre
       className={cn(

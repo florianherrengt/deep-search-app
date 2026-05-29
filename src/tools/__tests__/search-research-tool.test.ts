@@ -49,7 +49,7 @@ describe("createSearchResearchTool", () => {
     ]);
   });
 
-  it("passes search options through to the backend command", async () => {
+  it("passes queries array and search options to the backend command", async () => {
     const tool = createSearchResearchTool(
       "test-key",
     ) as unknown as ExecutableSearchTool;
@@ -63,13 +63,14 @@ describe("createSearchResearchTool", () => {
 
     expect(tauriMocks.invoke).toHaveBeenCalledWith("search_research", {
       apiKey: "test-key",
-      query: "market size",
+      queries: ["market size"],
       folder: "market-map",
       limit: 3,
     });
   });
 
-  it("returns no matches when the backend search command fails", async () => {
+  it("returns empty and logs when the backend search command fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const tool = createSearchResearchTool(
       "test-key",
     ) as unknown as ExecutableSearchTool;
@@ -80,5 +81,10 @@ describe("createSearchResearchTool", () => {
     await expect(tool.execute({ query: "best places to hike" })).resolves.toEqual(
       [],
     );
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[search-research-tool] invoke failed:",
+      expect.any(Error),
+    );
+    errorSpy.mockRestore();
   });
 });

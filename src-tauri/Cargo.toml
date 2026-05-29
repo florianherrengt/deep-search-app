@@ -26,6 +26,7 @@ tauri-plugin-store = "2.4.3"
 tauri-plugin-webdriver = "0.2"
 tauri-plugin-fs = "2"
 tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
+tauri-plugin-shell = "2"
 tokio = { version = "1", features = ["time"] }
 url = "2"
 rusqlite = { version = "0.31", features = ["bundled"] }

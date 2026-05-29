@@ -30,28 +30,76 @@ import {
 
 describe("research history", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("lists research folders from search-results", async () => {
-    fsMocks.exists.mockResolvedValueOnce(true);
-    fsMocks.readDir.mockResolvedValueOnce([
-      {
-        name: "market-map",
-        isDirectory: true,
-        isFile: false,
-        isSymlink: false,
+    mockAppStorage({
+      directories: {
+        "search-results": [
+          directoryEntry("market-map"),
+          fileEntry("README.md"),
+        ],
       },
-      {
-        name: "README.md",
-        isDirectory: false,
-        isFile: true,
-        isSymlink: false,
-      },
-    ]);
+    });
 
     await expect(listResearchFolders()).resolves.toEqual([
-      { name: "market-map" },
+      { name: "market-map", updatedAt: null },
+    ]);
+  });
+
+  it("lists research folders sorted by latest chat update date", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hi" }],
+      },
+    ];
+
+    mockAppStorage({
+      directories: {
+        "search-results": [
+          directoryEntry("older-topic"),
+          directoryEntry("empty-topic"),
+          directoryEntry("latest-topic"),
+        ],
+        "search-results/older-topic/chats": [
+          fileEntry("2026-05-21T10-00-00.000Z.json"),
+        ],
+        "search-results/latest-topic/chats": [
+          fileEntry("2026-05-23T10-00-00.000Z.json"),
+        ],
+      },
+      files: {
+        "search-results/older-topic/chats/2026-05-21T10-00-00.000Z.json":
+          JSON.stringify({
+            id: "2026-05-21T10-00-00.000Z",
+            title: "Older topic",
+            createdAt: "2026-05-21T10:00:00.000Z",
+            updatedAt: "2026-05-21T10:30:00.000Z",
+            messages,
+          }),
+        "search-results/latest-topic/chats/2026-05-23T10-00-00.000Z.json":
+          JSON.stringify({
+            id: "2026-05-23T10-00-00.000Z",
+            title: "Latest topic",
+            createdAt: "2026-05-23T10:00:00.000Z",
+            updatedAt: "2026-05-23T10:30:00.000Z",
+            messages,
+          }),
+      },
+    });
+
+    await expect(listResearchFolders()).resolves.toEqual([
+      { name: "latest-topic", updatedAt: "2026-05-23T10:30:00.000Z" },
+      { name: "older-topic", updatedAt: "2026-05-21T10:30:00.000Z" },
+      { name: "empty-topic", updatedAt: null },
     ]);
   });
 
@@ -240,3 +288,43 @@ describe("research history", () => {
     });
   });
 });
+
+function mockAppStorage({
+  directories = {},
+  files = {},
+}: {
+  directories?: Record<string, Array<Record<string, unknown>>>;
+  files?: Record<string, string>;
+}) {
+  fsMocks.exists.mockImplementation(async (path: string) => {
+    return path in directories || path in files;
+  });
+  fsMocks.readDir.mockImplementation(async (path: string) => {
+    return directories[path] ?? [];
+  });
+  fsMocks.readTextFile.mockImplementation(async (path: string) => {
+    const content = files[path];
+    if (content === undefined) {
+      throw new Error(`Missing mocked file: ${path}`);
+    }
+    return content;
+  });
+}
+
+function directoryEntry(name: string) {
+  return {
+    name,
+    isDirectory: true,
+    isFile: false,
+    isSymlink: false,
+  };
+}
+
+function fileEntry(name: string) {
+  return {
+    name,
+    isDirectory: false,
+    isFile: true,
+    isSymlink: false,
+  };
+}

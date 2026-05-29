@@ -6,6 +6,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 
+function formatValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2);
+}
+
 export function ToolFallback({
   toolName,
   args,
@@ -13,8 +19,8 @@ export function ToolFallback({
   status,
 }: {
   toolName: string;
-  args?: string;
-  result?: string;
+  args?: unknown;
+  result?: unknown;
   status: "running" | "complete" | "error";
 }) {
   return (
@@ -49,27 +55,23 @@ export function ToolFallback({
       </CollapsibleTrigger>
       <CollapsibleContent className="border-t border-zinc-200 dark:border-zinc-700">
         <div className="px-3 py-2">
-          {args && (
+          {formatValue(args) && (
             <div className="mb-2">
               <div className="mb-1 text-xs font-medium text-zinc-500">
                 Input
               </div>
-              <pre className="overflow-x-auto rounded bg-zinc-100 p-2 text-xs dark:bg-zinc-900">
-                {typeof args === "string"
-                  ? args
-                  : JSON.stringify(args, null, 2)}
+              <pre className="overflow-x-auto rounded bg-zinc-100 p-2 text-xs whitespace-pre-wrap dark:bg-zinc-900">
+                {formatValue(args)}
               </pre>
             </div>
           )}
-          {result && (
+          {formatValue(result) && (
             <div>
               <div className="mb-1 text-xs font-medium text-zinc-500">
                 Result
               </div>
-              <pre className="overflow-x-auto rounded bg-zinc-100 p-2 text-xs dark:bg-zinc-900">
-                {typeof result === "string"
-                  ? result
-                  : JSON.stringify(result, null, 2)}
+              <pre className="overflow-x-auto rounded bg-zinc-100 p-2 text-xs whitespace-pre-wrap dark:bg-zinc-900">
+                {formatValue(result)}
               </pre>
             </div>
           )}

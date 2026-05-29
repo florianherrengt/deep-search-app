@@ -21,6 +21,9 @@ describe("asksUserForInput", () => {
     expect(asksUserForInput("Let me know your preferred output format.")).toBe(
       true,
     );
+    expect(asksUserForInput("Pick a colour and I'll find matching legs.")).toBe(
+      true,
+    );
   });
 
   it("ignores questions inside code blocks and quotes", () => {
@@ -40,6 +43,14 @@ describe("asksUserForInput", () => {
     );
     expect(
       asksUserForInput("What happened in 2020? The company changed CEOs."),
+    ).toBe(false);
+  });
+
+  it("ignores final-answer advice that does not ask for a reply", () => {
+    expect(
+      asksUserForInput(
+        "Here are the direct links. Just pick the colour you like - they're all 120x70cm and pre-drilled.",
+      ),
     ).toBe(false);
   });
 });

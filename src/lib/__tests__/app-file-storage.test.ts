@@ -75,6 +75,42 @@ describe("app file storage", () => {
     );
   });
 
+  it("notifies when research files change", async () => {
+    const events: Event[] = [];
+    const target = new EventTarget();
+    target.addEventListener("research-library-changed", (event) => {
+      events.push(event);
+    });
+    vi.stubGlobal("window", target);
+    vi.stubGlobal(
+      "CustomEvent",
+      class TestCustomEvent<T> extends Event {
+        detail: T;
+
+        constructor(type: string, init: CustomEventInit<T>) {
+          super(type);
+          this.detail = init.detail as T;
+        }
+      },
+    );
+
+    try {
+      await writeAppFile({
+        subfolder: "search-results/apartment-dogs",
+        filename: "brave-initial.md",
+        content: "Search results",
+      });
+
+      expect(events).toHaveLength(1);
+      expect((events[0] as CustomEvent).detail).toEqual({
+        changeType: "write",
+        folderName: "apartment-dogs",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("reads existing text files from app data", async () => {
     fsMocks.exists.mockResolvedValueOnce(true);
     fsMocks.readTextFile.mockResolvedValueOnce("# Example");

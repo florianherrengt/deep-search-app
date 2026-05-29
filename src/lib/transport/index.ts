@@ -4,15 +4,11 @@ import {
   type ChatModelConfig,
 } from "@/lib/chat-providers";
 import { SafePathSegmentSchema } from "@/lib/app-file-storage";
-import { setBraveApiKey } from "@/tools/brave-search-tool";
-import { setExaApiKey } from "@/tools/exa-search-tool";
-import { setSerperApiKey } from "@/tools/serper-search-tool";
-import { setTavilyApiKey } from "@/tools/tavily-search-tool";
-import { setSearXNGBaseUrl } from "@/tools/searxng-search-tool";
 import { createGuardedStream } from "./guarded-stream";
+import type { SearchToolKeys } from "./tool-registry";
 
 export { createGuardedStream } from "./guarded-stream";
-export { setBraveApiKey, setExaApiKey, setSerperApiKey, setTavilyApiKey, setSearXNGBaseUrl };
+export type { SearchToolKeys } from "./tool-registry";
 
 export class DirectTransport implements ChatTransport<UIMessage> {
   private researchFolder: string | null = null;
@@ -20,6 +16,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   constructor(
     private getChatModel: () => ChatModelConfig | null,
     private getResearchApiKey: () => string,
+    private getSearchKeys: () => SearchToolKeys,
     researchFolder?: string | null,
     private onResearchFolderChange?: (folderName: string) => void,
   ) {
@@ -54,6 +51,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
       apiKey: this.getResearchApiKey(),
       messages,
       abortSignal,
+      searchKeys: this.getSearchKeys(),
       onResearchFolderChange: (folderName) => {
         this.researchFolder = folderName;
         this.onResearchFolderChange?.(folderName);

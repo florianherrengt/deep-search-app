@@ -4,16 +4,10 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-http", () => ({
-  fetch: vi.fn(),
-}));
-
 import { invoke } from "@tauri-apps/api/core";
-import { fetch } from "@tauri-apps/plugin-http";
-import { extractPageContent } from "../extract-page-content-tool";
+import { extractPageContent, fetchHtml } from "../extract-page-content-tool";
 
 const mockInvoke = vi.mocked(invoke);
-const mockFetch = vi.mocked(fetch);
 
 const OLD_REDDIT_HTML = `
 <html>
@@ -52,7 +46,7 @@ describe("extractPageContent", () => {
 
     expect(result).toContain("# Test Post");
     expect(result).toContain("└── **commenter** · 3 pts: Hello from old Reddit");
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockInvoke).not.toHaveBeenCalledWith("fetch_html", expect.anything());
     expect(mockInvoke).toHaveBeenCalledWith("open_tab", {
       id: expect.any(String),
       url: "https://old.reddit.com/r/test/comments/abc/test_post/",
@@ -72,5 +66,19 @@ describe("extractPageContent", () => {
 
     expect(result).toContain("# Test Post");
     expect(result).toContain("└── **commenter** · 3 pts: Hello from old Reddit");
+  });
+
+  it("uses the Rust validated fetch command for direct HTML fetching", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "fetch_html") return "<html><body>Hello</body></html>";
+      return undefined;
+    });
+
+    await expect(fetchHtml("https://example.com/page")).resolves.toContain(
+      "Hello",
+    );
+    expect(mockInvoke).toHaveBeenCalledWith("fetch_html", {
+      url: "https://example.com/page",
+    });
   });
 });

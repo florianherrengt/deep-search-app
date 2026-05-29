@@ -1,19 +1,11 @@
 import { tool, zodSchema, generateText, type LanguageModel } from "ai";
 import { z } from "zod";
-import { fetch } from "@tauri-apps/plugin-http";
 import { invoke } from "@tauri-apps/api/core";
-import TurndownService from "turndown";
-import { Readability } from "@mozilla/readability";
 import { writeAppFile } from "@/lib/app-file-storage";
+import { validateUrl, UrlValidationError } from "@/lib/url-validation";
 import { registry, setWebViewExtractor, type WebViewExtractorOptions } from "./extractors";
 
-const turndown = new TurndownService({
-  headingStyle: "atx",
-  codeBlockStyle: "fenced",
-});
-
 const MIN_CONTENT_LENGTH = 200;
-const FETCH_TIMEOUT_MS = 10_000;
 const DEFAULT_WEBVIEW_RETRY_INTERVAL_MS = 5_000;
 const DEFAULT_WEBVIEW_MAX_WAIT_MS = 5 * 60_000;
 
@@ -57,22 +49,8 @@ function pageSlugFromUrl(url: string): string {
 
 export async function fetchHtml(url: string): Promise<string | null> {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    const response = await fetch(url, {
-      headers: {
-        accept: "text/html,application/xhtml+xml",
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (response.status >= 400) return null;
-    const ct = response.headers.get("content-type") ?? "";
-    if (!ct.includes("text/html") && !ct.includes("application/xhtml"))
-      return null;
-    return await response.text();
+    validateUrl(url);
+    return await invoke<string | null>("fetch_html", { url });
   } catch {
     return null;
   }
@@ -93,28 +71,35 @@ async function summarizeContent(
   return text;
 }
 
-function extractReadableContent(html: string, url: string): string | null {
+const STRIP_TAGS = [
+  "script",
+  "style",
+  "link",
+  "noscript",
+  "iframe",
+  "svg",
+  "nav",
+  "footer",
+  "aside",
+  "header",
+];
+
+export function sanitizeHtml(html: string): string {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
-  const base = doc.createElement("base");
-  base.href = url;
-  doc.head.prepend(base);
-  const reader = new Readability(doc);
-  const article = reader.parse();
-  return article?.content ?? null;
-}
-
-function htmlToMarkdown(html: string): string {
-  return turndown
-    .turndown(html)
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-export function processHtml(html: string, url: string): string {
-  const content = extractReadableContent(html, url);
-  if (content) return htmlToMarkdown(content);
-  return htmlToMarkdown(html);
+  for (const tag of STRIP_TAGS) {
+    doc.querySelectorAll(tag).forEach((el) => el.remove());
+  }
+  doc.querySelectorAll("*").forEach((el) => {
+    for (const attr of [...el.attributes]) {
+      if (attr.name.startsWith("on") || attr.name === "style") {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+  const body = doc.body;
+  if (!body) return html;
+  return body.innerHTML.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function sleep(ms: number): Promise<void> {
@@ -145,6 +130,7 @@ async function extractViaWebview(
   url: string,
   options?: WebViewExtractorOptions,
 ): Promise<string | null> {
+  validateUrl(url);
   const id = `tab-${Date.now()}`;
   try {
     await invoke("open_tab", { url, id });
@@ -179,26 +165,26 @@ export async function extractPageContent(
 ): Promise<string> {
   const forced = options.method ?? "auto";
   let html: string | null = null;
-  let markdown = "";
+  let content = "";
   let usedCustomExtractor = false;
 
   const extractor = registry.find(url);
   if (extractor) {
     usedCustomExtractor = true;
-    markdown = await extractor.extract(url);
+    content = await extractor.extract(url);
   } else if (forced === "webview") {
     html = await extractViaWebview(url);
-    markdown = html ? processHtml(html, url) : "";
+    content = html ? sanitizeHtml(html) : "";
   } else {
     html = await fetchHtml(url);
-    markdown = html ? processHtml(html, url) : "";
-    if (forced === "auto" && markdown.length < MIN_CONTENT_LENGTH) {
+    content = html ? sanitizeHtml(html) : "";
+    if (forced === "auto" && content.length < MIN_CONTENT_LENGTH) {
       html = await extractViaWebview(url);
-      markdown = html ? processHtml(html, url) : "";
+      content = html ? sanitizeHtml(html) : "";
     }
   }
 
-  if (html || markdown) {
+  if (html || content) {
     const shouldSummarize =
       options.summarize === true ||
       (!usedCustomExtractor && options.summarize !== false);
@@ -216,17 +202,17 @@ export async function extractPageContent(
         });
       }
 
-      if (markdown) {
+      if (content) {
         await writeAppFile({
           subfolder: rawPath,
-          filename: `${page}.md`,
-          content: markdown,
+          filename: `${page}-content.html`,
+          content,
         });
       }
 
-      if (shouldSummarize && markdown.trim() && options.model) {
+      if (shouldSummarize && content.trim() && options.model) {
         try {
-          const summary = await summarizeContent(options.model, markdown, options.query);
+          const summary = await summarizeContent(options.model, content, options.query);
           if (summary) {
             await writeAppFile({
               subfolder: rawPath,
@@ -239,17 +225,37 @@ export async function extractPageContent(
       }
     } else if (
       shouldSummarize &&
-      markdown.trim() &&
+      content.trim() &&
       options.model
     ) {
       try {
-        return await summarizeContent(options.model, markdown, options.query);
+        return await summarizeContent(options.model, content, options.query);
       } catch {}
     }
   }
 
-  return markdown;
+  return content;
 }
+
+export const extractPageContentInputSchema = z.object({
+  url: z.string().describe("URL to extract content from"),
+  query: z
+    .string()
+    .optional()
+    .describe("What to look for on the page (focuses the summary)"),
+  summarize: z
+    .boolean()
+    .optional()
+    .describe(
+      "Summarize the content before returning it. Set to false if you need the full page information.",
+    ),
+  method: z
+    .enum(["auto", "fetch", "webview"])
+    .optional()
+    .describe(
+      "Extraction method. 'auto' tries fetch then falls back to webview. 'fetch' forces HTTP-only. 'webview' forces browser rendering.",
+    ),
+});
 
 export function createExtractPageContentTool(
   model: LanguageModel,
@@ -257,37 +263,24 @@ export function createExtractPageContentTool(
 ) {
   return tool({
     description:
-      "Extract and summarize the text content of a web page. Use this to read the full content of a URL found during research. Raw HTML, markdown, and summary are automatically saved to the research folder.",
+      "Extract the HTML content of a web page with scripts, styles, and non-content elements stripped. Use this to read the full content of a URL found during research. Raw HTML and sanitized content are automatically saved to the research folder.",
     strict: true,
-    inputSchema: zodSchema(
-      z.object({
-        url: z.string().describe("URL to extract content from"),
-        query: z
-          .string()
-          .optional()
-          .describe("What to look for on the page (focuses the summary)"),
-        summarize: z
-          .boolean()
-          .optional()
-          .describe(
-            "Summarize the content before returning it. Set to false if you need the full page information.",
-          ),
-        method: z
-          .enum(["auto", "fetch", "webview"])
-          .optional()
-          .describe(
-            "Extraction method. 'auto' tries fetch then falls back to webview. 'fetch' forces HTTP-only. 'webview' forces browser rendering.",
-          ),
-      }),
-    ),
+    inputSchema: zodSchema(extractPageContentInputSchema),
     outputSchema: zodSchema(z.string().describe("Extracted page content")),
-    execute: async ({ url, query, summarize: doSummarize, method }) =>
-      extractPageContent(url, {
+    execute: async ({ url, query, summarize: doSummarize, method }) => {
+      try {
+        validateUrl(url);
+      } catch (e) {
+        if (e instanceof UrlValidationError) return `Error: ${e.message}`;
+        throw e;
+      }
+      return extractPageContent(url, {
         query,
         summarize: doSummarize,
         method,
         model,
         getResearchFolder,
-      }),
+      });
+    },
   });
 }

@@ -28,7 +28,111 @@ export async function ensureChatUI() {
 export async function clearChatTestState() {
   await browser.execute(() => {
     window.localStorage.removeItem('deep-search-test-settings');
+    delete window.__deepSearchAppFileStorageMock;
+    delete window.__deepSearchAppFileStorageLog;
+    delete window.__deepSearchResearchSearchMock;
+    delete window.__deepSearchProviderFetchMock;
     delete window.__logs;
+  });
+}
+
+export async function installAppFileStorageMock(initialFiles = {}) {
+  await browser.execute((files) => {
+    const store = { ...files };
+    window.__deepSearchAppFileStorageLog = [];
+
+    window.__deepSearchAppFileStorageMock = {
+      async writeAppFile({ subfolder, filename, content }) {
+        window.__deepSearchAppFileStorageLog.push({
+          action: 'write',
+          subfolder,
+          filename,
+        });
+        store[`${subfolder}/${filename}`] = content;
+      },
+
+      async readAppFile({ subfolder, filename }) {
+        return store[`${subfolder}/${filename}`] ?? null;
+      },
+
+      async listAppSubfolders({ subfolder }) {
+        const prefix = `${subfolder}/`;
+        const names = new Set();
+
+        for (const path of Object.keys(store)) {
+          if (!path.startsWith(prefix)) continue;
+
+          const rest = path.slice(prefix.length);
+          const [name, ...remaining] = rest.split('/');
+          if (name && remaining.length > 0) {
+            names.add(name);
+          }
+        }
+
+        return Array.from(names).sort((a, b) => a.localeCompare(b));
+      },
+
+      async listAppFiles({ subfolder }) {
+        const prefix = `${subfolder}/`;
+
+        return Object.keys(store)
+          .filter((path) => path.startsWith(prefix))
+          .map((path) => path.slice(prefix.length))
+          .filter((path) => path && !path.includes('/'))
+          .sort((a, b) => a.localeCompare(b));
+      },
+
+      async deleteAppSubfolder({ subfolder }) {
+        window.__deepSearchAppFileStorageLog.push({
+          action: 'delete',
+          subfolder,
+        });
+        const prefix = `${subfolder}/`;
+
+        for (const path of Object.keys(store)) {
+          if (path.startsWith(prefix)) {
+            delete store[path];
+          }
+        }
+      },
+
+      async renameAppSubfolder({ oldSubfolder, newSubfolder }) {
+        window.__deepSearchAppFileStorageLog.push({
+          action: 'rename',
+          oldSubfolder,
+          newSubfolder,
+        });
+        const oldPrefix = `${oldSubfolder}/`;
+        const moves = Object.entries(store).filter(([path]) =>
+          path.startsWith(oldPrefix),
+        );
+
+        for (const [path, content] of moves) {
+          delete store[path];
+          store[`${newSubfolder}/${path.slice(oldPrefix.length)}`] = content;
+        }
+      },
+    };
+
+    window.__deepSearchResearchSearchMock = {
+      async indexResearchFile() {},
+      async registerResearchFolder() {
+        return 1;
+      },
+    };
+  }, initialFiles);
+}
+
+export async function refreshResearchLibraryFromMock() {
+  await browser.execute(() => {
+    window.dispatchEvent(
+      new CustomEvent('research-library-changed', {
+        detail: {
+          changeType: 'write',
+          folderName: '__e2e_refresh__',
+        },
+      }),
+    );
   });
 }
 
@@ -86,7 +190,7 @@ export async function installOpenRouterMock(responses) {
     const originalFetch = window.fetch.bind(window);
     let callIndex = 0;
 
-    window.fetch = async (url, options) => {
+    const mockFetch = async (url, options) => {
       const href = typeof url === 'string' ? url : url?.url || String(url);
       if (!href.includes('openrouter')) {
         return originalFetch(url, options);
@@ -102,6 +206,9 @@ export async function installOpenRouterMock(responses) {
       });
       return streamResponse(response.events);
     };
+
+    window.fetch = mockFetch;
+    window.__deepSearchProviderFetchMock = mockFetch;
 
     function streamResponse(events) {
       const encoder = new TextEncoder();

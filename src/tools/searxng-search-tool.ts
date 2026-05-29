@@ -1,15 +1,10 @@
 import { tool, zodSchema } from "ai";
-import { fetch } from "@tauri-apps/plugin-http";
+import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
-import Bottleneck from "bottleneck";
+import { rateLimit } from "@/lib/rate-limit";
+import { validateServiceUrl } from "@/lib/url-validation";
 
 const DEFAULT_BASE_URL = "http://localhost:8080";
-const DEFAULT_REQUESTS_PER_SECOND = 1;
-
-const limiter = new Bottleneck({
-  maxConcurrent: 1,
-  minTime: 1000 / DEFAULT_REQUESTS_PER_SECOND,
-});
 
 const SearchResultSchema = z.object({
   title: z.string(),
@@ -29,55 +24,51 @@ const SearXNGResponseSchema = z.object({
 
 type SearchResult = z.infer<typeof SearchResultSchema>;
 
-let baseUrl: string = DEFAULT_BASE_URL;
+export const searxngSearchInputSchema = z.object({
+  query: z.string().min(1).describe("Search query"),
+});
 
-export function setSearXNGBaseUrl(url: string) {
-  baseUrl = url;
-}
+export const searxngSearchOutputSchema = z.object({
+  results: z.array(SearchResultSchema),
+});
 
-export function getSearXNGBaseUrl(): string {
-  return baseUrl;
-}
+export function createSearXNGSearchTool(baseUrl: string = DEFAULT_BASE_URL) {
+  validateServiceUrl(baseUrl);
 
-async function search(query: string): Promise<SearchResult[]> {
-  return limiter.schedule(async () => {
-    const url = new URL("/search", baseUrl);
-    url.searchParams.set("q", query);
-    url.searchParams.set("format", "json");
+  async function search(query: string): Promise<SearchResult[]> {
+    return rateLimit(async () => {
+      const responseText = await invoke<string | null>("fetch_searxng_json", {
+        baseUrl,
+        query,
+      });
 
-    const response = await fetch(url.toString());
+      if (!responseText) return [];
 
-    if (!response.ok) {
-      return [];
-    }
+      let raw: unknown;
+      try {
+        raw = JSON.parse(responseText);
+      } catch {
+        return [];
+      }
 
-    const parsed = SearXNGResponseSchema.safeParse(await response.json());
-    if (!parsed.success) {
-      return [];
-    }
+      const parsed = SearXNGResponseSchema.safeParse(raw);
+      if (!parsed.success) return [];
 
-    return parsed.data.results.map((r) => ({
-      title: r.title,
-      url: r.url,
-      description: r.content,
-    }));
+      return parsed.data.results.map((r) => ({
+        title: r.title,
+        url: r.url,
+        description: r.content,
+      }));
+    });
+  }
+
+  return tool({
+    description: "Search the web with SearXNG (self-hosted meta search engine)",
+    strict: true,
+    inputSchema: zodSchema(searxngSearchInputSchema),
+    outputSchema: zodSchema(searxngSearchOutputSchema),
+    execute: async ({ query }) => {
+      return { results: await search(query) };
+    },
   });
 }
-
-export const searxngSearchTool = tool({
-  description: "Search the web with SearXNG (self-hosted meta search engine)",
-  strict: true,
-  inputSchema: zodSchema(
-    z.object({
-      query: z.string().min(1).describe("Search query"),
-    }),
-  ),
-  outputSchema: zodSchema(
-    z.object({
-      results: z.array(SearchResultSchema),
-    }),
-  ),
-  execute: async ({ query }) => {
-    return { results: await search(query) };
-  },
-});

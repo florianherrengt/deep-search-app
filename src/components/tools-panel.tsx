@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,14 +17,34 @@ interface ToolsPanelProps {
 }
 
 export function ToolsPanel({ config }: ToolsPanelProps) {
-  const tools = getAvailableTools(config);
-  const [selectedTool, setSelectedTool] = useState<ToolDescriptor | null>(null);
+  const [researchFolderValue, setResearchFolderValue] = useState(
+    config?.researchFolder ?? "",
+  );
+  const effectiveConfig = useMemo(
+    () =>
+      config
+        ? {
+            ...config,
+            researchFolder: researchFolderValue.trim() || null,
+          }
+        : undefined,
+    [config, researchFolderValue],
+  );
+  const tools = getAvailableTools(effectiveConfig);
+  const [selectedToolName, setSelectedToolName] = useState<string | null>(null);
+  const selectedTool =
+    tools.find((tool) => tool.name === selectedToolName && tool.available) ??
+    null;
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<ToolResult[]>([]);
 
+  useEffect(() => {
+    setResearchFolderValue(config?.researchFolder ?? "");
+  }, [config?.researchFolder]);
+
   const handleSelectTool = useCallback((tool: ToolDescriptor) => {
-    setSelectedTool(tool);
+    setSelectedToolName(tool.name);
     const defaults: Record<string, string> = {};
     for (const [key, param] of Object.entries(tool.parameters)) {
       defaults[key] = param.default !== undefined ? String(param.default) : "";
@@ -85,6 +105,18 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
       <p className="mt-1 text-sm text-muted-foreground">
         Call tools directly with custom parameters and inspect the results.
       </p>
+
+      <div className="mt-4 max-w-md space-y-1">
+        <Label htmlFor="tools-research-folder" className="text-sm">
+          Research folder
+        </Label>
+        <Input
+          id="tools-research-folder"
+          value={researchFolderValue}
+          placeholder="research-folder"
+          onChange={(event) => setResearchFolderValue(event.target.value)}
+        />
+      </div>
 
       <div className="mt-4 flex gap-6">
         <div className="w-64 shrink-0 space-y-1">

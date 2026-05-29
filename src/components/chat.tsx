@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
@@ -8,6 +8,7 @@ import { Thread } from "./assistant-ui/thread";
 import {
   DirectTransport,
   shouldContinueAfterToolResult,
+  type SearchToolKeys,
 } from "@/lib/transport";
 import {
   type ChatModelConfig,
@@ -22,10 +23,13 @@ export function Chat({
   chatId,
   researchChatId,
   researchFolder,
+  selectedModelId,
   initialMessages = [],
   onResearchFolderChange,
   onResearchChatSaved,
+  onSelectedModelIdChange,
   onModelChange,
+  searchKeys,
 }: {
   modelOptions: ConfiguredChatModelOption[];
   defaultModelId: string;
@@ -33,10 +37,13 @@ export function Chat({
   chatId: string;
   researchChatId: string;
   researchFolder: string | null;
+  selectedModelId: string;
   initialMessages?: UIMessage[];
   onResearchFolderChange?: (folderName: string) => void;
   onResearchChatSaved?: (folderName: string, chatId: string) => void;
+  onSelectedModelIdChange: (modelId: string) => void;
   onModelChange?: (model: ConfiguredChatModelOption) => void;
+  searchKeys: SearchToolKeys;
 }) {
   const enabledModels = useMemo(
     () => modelOptions.filter((option) => !option.disabled),
@@ -47,15 +54,20 @@ export function Chat({
     enabledModels.some((option) => option.id === defaultModelId)
       ? defaultModelId
       : firstEnabledModelId;
-  const [selectedModelId, setSelectedModelId] = useState(
-    resolvedDefaultModelId,
-  );
 
   useEffect(() => {
-    if (!enabledModels.some((option) => option.id === selectedModelId)) {
-      setSelectedModelId(resolvedDefaultModelId);
+    if (
+      resolvedDefaultModelId &&
+      !enabledModels.some((option) => option.id === selectedModelId)
+    ) {
+      onSelectedModelIdChange(resolvedDefaultModelId);
     }
-  }, [enabledModels, resolvedDefaultModelId, selectedModelId]);
+  }, [
+    enabledModels,
+    onSelectedModelIdChange,
+    resolvedDefaultModelId,
+    selectedModelId,
+  ]);
 
   const modelOptionsRef = useRef(modelOptions);
   modelOptionsRef.current = modelOptions;
@@ -65,6 +77,9 @@ export function Chat({
 
   const researchApiKeyRef = useRef(researchApiKey);
   researchApiKeyRef.current = researchApiKey;
+
+  const searchKeysRef = useRef(searchKeys);
+  searchKeysRef.current = searchKeys;
 
   const researchFolderRef = useRef(researchFolder);
   if (researchFolder) {
@@ -97,7 +112,7 @@ export function Chat({
     );
     if (!selected) return;
 
-    setSelectedModelId(modelId);
+    onSelectedModelIdChange(modelId);
     onModelChange?.(selected);
   }
 
@@ -105,6 +120,7 @@ export function Chat({
     new DirectTransport(
       getSelectedChatModel,
       () => researchApiKeyRef.current,
+      () => searchKeysRef.current,
       researchFolder,
       (folderName) => {
         researchFolderRef.current = folderName;

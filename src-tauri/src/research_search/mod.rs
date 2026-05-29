@@ -7,10 +7,12 @@ pub mod search;
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use std::os::raw::{c_char, c_int};
 use std::sync::Mutex;
 
 pub struct Database {
     pub conn: Mutex<Connection>,
+    pub indexing: Mutex<()>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -40,11 +42,7 @@ pub struct ResearchFolder {
 }
 
 pub fn init_database(app_data_dir: &std::path::Path) -> Result<Database, String> {
-    unsafe {
-        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-            sqlite_vec::sqlite3_vec_init as *const (),
-        )));
-    }
+    register_sqlite_vec_extension();
 
     let db_path = app_data_dir.join("research.db");
     let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
@@ -61,7 +59,23 @@ pub fn init_database(app_data_dir: &std::path::Path) -> Result<Database, String>
 
     Ok(Database {
         conn: Mutex::new(conn),
+        indexing: Mutex::new(()),
     })
+}
+
+pub(crate) fn register_sqlite_vec_extension() {
+    type SqliteExtensionInit = unsafe extern "C" fn(
+        *mut rusqlite::ffi::sqlite3,
+        *mut *const c_char,
+        *const rusqlite::ffi::sqlite3_api_routines,
+    ) -> c_int;
+
+    unsafe {
+        let init = std::mem::transmute::<*const (), SqliteExtensionInit>(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        );
+        rusqlite::ffi::sqlite3_auto_extension(Some(init));
+    }
 }
 
 pub fn get_folder_id(conn: &Connection, name: &str) -> Result<Option<i64>, String> {

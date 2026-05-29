@@ -9,6 +9,22 @@ import {
   rename,
   writeTextFile,
 } from "@tauri-apps/plugin-fs";
+import { emitResearchLibraryChanged } from "@/lib/research-library-events";
+
+interface AppFileStorageMock {
+  writeAppFile?: (input: WriteAppFileInput) => Promise<void>;
+  readAppFile?: (input: ReadAppFileInput) => Promise<string | null>;
+  listAppSubfolders?: (input: ListAppSubfoldersInput) => Promise<string[]>;
+  listAppFiles?: (input: ListAppFilesInput) => Promise<string[]>;
+  deleteAppSubfolder?: (input: DeleteAppSubfolderInput) => Promise<void>;
+  renameAppSubfolder?: (input: RenameAppSubfolderInput) => Promise<void>;
+}
+
+declare global {
+  interface Window {
+    __deepSearchAppFileStorageMock?: AppFileStorageMock;
+  }
+}
 
 export const SafePathSegmentSchema = z
   .string()
@@ -93,25 +109,40 @@ export type RenameAppSubfolderInput = z.infer<
 
 export async function writeAppFile(input: WriteAppFileInput): Promise<void> {
   const parsed = WriteAppFileInputSchema.parse(input);
+  const mock = getDevAppFileStorageMock();
 
-  await mkdir(parsed.subfolder, {
-    baseDir: BaseDirectory.AppData,
-    recursive: true,
-  });
-
-  await writeTextFile(
-    `${parsed.subfolder}/${parsed.filename}`,
-    parsed.content,
-    {
+  if (mock?.writeAppFile) {
+    await mock.writeAppFile(parsed);
+  } else {
+    await mkdir(parsed.subfolder, {
       baseDir: BaseDirectory.AppData,
-    },
-  );
+      recursive: true,
+    });
+
+    await writeTextFile(
+      `${parsed.subfolder}/${parsed.filename}`,
+      parsed.content,
+      {
+        baseDir: BaseDirectory.AppData,
+      },
+    );
+  }
+
+  const folderName = researchFolderNameFromSubfolder(parsed.subfolder);
+  if (folderName) {
+    emitResearchLibraryChanged({ changeType: "write", folderName });
+  }
 }
 
 export async function readAppFile(
   input: ReadAppFileInput,
 ): Promise<string | null> {
   const parsed = ReadAppFileInputSchema.parse(input);
+  const mock = getDevAppFileStorageMock();
+  if (mock?.readAppFile) {
+    return mock.readAppFile(parsed);
+  }
+
   const path = `${parsed.subfolder}/${parsed.filename}`;
 
   const fileExists = await exists(path, {
@@ -131,6 +162,10 @@ export async function listAppSubfolders(
   input: ListAppSubfoldersInput,
 ): Promise<string[]> {
   const parsed = ListAppSubfoldersInputSchema.parse(input);
+  const mock = getDevAppFileStorageMock();
+  if (mock?.listAppSubfolders) {
+    return mock.listAppSubfolders(parsed);
+  }
 
   const folderExists = await exists(parsed.subfolder, {
     baseDir: BaseDirectory.AppData,
@@ -155,6 +190,10 @@ export async function listAppSubfolders(
 
 export async function listAppFiles(input: ListAppFilesInput): Promise<string[]> {
   const parsed = ListAppFilesInputSchema.parse(input);
+  const mock = getDevAppFileStorageMock();
+  if (mock?.listAppFiles) {
+    return mock.listAppFiles(parsed);
+  }
 
   const folderExists = await exists(parsed.subfolder, {
     baseDir: BaseDirectory.AppData,
@@ -181,6 +220,18 @@ export async function deleteAppSubfolder(
   input: DeleteAppSubfolderInput,
 ): Promise<void> {
   const parsed = DeleteAppSubfolderInputSchema.parse(input);
+  const mock = getDevAppFileStorageMock();
+
+  if (mock?.deleteAppSubfolder) {
+    await mock.deleteAppSubfolder(parsed);
+
+    const folderName = researchFolderNameFromSubfolder(parsed.subfolder);
+    if (folderName) {
+      emitResearchLibraryChanged({ changeType: "delete", folderName });
+    }
+
+    return;
+  }
 
   const folderExists = await exists(parsed.subfolder, {
     baseDir: BaseDirectory.AppData,
@@ -194,6 +245,11 @@ export async function deleteAppSubfolder(
     baseDir: BaseDirectory.AppData,
     recursive: true,
   });
+
+  const folderName = researchFolderNameFromSubfolder(parsed.subfolder);
+  if (folderName) {
+    emitResearchLibraryChanged({ changeType: "delete", folderName });
+  }
 }
 
 export async function renameAppSubfolder(
@@ -202,6 +258,13 @@ export async function renameAppSubfolder(
   const parsed = RenameAppSubfolderInputSchema.parse(input);
 
   if (parsed.oldSubfolder === parsed.newSubfolder) {
+    return;
+  }
+
+  const mock = getDevAppFileStorageMock();
+  if (mock?.renameAppSubfolder) {
+    await mock.renameAppSubfolder(parsed);
+    emitResearchFolderRename(parsed.oldSubfolder, parsed.newSubfolder);
     return;
   }
 
@@ -217,4 +280,31 @@ export async function renameAppSubfolder(
     oldPathBaseDir: BaseDirectory.AppData,
     newPathBaseDir: BaseDirectory.AppData,
   });
+
+  emitResearchFolderRename(parsed.oldSubfolder, parsed.newSubfolder);
+}
+
+function emitResearchFolderRename(oldSubfolder: string, newSubfolder: string) {
+  const folderName = researchFolderNameFromSubfolder(newSubfolder);
+  if (folderName) {
+    const previousFolderName = researchFolderNameFromSubfolder(oldSubfolder);
+    emitResearchLibraryChanged({
+      changeType: "rename",
+      folderName,
+      ...(previousFolderName ? { previousFolderName } : {}),
+    });
+  }
+}
+
+function researchFolderNameFromSubfolder(subfolder: string): string | null {
+  const [root, folderName] = subfolder.split("/");
+  return root === "search-results" && folderName ? folderName : null;
+}
+
+function getDevAppFileStorageMock(): AppFileStorageMock | null {
+  if (!import.meta.env.DEV || typeof window === "undefined") {
+    return null;
+  }
+
+  return window.__deepSearchAppFileStorageMock ?? null;
 }

@@ -1,121 +1,35 @@
-import { z } from "zod";
-import { invoke } from "@tauri-apps/api/core";
 import {
   createChatLanguageModel,
   type ChatModelConfig,
 } from "@/lib/chat-providers";
-import { braveSearchTool, getBraveApiKey } from "@/tools/brave-search-tool";
-import { exaSearchTool, getExaApiKey } from "@/tools/exa-search-tool";
-import { serperSearchTool, getSerperApiKey } from "@/tools/serper-search-tool";
-import { tavilySearchTool, getTavilyApiKey } from "@/tools/tavily-search-tool";
-import {
-  searxngSearchTool,
-  getSearXNGBaseUrl,
-} from "@/tools/searxng-search-tool";
-import { disambiguateTool } from "@/tools/disambiguate-tool";
-import {
-  SafePathSegmentSchema,
-  writeAppFile,
-  listAppSubfolders,
-} from "@/lib/app-file-storage";
-import { indexResearchFile } from "@/lib/research-search";
-import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
+import { describeTool, type ToolDescriptor } from "@/lib/tool-descriptor";
+import { createBraveSearchTool, braveSearchInputSchema } from "@/tools/brave-search-tool";
+import { createExaSearchTool, exaSearchInputSchema } from "@/tools/exa-search-tool";
+import { createSerperSearchTool, serperSearchInputSchema } from "@/tools/serper-search-tool";
+import { createTavilySearchTool, tavilySearchInputSchema } from "@/tools/tavily-search-tool";
+import { createSearXNGSearchTool, searxngSearchInputSchema } from "@/tools/searxng-search-tool";
+import { disambiguateTool, disambiguateInputSchema } from "@/tools/disambiguate-tool";
+import { createExtractPageContentTool, extractPageContentInputSchema } from "@/tools/extract-page-content-tool";
+import { createSearchResearchTool, searchResearchInputSchema } from "@/tools/search-research-tool";
+import { createSaveResearchFileTool, saveResearchFileInputSchema } from "@/tools/research-file-tool";
+import { createSwitchResearchFolderTool, switchResearchFolderInputSchema } from "@/tools/switch-research-folder-tool";
+import { createResearchCheckpointTool } from "@/tools/research-checkpoint-tool";
+import { createSequentialThinkingTool, sequentialThinkingInputSchema } from "@/tools/sequential-thinking-tool";
+import { createResearchPlanTool, researchPlanInputSchema } from "@/tools/research-plan-tool";
+import { researchCheckpointInputSchema } from "@/lib/agent-guards";
+import { isValidServiceUrl } from "@/lib/url-validation";
 
-export interface ToolParameter {
-  type: "string" | "number" | "boolean";
-  required: boolean;
-  description?: string;
-  default?: unknown;
-  enum?: string[];
-  isArray?: boolean;
-}
-
-export interface ToolDescriptor {
-  name: string;
-  description: string;
-  parameters: Record<string, ToolParameter>;
-  available: boolean;
-  execute: (params: Record<string, unknown>) => Promise<unknown>;
-}
+export type { ToolDescriptor, ToolParameter } from "@/lib/tool-descriptor";
 
 export interface ToolExecuteConfig {
   researchFolder: string | null;
   apiKey: string;
   getChatModel?: () => ChatModelConfig | null;
-}
-
-function zodToParams(
-  schema: z.ZodObject<Record<string, z.ZodTypeAny>>,
-): Record<string, ToolParameter> {
-  const params: Record<string, ToolParameter> = {};
-
-  for (const [key, rawField] of Object.entries(schema.shape)) {
-    const field = rawField;
-    let required = true;
-    let defaultValue: unknown = undefined;
-
-    const isOptional = field instanceof z.ZodOptional;
-    const inner = isOptional ? field.unwrap() : field;
-    const hasDefault = inner instanceof z.ZodDefault;
-
-    if (isOptional) {
-      required = false;
-    }
-    if (hasDefault) {
-      required = false;
-      defaultValue = (
-        inner._def as { defaultValue: () => unknown }
-      ).defaultValue();
-    }
-
-    const resolved = hasDefault ? inner.removeDefault() : inner;
-
-    let type: ToolParameter["type"] = "string";
-    let enumValues: string[] | undefined;
-
-    if (resolved instanceof z.ZodString) {
-      type = "string";
-    } else if (resolved instanceof z.ZodNumber) {
-      type = "number";
-    } else if (resolved instanceof z.ZodBoolean) {
-      type = "boolean";
-    } else if (resolved instanceof z.ZodEnum) {
-      type = "string";
-      enumValues = resolved.options as string[];
-    }
-
-    const desc = (rawField as { description?: string }).description;
-
-    params[key] = {
-      type,
-      required,
-      ...(desc && { description: desc }),
-      ...(defaultValue !== undefined && { default: defaultValue }),
-      ...(enumValues && { enum: enumValues }),
-    };
-  }
-
-  return params;
-}
-
-type AnyTool = {
-  description?: string;
-  execute?: (input: Record<string, unknown>) => Promise<unknown>;
-};
-
-function makeDescriptor(
-  name: string,
-  tool: AnyTool,
-  schema: z.ZodObject<Record<string, z.ZodTypeAny>>,
-  available: boolean,
-): ToolDescriptor {
-  return {
-    name,
-    description: tool.description ?? name,
-    parameters: zodToParams(schema),
-    available,
-    execute: tool.execute ?? (() => Promise.resolve(null)),
-  };
+  braveApiKey?: string | null;
+  exaApiKey?: string | null;
+  serperApiKey?: string | null;
+  tavilyApiKey?: string | null;
+  searxngBaseUrl?: string | null;
 }
 
 export function getAvailableTools(
@@ -124,320 +38,90 @@ export function getAvailableTools(
   const researchFolder = config?.researchFolder;
   const apiKey = config?.apiKey;
   const getChatModel = config?.getChatModel;
+  const braveApiKey = config?.braveApiKey;
+  const exaApiKey = config?.exaApiKey;
+  const serperApiKey = config?.serperApiKey;
+  const tavilyApiKey = config?.tavilyApiKey;
+  const searxngBaseUrl = config?.searxngBaseUrl;
+
+  const chatModel = getChatModel?.();
+  const model = chatModel ? createChatLanguageModel(chatModel) : undefined;
+  const getResearchFolder = researchFolder
+    ? async () => researchFolder
+    : undefined;
+
+  const braveTool = braveApiKey ? createBraveSearchTool(braveApiKey) : undefined;
+  const exaTool = exaApiKey ? createExaSearchTool(exaApiKey) : undefined;
+  const serperTool = serperApiKey ? createSerperSearchTool(serperApiKey) : undefined;
+  const tavilyTool = tavilyApiKey ? createTavilySearchTool(tavilyApiKey) : undefined;
+  const searxngAvailable = !!searxngBaseUrl && isValidServiceUrl(searxngBaseUrl);
+  const searxngTool = searxngAvailable ? createSearXNGSearchTool(searxngBaseUrl!) : undefined;
+  const extractTool = model && getResearchFolder
+    ? createExtractPageContentTool(model, getResearchFolder)
+    : undefined;
+  const searchResearchTool = apiKey ? createSearchResearchTool(apiKey) : undefined;
+  const saveTool = getResearchFolder
+    ? createSaveResearchFileTool(getResearchFolder, apiKey)
+    : undefined;
+  const checkpointTool = model ? createResearchCheckpointTool(model) : undefined;
+  const planTool = model ? createResearchPlanTool(model) : undefined;
 
   return [
-    makeDescriptor(
-      "brave_search",
-      braveSearchTool as unknown as AnyTool,
-      z.object({ query: z.string() }),
-      !!getBraveApiKey(),
-    ),
-    makeDescriptor(
-      "exa_search",
-      exaSearchTool as unknown as AnyTool,
-      z.object({ query: z.string() }),
-      !!getExaApiKey(),
-    ),
-    makeDescriptor(
-      "serper_search",
-      serperSearchTool as unknown as AnyTool,
-      z.object({ query: z.string() }),
-      !!getSerperApiKey(),
-    ),
-    makeDescriptor(
-      "tavily_search",
-      tavilySearchTool as unknown as AnyTool,
-      z.object({ query: z.string() }),
-      !!getTavilyApiKey(),
-    ),
-    makeDescriptor(
-      "searxng_search",
-      searxngSearchTool as unknown as AnyTool,
-      z.object({ query: z.string() }),
-      !!getSearXNGBaseUrl() &&
-        getSearXNGBaseUrl() !== "http://localhost:8080",
-    ),
-    makeDescriptor(
+    ...(braveTool
+      ? [describeTool("brave_search", braveTool as any, braveSearchInputSchema, true)]
+      : [describeTool("brave_search", {} as any, braveSearchInputSchema, false)]),
+    ...(exaTool
+      ? [describeTool("exa_search", exaTool as any, exaSearchInputSchema, true)]
+      : [describeTool("exa_search", {} as any, exaSearchInputSchema, false)]),
+    ...(serperTool
+      ? [describeTool("serper_search", serperTool as any, serperSearchInputSchema, true)]
+      : [describeTool("serper_search", {} as any, serperSearchInputSchema, false)]),
+    ...(tavilyTool
+      ? [describeTool("tavily_search", tavilyTool as any, tavilySearchInputSchema, true)]
+      : [describeTool("tavily_search", {} as any, tavilySearchInputSchema, false)]),
+    ...(searxngTool
+      ? [describeTool("searxng_search", searxngTool as any, searxngSearchInputSchema, true)]
+      : [describeTool("searxng_search", {} as any, searxngSearchInputSchema, false)]),
+
+    describeTool(
       "disambiguate",
-      disambiguateTool as unknown as AnyTool,
-      z.object({ question: z.string() }),
+      disambiguateTool as any,
+      disambiguateInputSchema,
       true,
     ),
 
-    {
-      name: "extract_page_content",
-      description:
-        "Extract the text content of a web page. Uses custom extractors and webview fallback where needed.",
-      parameters: {
-        url: {
-          type: "string",
-          required: true,
-          description: "URL to extract content from",
-        },
-      },
-      available: true,
-      execute: async (params) => {
-        const { extractPageContent } =
-          await import("@/tools/extract-page-content-tool");
-        const url = params.url as string;
-        const markdown = await extractPageContent(url, {
-          summarize: false,
-          getResearchFolder: researchFolder
-            ? async () => researchFolder
-            : undefined,
-        });
-        if (!markdown) throw new Error("Failed to extract page");
+    ...(extractTool
+      ? [describeTool("extract_page_content", extractTool as any, extractPageContentInputSchema, true)]
+      : [describeTool("extract_page_content", {} as any, extractPageContentInputSchema, false)]),
 
-        return markdown;
-      },
-    },
+    describeTool(
+      "sequential_thinking",
+      createSequentialThinkingTool() as any,
+      sequentialThinkingInputSchema,
+      true,
+    ),
 
-    {
-      name: "sequential_thinking",
-      description:
-        "Dynamic and reflective problem-solving through structured thoughts.",
-      parameters: {
-        thought: {
-          type: "string",
-          required: true,
-          description: "Your current thinking step",
-        },
-        nextThoughtNeeded: {
-          type: "boolean",
-          required: true,
-          description: "Whether another thought step is needed",
-        },
-        thoughtNumber: {
-          type: "number",
-          required: true,
-          description: "Current thought number",
-        },
-        totalThoughts: {
-          type: "number",
-          required: true,
-          description: "Estimated total thoughts needed",
-        },
-        isRevision: {
-          type: "boolean",
-          required: false,
-          description: "Whether this thought revises previous thinking",
-        },
-        revisesThought: {
-          type: "number",
-          required: false,
-          description: "Which thought number is being reconsidered",
-        },
-        branchFromThought: {
-          type: "number",
-          required: false,
-          description: "Thought number to branch from",
-        },
-        branchId: {
-          type: "string",
-          required: false,
-          description: "Identifier for the current branch",
-        },
-        needsMoreThoughts: {
-          type: "boolean",
-          required: false,
-          description: "If more thoughts are needed",
-        },
-      },
-      available: true,
-      execute: async (params) => {
-        const tool = await import("@/tools/sequential-thinking-tool");
-        const instance = tool.createSequentialThinkingTool();
-        const exec = instance.execute as (
-          input: Record<string, unknown>,
-        ) => Promise<unknown>;
-        return exec(params);
-      },
-    },
+    ...(searchResearchTool
+      ? [describeTool("search_research", searchResearchTool as any, searchResearchInputSchema, true)]
+      : [describeTool("search_research", {} as any, searchResearchInputSchema, false)]),
 
-    {
-      name: "search_research",
-      description:
-        "Search across all past research sessions for matching research folders.",
-      parameters: {
-        query: {
-          type: "string",
-          required: true,
-          description:
-            "Natural language search query, or an array of queries to search in parallel",
-          isArray: true,
-        },
-        folder: {
-          type: "string",
-          required: false,
-          description: "Limit to a specific research folder",
-        },
-        limit: {
-          type: "number",
-          required: false,
-          description: "Max results (default 8)",
-        },
-      },
-      available: !!apiKey,
-      execute: async (params) => {
-        type RawResult = { folder_name: string };
-        const queries = Array.isArray(params.query)
-          ? params.query
-          : [params.query];
-        const results = await invoke<RawResult[]>("search_research", {
-          apiKey,
-          queries,
-          folder: params.folder ?? null,
-          limit: params.limit ?? 8,
-        }).catch(() => []);
+    ...(saveTool
+      ? [describeTool("save_research_file", saveTool as any, saveResearchFileInputSchema, true)]
+      : [describeTool("save_research_file", {} as any, saveResearchFileInputSchema, false)]),
 
-        const seen = new Set<string>();
-        return results.flatMap((r) => {
-          if (seen.has(r.folder_name)) return [];
-          seen.add(r.folder_name);
-          return [{ folder_name: r.folder_name }];
-        });
-      },
-    },
+    describeTool(
+      "switch_research_folder",
+      createSwitchResearchFolderTool(() => {}) as any,
+      switchResearchFolderInputSchema,
+      true,
+    ),
 
-    {
-      name: "save_research_file",
-      description: "Save a file to the current research folder.",
-      parameters: {
-        filename: {
-          type: "string",
-          required: true,
-          description: "Filename, e.g. 'notes.md'",
-        },
-        content: {
-          type: "string",
-          required: true,
-          description: "File content to write",
-        },
-      },
-      available: !!researchFolder,
-      execute: async (params) => {
-        if (!researchFolder) throw new Error("No research folder selected");
-        const filename = SafePathSegmentSchema.parse(params.filename as string);
-        const content = params.content as string;
-        const subfolder = `search-results/${researchFolder}`;
+    ...(checkpointTool
+      ? [describeTool("research_checkpoint", checkpointTool as any, researchCheckpointInputSchema as any, true)]
+      : [describeTool("research_checkpoint", {} as any, researchCheckpointInputSchema as any, false)]),
 
-        await writeAppFile({ subfolder, filename, content });
-
-        if (apiKey) {
-          await indexResearchFile(
-            apiKey,
-            researchFolder,
-            filename,
-            content,
-          ).catch(() => {});
-        }
-
-        return { savedTo: `AppData/${subfolder}/${filename}` };
-      },
-    },
-
-    {
-      name: "switch_research_folder",
-      description: "Check if a research folder exists.",
-      parameters: {
-        folder: {
-          type: "string",
-          required: true,
-          description: "Research folder name",
-        },
-      },
-      available: true,
-      execute: async (params) => {
-        const folder = SafePathSegmentSchema.parse(params.folder as string);
-        const folders = await listAppSubfolders({
-          subfolder: SEARCH_RESULTS_SUBFOLDER,
-        });
-        const exists = folders.includes(folder);
-        return { folder, exists, availableFolders: folders };
-      },
-    },
-
-    {
-      name: "research_checkpoint",
-      description:
-        "Submit a research quality checkpoint (standalone: returns input as-is without LLM review).",
-      parameters: {
-        originalQuestion: {
-          type: "string",
-          required: true,
-          description: "The original research question",
-        },
-        searchesRun: {
-          type: "string",
-          required: false,
-          description: "Comma-separated list of searches run",
-        },
-        sourcesOpened: {
-          type: "string",
-          required: false,
-          description: "Comma-separated list of source URLs",
-        },
-        claimsVerified: {
-          type: "string",
-          required: false,
-          description: "Comma-separated list of verified claims",
-        },
-        unresolvedQuestions: {
-          type: "string",
-          required: false,
-          description: "Comma-separated list of unresolved questions",
-        },
-        confidence: {
-          type: "string",
-          required: false,
-          description: "Confidence level",
-          enum: ["low", "medium", "high"],
-        },
-        readyToAnswer: {
-          type: "boolean",
-          required: true,
-          description: "Whether you're ready to answer",
-        },
-      },
-      available: true,
-      execute: async (params) => {
-        return {
-          received: params,
-          note: "Standalone mode: no LLM review performed. Input echoed back.",
-        };
-      },
-    },
-
-    {
-      name: "create_research_plan",
-      description:
-        "Create a research plan. Classifies intent, generates questions, search queries, passes and source rules.",
-      parameters: {
-        query: {
-          type: "string",
-          required: true,
-          description: "The user's research question",
-        },
-      },
-      available: !!getChatModel,
-      execute: async (params) => {
-        const chatModel = getChatModel?.();
-        if (!chatModel) throw new Error("No chat model configured");
-
-        const { generateText } = await import("ai");
-        const RESEARCH_PLANNER_SYSTEM = (
-          await import("@/tools/research-planner-prompt.md?raw")
-        ).default;
-        const model = createChatLanguageModel(chatModel);
-
-        const { text } = await generateText({
-          model,
-          system: RESEARCH_PLANNER_SYSTEM,
-          prompt: params.query as string,
-        });
-
-        return text;
-      },
-    },
+    ...(planTool
+      ? [describeTool("create_research_plan", planTool as any, researchPlanInputSchema, true)]
+      : [describeTool("create_research_plan", {} as any, researchPlanInputSchema, false)]),
   ];
 }

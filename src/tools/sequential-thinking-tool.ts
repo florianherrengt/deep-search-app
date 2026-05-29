@@ -13,6 +13,53 @@ interface ThoughtData {
   nextThoughtNeeded: boolean;
 }
 
+export const sequentialThinkingInputSchema = z.object({
+  thought: z.string().describe("Your current thinking step"),
+  nextThoughtNeeded: z
+    .boolean()
+    .describe(
+      "Whether another thought step is needed. True if you need more thinking, even if at what seemed like the end",
+    ),
+  thoughtNumber: z
+    .number()
+    .int()
+    .min(1)
+    .describe("Current thought number in sequence"),
+  totalThoughts: z
+    .number()
+    .int()
+    .min(1)
+    .describe(
+      "Estimated total thoughts needed. Can be adjusted up or down as you progress",
+    ),
+  isRevision: z
+    .boolean()
+    .optional()
+    .describe("Whether this thought revises previous thinking"),
+  revisesThought: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("Which thought number is being reconsidered"),
+  branchFromThought: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("Thought number to branch from"),
+  branchId: z
+    .string()
+    .optional()
+    .describe("Identifier for the current branch"),
+  needsMoreThoughts: z
+    .boolean()
+    .optional()
+    .describe(
+      "If reaching the end but realizing more thoughts are needed",
+    ),
+});
+
 export function createSequentialThinkingTool() {
   const thoughtHistory: ThoughtData[] = [];
   const branches: Record<string, ThoughtData[]> = {};
@@ -25,54 +72,7 @@ export function createSequentialThinkingTool() {
       "Use for: breaking down complex problems into steps, planning with room for revision, " +
       "analysis that might need course correction, problems where the full scope might not be clear initially.",
     strict: true,
-    inputSchema: zodSchema(
-      z.object({
-        thought: z.string().describe("Your current thinking step"),
-        nextThoughtNeeded: z
-          .boolean()
-          .describe(
-            "Whether another thought step is needed. True if you need more thinking, even if at what seemed like the end",
-          ),
-        thoughtNumber: z
-          .number()
-          .int()
-          .min(1)
-          .describe("Current thought number in sequence"),
-        totalThoughts: z
-          .number()
-          .int()
-          .min(1)
-          .describe(
-            "Estimated total thoughts needed. Can be adjusted up or down as you progress",
-          ),
-        isRevision: z
-          .boolean()
-          .optional()
-          .describe("Whether this thought revises previous thinking"),
-        revisesThought: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .describe("Which thought number is being reconsidered"),
-        branchFromThought: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .describe("Thought number to branch from"),
-        branchId: z
-          .string()
-          .optional()
-          .describe("Identifier for the current branch"),
-        needsMoreThoughts: z
-          .boolean()
-          .optional()
-          .describe(
-            "If reaching the end but realizing more thoughts are needed",
-          ),
-      }),
-    ),
+    inputSchema: zodSchema(sequentialThinkingInputSchema),
     outputSchema: zodSchema(
       z.object({
         thoughtNumber: z.number(),

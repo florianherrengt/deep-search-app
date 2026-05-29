@@ -181,16 +181,8 @@ function ThreadMessage() {
                   return (
                     <ToolFallback
                       toolName={toolPart.toolName}
-                      args={
-                        toolPart.args
-                          ? JSON.stringify(toolPart.args, null, 2)
-                          : undefined
-                      }
-                      result={
-                        toolPart.result
-                          ? JSON.stringify(toolPart.result, null, 2)
-                          : undefined
-                      }
+                      args={toolPart.args}
+                      result={toolPart.result}
                       status={
                         toolPart.status?.type === "running"
                           ? "running"

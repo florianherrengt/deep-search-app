@@ -1,11 +1,12 @@
 use serde::Deserialize;
+use std::time::Duration;
 
 const OPENROUTER_EMBEDDINGS_URL: &str = "https://openrouter.ai/api/v1/embeddings";
 const EMBEDDING_MODEL: &str = "qwen/qwen3-embedding-4b";
 const EMBEDDING_DIMENSIONS: usize = 1024;
-const QUERY_INSTRUCTION_PREFIX: &str =
-    "Represent this sentence for searching relevant passages: ";
+const QUERY_INSTRUCTION_PREFIX: &str = "Represent this sentence for searching relevant passages: ";
 const MAX_BATCH_SIZE: usize = 64;
+const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Deserialize)]
 struct EmbeddingResponse {
@@ -17,8 +18,15 @@ struct EmbeddingData {
     embedding: Vec<f32>,
 }
 
-pub fn embed_texts(api_key: &str, texts: &[String], is_query: bool) -> Result<Vec<Vec<f32>>, String> {
-    let client = reqwest::blocking::Client::new();
+pub fn embed_texts(
+    api_key: &str,
+    texts: &[String],
+    is_query: bool,
+) -> Result<Vec<Vec<f32>>, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     let mut all_embeddings = Vec::with_capacity(texts.len());
 
     for batch in texts.chunks(MAX_BATCH_SIZE) {
@@ -55,11 +63,8 @@ pub fn embed_texts(api_key: &str, texts: &[String], is_query: bool) -> Result<Ve
             .json()
             .map_err(|e| format!("Failed to parse embedding response: {}", e))?;
 
-        let batch_embeddings: Vec<Vec<f32>> = parsed
-            .data
-            .into_iter()
-            .map(|d| d.embedding)
-            .collect();
+        let batch_embeddings: Vec<Vec<f32>> =
+            parsed.data.into_iter().map(|d| d.embedding).collect();
 
         all_embeddings.extend(batch_embeddings);
     }

@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::research_search::embeddings;
 use crate::research_search::reranker;
 use crate::research_search::schema;
-use crate::research_search::{serialize_f32_vec, AdjacentChunk, SearchResult};
+use crate::research_search::{serialize_f32_vec, AdjacentChunk, Database, SearchResult};
 
 const RRF_K: f64 = 60.0;
 const MMR_SIMILARITY_THRESHOLD: f64 = 0.85;
@@ -31,7 +31,7 @@ struct ChunkInfo {
 }
 
 pub fn search_multi(
-    conn: &Connection,
+    db: &Database,
     api_key: &str,
     queries: &[String],
     folder: Option<&str>,
@@ -43,7 +43,7 @@ pub fn search_multi(
     let mut seen_chunk_ids: HashSet<i64> = HashSet::new();
 
     for query in queries {
-        let results = search(conn, api_key, query, folder, Some(limit as u32))?;
+        let results = search(db, api_key, query, folder, Some(limit as u32))?;
         for result in results {
             if seen_chunk_ids.insert(result.chunk_id) {
                 all_results.push(result);
@@ -62,7 +62,7 @@ pub fn search_multi(
 }
 
 pub fn search(
-    conn: &Connection,
+    db: &Database,
     api_key: &str,
     query: &str,
     folder: Option<&str>,
@@ -73,31 +73,36 @@ pub fn search(
     let query_embedding = embeddings::embed_query(api_key, query)?;
     let query_bytes = serialize_f32_vec(&query_embedding);
 
-    let vec_results = knn_search(conn, &query_bytes)?;
-    let fts_results = fts_search(conn, query)?;
+    let (_fused, diverse_candidates) = {
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
+        let vec_results = knn_search(&conn, &query_bytes)?;
+        let fts_results = fts_search(&conn, query)?;
 
-    let fused = adaptive_rrf(&vec_results, &fts_results);
+        let mut fused = adaptive_rrf(&vec_results, &fts_results);
+        if let Some(folder_name) = folder {
+            filter_by_folder(&conn, &mut fused, folder_name)?;
+        }
 
-    let mut fused = fused;
-    if let Some(folder_name) = folder {
-        filter_by_folder(conn, &mut fused, folder_name)?;
-    }
+        let diverse = mmr_dedup(&conn, &fused, &query_embedding)?;
+        let candidates: Vec<(i64, String)> = diverse
+            .iter()
+            .take(15)
+            .filter_map(|id| {
+                let info = get_chunk_info(&conn, *id).ok()?;
+                Some((*id, info.content))
+            })
+            .collect();
 
-    let diverse = mmr_dedup(conn, &fused, &query_embedding)?;
-    let candidates: Vec<(i64, String)> = diverse
-        .iter()
-        .take(15)
-        .filter_map(|id| {
-            let info = get_chunk_info(conn, *id).ok()?;
-            Some((*id, info.content))
-        })
-        .collect();
+        (fused, candidates)
+    };
 
     let mut chunk_results = Vec::new();
-    if !candidates.is_empty() {
-        let (ids, docs): (Vec<i64>, Vec<String>) = candidates.into_iter().unzip();
+    if !diverse_candidates.is_empty() {
+        let (ids, docs): (Vec<i64>, Vec<String>) = diverse_candidates.into_iter().unzip();
 
         let reranked = reranker::rerank(api_key, query, &docs)?;
+
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
         let scored: Vec<(i64, f64)> = reranked
             .into_iter()
             .filter(|item| item.score >= 0.5)
@@ -107,9 +112,9 @@ pub fn search(
 
         chunk_results = Vec::with_capacity(scored.len());
         for (id, score) in scored {
-            if let Ok(info) = get_chunk_info(conn, id) {
+            if let Ok(info) = get_chunk_info(&conn, id) {
                 let adjacent =
-                    get_adjacent_chunks(conn, info.folder_id, &info.filename, info.chunk_index)
+                    get_adjacent_chunks(&conn, info.folder_id, &info.filename, info.chunk_index)
                         .ok();
 
                 chunk_results.push(SearchResult {
@@ -125,14 +130,18 @@ pub fn search(
         }
     }
 
-    let mut results = folder_metadata_search(conn, query, folder)?;
-    results.extend(chunk_results);
-    results.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    results.truncate(limit);
+    let results = {
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
+        let mut meta = folder_metadata_search(&conn, query, folder)?;
+        meta.extend(chunk_results);
+        meta.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        meta.truncate(limit);
+        meta
+    };
 
     Ok(results)
 }

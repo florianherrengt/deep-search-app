@@ -18,6 +18,7 @@ const CHAT_FILE_EXTENSION = ".json";
 
 export interface ResearchFolder {
   name: string;
+  updatedAt?: string | null;
 }
 
 export interface ResearchChatSummary {
@@ -62,7 +63,14 @@ export async function listResearchFolders(): Promise<ResearchFolder[]> {
     subfolder: SEARCH_RESULTS_SUBFOLDER,
   });
 
-  return folders.map((name) => ({ name }));
+  const summaries = await Promise.all(
+    folders.map(async (name) => ({
+      name,
+      updatedAt: await getResearchFolderUpdatedAt(name),
+    })),
+  );
+
+  return summaries.sort(compareResearchFolders);
 }
 
 export async function listResearchChats(
@@ -254,6 +262,14 @@ export async function deleteResearchFolder(folderName: string): Promise<void> {
   });
 }
 
+export function compareResearchFolders(
+  a: ResearchFolder,
+  b: ResearchFolder,
+) {
+  const dateDiff = sortableDate(b.updatedAt) - sortableDate(a.updatedAt);
+  return dateDiff || a.name.localeCompare(b.name);
+}
+
 function researchChatsSubfolder(folderName: string) {
   return `${SEARCH_RESULTS_SUBFOLDER}/${folderName}/${CHATS_SUBFOLDER}`;
 }
@@ -282,6 +298,15 @@ function compareResearchChats(
 
 function sortableChatDate(chat: ResearchChatSummary) {
   const value = chat.updatedAt ?? chat.createdAt;
+  return sortableDate(value);
+}
+
+async function getResearchFolderUpdatedAt(folderName: string) {
+  const [latestChat] = await listResearchChats(folderName);
+  return latestChat?.updatedAt ?? latestChat?.createdAt ?? null;
+}
+
+function sortableDate(value?: string | null) {
   if (!value) {
     return 0;
   }

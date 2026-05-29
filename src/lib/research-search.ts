@@ -1,5 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
 
+interface ResearchSearchMock {
+  indexResearchFile?: (
+    apiKey: string,
+    folder: string,
+    filename: string,
+    content: string,
+  ) => Promise<void>;
+  registerResearchFolder?: (name: string, query: string) => Promise<number>;
+}
+
+declare global {
+  interface Window {
+    __deepSearchResearchSearchMock?: ResearchSearchMock;
+  }
+}
+
 export interface AdjacentChunk {
   chunk_index: number;
   content: string;
@@ -43,6 +59,11 @@ export async function indexResearchFile(
   filename: string,
   content: string,
 ): Promise<void> {
+  const mock = getDevResearchSearchMock();
+  if (mock?.indexResearchFile) {
+    return mock.indexResearchFile(apiKey, folder, filename, content);
+  }
+
   return invoke("index_research_file", { apiKey, folder, filename, content });
 }
 
@@ -50,6 +71,11 @@ export async function registerResearchFolder(
   name: string,
   query: string,
 ): Promise<number> {
+  const mock = getDevResearchSearchMock();
+  if (mock?.registerResearchFolder) {
+    return mock.registerResearchFolder(name, query);
+  }
+
   return invoke<number>("register_research_folder", { name, query });
 }
 
@@ -59,4 +85,12 @@ export async function listResearchFoldersDb(): Promise<ResearchFolderInfo[]> {
 
 export async function backfillIndex(apiKey: string): Promise<void> {
   return invoke("backfill_index", { apiKey });
+}
+
+function getDevResearchSearchMock(): ResearchSearchMock | null {
+  if (!import.meta.env.DEV || typeof window === "undefined") {
+    return null;
+  }
+
+  return window.__deepSearchResearchSearchMock ?? null;
 }

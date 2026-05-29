@@ -17,6 +17,18 @@ const FolderNameSchema = z.object({
     ),
 });
 
+function slugifyFolderName(text: string): string {
+  const slug = text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100);
+
+  return SafePathSegmentSchema.parse(slug || "research");
+}
+
 function getFirstUserMessage(messages: UIMessage[]): string | null {
   for (const msg of messages) {
     if (msg.role === "user") {
@@ -39,23 +51,18 @@ export async function generateResearchFolder(
   const firstMessage = getFirstUserMessage(messages);
   if (!firstMessage) return "research";
 
-  const { object } = await generateObject({
-    model,
-    schema: zodSchema(FolderNameSchema),
-    system:
-      "You name research folders. Given a user question, produce a short, descriptive kebab-case folder name. Use at most 5 words. Focus on the core topic, not the phrasing.",
-    prompt: firstMessage,
-  });
+  let folderName = slugifyFolderName(firstMessage);
+  try {
+    const { object } = await generateObject({
+      model,
+      schema: zodSchema(FolderNameSchema),
+      system:
+        "You name research folders. Given a user question, produce a short, descriptive kebab-case folder name. Use at most 5 words. Focus on the core topic, not the phrasing.",
+      prompt: firstMessage,
+    });
 
-  const slug = object.folderName
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 100);
-
-  const folderName = SafePathSegmentSchema.parse(slug);
+    folderName = slugifyFolderName(object.folderName);
+  } catch {}
 
   const readmeContent = `# ${folderName}\n\nQuery: ${firstMessage}\n`;
 

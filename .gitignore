@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+src-tauri/binaries/node-*
+!src-tauri/binaries/README.md
 *.local
 .env
 

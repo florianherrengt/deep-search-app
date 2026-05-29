@@ -114,3 +114,13 @@ WHERE folder_id = ?1 AND filename = ?2 AND chunk_index IN (?3, ?4)
 
 pub const _GET_CHUNKS_FOR_FOLDER_FILE: &str =
     "SELECT id, chunk_index, content_hash FROM chunks WHERE folder_id = ?1 AND filename = ?2 ORDER BY chunk_index";
+
+pub const GET_FILE_CHUNK_IDS: &str = "SELECT id FROM chunks WHERE folder_id = ?1 AND filename = ?2";
+
+pub const DELETE_FILE_CHUNKS: &str = "DELETE FROM chunks WHERE folder_id = ?1 AND filename = ?2";
+
+pub const GET_CHUNK_IDS_ABOVE_INDEX: &str =
+    "SELECT id FROM chunks WHERE folder_id = ?1 AND filename = ?2 AND chunk_index >= ?3";
+
+pub const DELETE_CHUNKS_ABOVE_INDEX: &str =
+    "DELETE FROM chunks WHERE folder_id = ?1 AND filename = ?2 AND chunk_index >= ?3";

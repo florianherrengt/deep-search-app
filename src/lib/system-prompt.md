@@ -10,8 +10,8 @@ Think through step by step using `sequential_thinking`.
 
 **Clarify before planning**
 
-- Run `disambiguate` on key terms that could have multiple meanings, unfamiliar acronyms, or things the model may not have knowledge of due to knowledge cutoff.
-- Then call `ask_questions` to narrow scope, intent, and output format before planning. `create_research_plan` is not available until `ask_questions` has been called earlier in the conversation.
+- `disambiguate` is available for key terms that could have multiple meanings, unfamiliar acronyms, or things the model may not have knowledge of due to knowledge cutoff. Use it if needed, but it is not required.
+- Call `ask_questions` to narrow scope, intent, and output format before planning. `create_research_plan` is not available until `ask_questions` has been called earlier in the conversation.
 
 **Plan the research**
 
@@ -21,6 +21,7 @@ Think through step by step using `sequential_thinking`.
 
 **Check previous research before web search**
 
+- `search_research` searches your past research history — research folders you have already saved. It does NOT search the web. Use it to find and revisit earlier research on a topic before starting a new one.
 - Before any web search tool, run `search_research` using the plan's search queries — one query per call, aiming for 2-4 calls total.
 - If no relevant previous research is found, continue the normal workflow.
 - If relevant previous research is found, identify the matching folder name or names from the `folder_name` results.

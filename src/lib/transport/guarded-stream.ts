@@ -18,7 +18,7 @@ import {
 import { getActiveToolNamesForMessages } from "@/lib/tool-call-requirements";
 import systemPrompt from "../system-prompt.md?raw";
 import { generateResearchFolder } from "./research-folder";
-import { createTools, type AppToolSet } from "./tool-registry";
+import { createTools, type AppToolSet, type SearchToolKeys } from "./tool-registry";
 
 const MAX_GUARD_RETRIES = 2;
 
@@ -35,6 +35,7 @@ export function createGuardedStream({
   messages,
   abortSignal,
   onResearchFolderChange,
+  searchKeys,
 }: {
   model: LanguageModel;
   researchFolder: string | null;
@@ -42,6 +43,7 @@ export function createGuardedStream({
   messages: UIMessage[];
   abortSignal: AbortSignal | undefined;
   onResearchFolderChange?: (folderName: string) => void;
+  searchKeys?: SearchToolKeys;
 }): ReadableStream<UIMessageChunk> {
   return new ReadableStream<UIMessageChunk>({
     async start(controller) {
@@ -86,6 +88,7 @@ export function createGuardedStream({
             onResearchFolderChange?.(activeResearchFolder);
           },
           apiKey,
+          searchKeys,
         });
 
         currentModelMessages = await convertToModelMessages(currentUiMessages, {

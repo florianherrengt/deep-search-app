@@ -1,19 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { SettingsProvider, useSettings } from "@/hooks/use-settings";
 import { setupMenu } from "@/lib/setup-menu";
+import { subscribeResearchLibraryChanged } from "@/lib/research-library-events";
 import {
   getChatModelOptions,
   getDefaultChatModelId,
 } from "@/lib/chat-provider-settings";
-import { type ChatProvider } from "@/lib/chat-providers";
-import {
-  setBraveApiKey,
-  setExaApiKey,
-  setSerperApiKey,
-  setTavilyApiKey,
-  setSearXNGBaseUrl,
-} from "@/lib/transport";
+import { type ChatModelConfig, type ChatProvider } from "@/lib/chat-providers";
 import { Chat } from "@/components/chat";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ToolsPanel } from "@/components/tools-panel";
@@ -22,6 +16,7 @@ import { TabPanel } from "@/components/tab-panel";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
 import { ResearchSidebar } from "@/components/research-sidebar";
 import {
+  compareResearchFolders,
   createResearchChatId,
   deleteResearchFolder,
   listResearchChats,
@@ -60,6 +55,18 @@ function AppInner() {
   );
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
   const [chatSessionId, setChatSessionId] = useState(() => createChatSessionId());
+  const [selectedModelId, setSelectedModelId] = useState("");
+  const chatModelOptions = useMemo(
+    () => getChatModelOptions(settings),
+    [settings],
+  );
+  const defaultChatModelId = useMemo(
+    () => getDefaultChatModelId(settings, chatModelOptions),
+    [settings, chatModelOptions],
+  );
+  const hasConfiguredChatProvider = chatModelOptions.some(
+    (option) => !option.disabled,
+  );
 
   const handleNewChat = useCallback(() => {
     const nextChatId = createResearchChatId();
@@ -77,7 +84,10 @@ function AppInner() {
     setResearchFoldersStatus("loading");
 
     try {
-      setResearchFolders(await listResearchFolders());
+      const folders = await listResearchFolders();
+      setResearchFolders((currentFolders) =>
+        mergeResearchFoldersWithCurrent(folders, currentFolders),
+      );
       setResearchFoldersStatus("ready");
     } catch {
       setResearchFoldersStatus("error");
@@ -108,12 +118,29 @@ function AppInner() {
   }, [refreshResearchFolders]);
 
   useEffect(() => {
-    if (settings.brave_api_key) setBraveApiKey(settings.brave_api_key);
-    if (settings.exa_api_key) setExaApiKey(settings.exa_api_key);
-    if (settings.serper_api_key) setSerperApiKey(settings.serper_api_key);
-    if (settings.tavily_api_key) setTavilyApiKey(settings.tavily_api_key);
-    if (settings.searxng_url) setSearXNGBaseUrl(settings.searxng_url);
-  }, [settings]);
+    return subscribeResearchLibraryChanged(({ folderName }) => {
+      setResearchFolders((folders) =>
+        upsertRecentResearchFolder(folders, folderName),
+      );
+      void refreshResearchFolders();
+
+      if (folderName === activeResearchFolderRef.current) {
+        void refreshResearchChats(folderName);
+      }
+    });
+  }, [refreshResearchChats, refreshResearchFolders]);
+
+  useEffect(() => {
+    const enabledModels = chatModelOptions.filter((option) => !option.disabled);
+    if (enabledModels.length === 0) {
+      if (selectedModelId) setSelectedModelId("");
+      return;
+    }
+
+    if (!enabledModels.some((option) => option.id === selectedModelId)) {
+      setSelectedModelId(defaultChatModelId);
+    }
+  }, [chatModelOptions, defaultChatModelId, selectedModelId]);
 
   const updateDefaultChatProvider = useCallback(
     (provider: ChatProvider) => {
@@ -126,11 +153,38 @@ function AppInner() {
 
   if (loading) return null;
 
-  const chatModelOptions = getChatModelOptions(settings);
-  const hasConfiguredChatProvider = chatModelOptions.some(
-    (option) => !option.disabled,
-  );
-  const defaultChatModelId = getDefaultChatModelId(settings, chatModelOptions);
+  const searchKeys = {
+    braveApiKey: settings.brave_api_key || null,
+    exaApiKey: settings.exa_api_key || null,
+    serperApiKey: settings.serper_api_key || null,
+    tavilyApiKey: settings.tavily_api_key || null,
+    searxngBaseUrl: settings.searxng_url || null,
+  };
+  const effectiveSelectedModelId = selectedModelId || defaultChatModelId;
+
+  const getSelectedToolChatModel = (): ChatModelConfig | null => {
+    const selected = chatModelOptions.find(
+      (option) => option.id === effectiveSelectedModelId && !option.disabled,
+    );
+    if (!selected) return null;
+
+    return {
+      provider: selected.provider,
+      apiKey: selected.apiKey,
+      model: selected.model,
+      baseURL: selected.baseURL,
+    };
+  };
+
+  const handleSelectedModelChange = (modelId: string) => {
+    const selected = chatModelOptions.find(
+      (option) => option.id === modelId && !option.disabled,
+    );
+    if (!selected) return;
+
+    setSelectedModelId(modelId);
+    updateDefaultChatProvider(selected.provider);
+  };
 
   if (!hasConfiguredChatProvider) {
     return (
@@ -205,11 +259,7 @@ function AppInner() {
   const handleResearchFolderChange = (folderName: string) => {
     setActiveResearchFolder(folderName);
     setResearchFolders((folders) =>
-      folders.some((folder) => folder.name === folderName)
-        ? folders
-        : [...folders, { name: folderName }].sort((a, b) =>
-            a.name.localeCompare(b.name),
-          ),
+      upsertRecentResearchFolder(folders, folderName),
     );
     void refreshResearchFolders();
     void refreshResearchChats(folderName);
@@ -223,8 +273,12 @@ function AppInner() {
 
     setResearchFolders((folders) =>
       folders
-        .map((folder) => (folder.name === oldFolderName ? renamed : folder))
-        .sort((a, b) => a.name.localeCompare(b.name)),
+        .map((folder) =>
+          folder.name === oldFolderName
+            ? { ...renamed, updatedAt: folder.updatedAt ?? null }
+            : folder,
+        )
+        .sort(compareResearchFolders),
     );
 
     if (activeResearchFolder === oldFolderName) {
@@ -295,22 +349,31 @@ function AppInner() {
               defaultModelId={defaultChatModelId}
               researchApiKey={settings.openrouter_api_key}
               researchFolder={activeResearchFolder}
+              selectedModelId={effectiveSelectedModelId}
               initialMessages={initialMessages}
               onResearchFolderChange={handleResearchFolderChange}
+              onSelectedModelIdChange={handleSelectedModelChange}
+              searchKeys={searchKeys}
               onResearchChatSaved={(folderName) => {
                 if (folderName === activeResearchFolderRef.current) {
                   void refreshResearchChats(folderName);
                 }
-              }}
-              onModelChange={(model) => {
-                updateDefaultChatProvider(model.provider);
               }}
             />
           </div>
         </div>
       }
       settingsPanel={<SettingsPanel />}
-      toolsPanel={<ToolsPanel config={{ researchFolder: activeResearchFolder, apiKey: settings.openrouter_api_key }} />}
+      toolsPanel={
+        <ToolsPanel
+          config={{
+            researchFolder: activeResearchFolder,
+            apiKey: settings.openrouter_api_key,
+            getChatModel: getSelectedToolChatModel,
+            ...searchKeys,
+          }}
+        />
+      }
       tabs={tabs}
       activeTabId={activeTabId}
       onSwitchTab={switchToTab}
@@ -321,6 +384,58 @@ function AppInner() {
 
 function createChatSessionId() {
   return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function mergeResearchFoldersWithCurrent(
+  folders: ResearchFolder[],
+  currentFolders: ResearchFolder[],
+) {
+  return folders
+    .map((folder) => {
+      const currentFolder = currentFolders.find(
+        (candidate) => candidate.name === folder.name,
+      );
+      const updatedAt = newestTimestamp(
+        folder.updatedAt,
+        currentFolder?.updatedAt,
+      );
+
+      if (updatedAt !== folder.updatedAt) {
+        return { ...folder, updatedAt };
+      }
+
+      return folder;
+    })
+    .sort(compareResearchFolders);
+}
+
+function upsertRecentResearchFolder(
+  folders: ResearchFolder[],
+  folderName: string,
+) {
+  const updatedAt = new Date().toISOString();
+  const exists = folders.some((folder) => folder.name === folderName);
+  const nextFolders = exists
+    ? folders.map((folder) =>
+        folder.name === folderName ? { ...folder, updatedAt } : folder,
+      )
+    : [...folders, { name: folderName, updatedAt }];
+
+  return nextFolders.sort(compareResearchFolders);
+}
+
+function newestTimestamp(
+  left?: string | null,
+  right?: string | null,
+) {
+  return sortableTimestamp(right) > sortableTimestamp(left) ? right : left;
+}
+
+function sortableTimestamp(value?: string | null) {
+  if (!value) return 0;
+
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function App() {

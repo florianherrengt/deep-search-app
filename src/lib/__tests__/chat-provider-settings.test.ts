@@ -62,4 +62,5 @@ describe("chat provider settings", () => {
 
     expect(getInitialProviderSelection(settings)).toBe("anthropic");
   });
+
 });

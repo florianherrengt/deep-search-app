@@ -1,8 +1,10 @@
 use serde::Deserialize;
+use std::time::Duration;
 
 const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const RERANK_MODEL: &str = "cohere/rerank-4-pro";
 const MAX_RERANK_CANDIDATES: usize = 15;
+const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Deserialize)]
 struct RerankResponse {
@@ -29,9 +31,16 @@ pub fn rerank(
         return Ok(Vec::new());
     }
 
-    let docs: Vec<&str> = documents.iter().take(MAX_RERANK_CANDIDATES).map(|s| s.as_str()).collect();
+    let docs: Vec<&str> = documents
+        .iter()
+        .take(MAX_RERANK_CANDIDATES)
+        .map(|s| s.as_str())
+        .collect();
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     let body = serde_json::json!({
         "model": RERANK_MODEL,
         "query": query,
@@ -67,6 +76,10 @@ pub fn rerank(
         })
         .collect();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     Ok(results)
 }

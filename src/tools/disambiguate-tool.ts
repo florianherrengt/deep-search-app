@@ -1,7 +1,7 @@
 import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
-import Bottleneck from "bottleneck";
+import { rateLimit } from "@/lib/rate-limit";
 import nlp from "compromise";
 import stopwords from "stopwords-iso";
 
@@ -9,11 +9,6 @@ const STOPWORDS = new Set(stopwords.en);
 
 const API_URL = "https://api.duckduckgo.com/";
 const MAX_RELATED_TOPICS = 8;
-
-const limiter = new Bottleneck({
-  maxConcurrent: 1,
-  minTime: 1000,
-});
 
 const OptionalStringSchema = z.string().nullable().optional();
 
@@ -65,7 +60,7 @@ function flattenRelatedTopicText(relatedTopics: unknown[]): string[] {
 }
 
 async function fetchDuckDuckGo(query: string): Promise<string> {
-  return limiter.schedule(async () => {
+  return rateLimit(async () => {
     const url = new URL(API_URL);
     url.searchParams.set("q", query.trim());
     url.searchParams.set("format", "json");
@@ -134,15 +129,15 @@ function extractEntities(question: string): string[] {
   return [...new Set(candidates)];
 }
 
+export const disambiguateInputSchema = z.object({
+  question: z.string().describe("The user's question to disambiguate"),
+});
+
 export const disambiguateTool = tool({
   description:
     "Identify and resolve ambiguous entities, concepts, acronyms, and terms in a question. Returns concise descriptions and related context from DuckDuckGo. Pass the user's question as-is. Returns empty text if nothing needs disambiguation.",
   strict: true,
-  inputSchema: zodSchema(
-    z.object({
-      question: z.string().describe("The user's question to disambiguate"),
-    }),
-  ),
+  inputSchema: zodSchema(disambiguateInputSchema),
   outputSchema: zodSchema(z.array(z.string())),
   execute: async ({ question }) => {
     const entities = extractEntities(question);

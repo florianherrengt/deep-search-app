@@ -8,6 +8,12 @@ import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 
 type SwitchResearchFolder = (folderName: string) => void;
 
+export const switchResearchFolderInputSchema = z.object({
+  folder: SafePathSegmentSchema.describe(
+    "Existing research folder to continue, for example 'acme-market-map'.",
+  ),
+});
+
 export function createSwitchResearchFolderTool(
   switchResearchFolder: SwitchResearchFolder,
 ) {
@@ -15,13 +21,7 @@ export function createSwitchResearchFolderTool(
     description:
       "Switch the active research folder to an existing previous research folder.",
     strict: true,
-    inputSchema: zodSchema(
-      z.object({
-        folder: SafePathSegmentSchema.describe(
-          "Existing research folder to continue, for example 'acme-market-map'.",
-        ),
-      }),
-    ),
+    inputSchema: zodSchema(switchResearchFolderInputSchema),
     outputSchema: zodSchema(
       z.object({
         researchFolder: z.string(),

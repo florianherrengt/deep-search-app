@@ -1,15 +1,9 @@
 import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
-import Bottleneck from "bottleneck";
+import { rateLimit } from "@/lib/rate-limit";
 
 const API_BASE_URL = "https://api.tavily.com";
-const DEFAULT_REQUESTS_PER_SECOND = 1;
-
-const limiter = new Bottleneck({
-  maxConcurrent: 1,
-  minTime: 1000 / DEFAULT_REQUESTS_PER_SECOND,
-});
 
 const SearchResultSchema = z.object({
   title: z.string(),
@@ -29,62 +23,88 @@ const TavilyWebResponseSchema = z.object({
 
 type SearchResult = z.infer<typeof SearchResultSchema>;
 
-let apiKey: string | null = null;
+export const tavilySearchInputSchema = z.object({
+  query: z.string().min(1).describe("Search query"),
+});
 
-export function setTavilyApiKey(key: string) {
-  apiKey = key;
-}
+export const tavilySearchOutputSchema = z.object({
+  results: z.array(SearchResultSchema),
+});
 
-export function getTavilyApiKey(): string | null {
-  return apiKey;
-}
+export function createTavilySearchTool(apiKey: string) {
+  const normalizedApiKey = apiKey.trim();
 
-async function search(query: string): Promise<SearchResult[]> {
-  return limiter.schedule(async () => {
-    const response = await fetch(`${API_BASE_URL}/search`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        query,
-        search_depth: "basic",
-        max_results: 5,
-      }),
+  async function search(query: string): Promise<SearchResult[]> {
+    return rateLimit(async () => {
+      const response = await fetch(`${API_BASE_URL}/search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${normalizedApiKey}`,
+        },
+        body: JSON.stringify({
+          query,
+          search_depth: "basic",
+          max_results: 5,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await formatTavilyHttpError(response));
+      }
+
+      const raw = await parseJsonResponse(response);
+      const parsed = TavilyWebResponseSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new Error(
+          "Tavily search response did not match the expected format.",
+        );
+      }
+
+      return parsed.data.results.map((r) => ({
+        title: r.title,
+        url: r.url,
+        description: r.content,
+      }));
     });
+  }
 
-    if (!response.ok) {
-      return [];
-    }
-
-    const parsed = TavilyWebResponseSchema.safeParse(await response.json());
-    if (!parsed.success) {
-      return [];
-    }
-
-    return parsed.data.results.map((r) => ({
-      title: r.title,
-      url: r.url,
-      description: r.content,
-    }));
+  return tool({
+    description: "Search the web with Tavily Search",
+    strict: true,
+    inputSchema: zodSchema(tavilySearchInputSchema),
+    outputSchema: zodSchema(tavilySearchOutputSchema),
+    execute: async ({ query }) => {
+      return { results: await search(query) };
+    },
   });
 }
 
-export const tavilySearchTool = tool({
-  description: "Search the web with Tavily Search",
-  strict: true,
-  inputSchema: zodSchema(
-    z.object({
-      query: z.string().min(1).describe("Search query"),
-    }),
-  ),
-  outputSchema: zodSchema(
-    z.object({
-      results: z.array(SearchResultSchema),
-    }),
-  ),
-  execute: async ({ query }) => {
-    return { results: await search(query) };
-  },
-});
+async function parseJsonResponse(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    throw new Error("Tavily search response was not valid JSON.");
+  }
+}
+
+async function formatTavilyHttpError(response: Response): Promise<string> {
+  const statusText = response.statusText ? ` ${response.statusText}` : "";
+  const body = await readResponseText(response);
+  return `Tavily search failed with HTTP ${response.status}${statusText}${body ? `: ${body}` : ""}`;
+}
+
+async function readResponseText(response: Response): Promise<string> {
+  try {
+    const text = await response.text();
+    return truncateForError(text.trim());
+  } catch {
+    return "";
+  }
+}
+
+function truncateForError(text: string): string {
+  const maxLength = 300;
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}...`;
+}

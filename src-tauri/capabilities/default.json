@@ -24,24 +24,90 @@
     "fs:allow-write-text-file",
     "fs:scope-appdata-recursive",
     {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/node",
+          "sidecar": true,
+          "args": [
+            {
+              "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
+            },
+            "--auto-connect"
+          ]
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-stdin-write",
+      "allow": [
+        {
+          "name": "binaries/node",
+          "sidecar": true,
+          "args": [
+            {
+              "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
+            },
+            "--auto-connect"
+          ]
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-kill",
+      "allow": [
+        {
+          "name": "binaries/node",
+          "sidecar": true,
+          "args": [
+            {
+              "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
+            },
+            "--auto-connect"
+          ]
+        }
+      ]
+    },
+    {
       "identifier": "http:default",
       "allow": [
-        { "url": "http://*:*" },
-        { "url": "https://*:*" }
+        { "url": "https://api.anthropic.com/**" },
+        { "url": "https://api.duckduckgo.com/**" },
+        { "url": "https://api.exa.ai/**" },
+        { "url": "https://api.search.brave.com/**" },
+        { "url": "https://api.tavily.com/**" },
+        { "url": "https://api.z.ai/**" },
+        { "url": "https://google.serper.dev/**" },
+        { "url": "https://open.bigmodel.cn/**" },
+        { "url": "https://openrouter.ai/**" }
       ]
     },
     {
       "identifier": "http:allow-fetch-send",
       "allow": [
-        { "url": "http://*:*" },
-        { "url": "https://*:*" }
+        { "url": "https://api.anthropic.com/**" },
+        { "url": "https://api.duckduckgo.com/**" },
+        { "url": "https://api.exa.ai/**" },
+        { "url": "https://api.search.brave.com/**" },
+        { "url": "https://api.tavily.com/**" },
+        { "url": "https://api.z.ai/**" },
+        { "url": "https://google.serper.dev/**" },
+        { "url": "https://open.bigmodel.cn/**" },
+        { "url": "https://openrouter.ai/**" }
       ]
     },
     {
       "identifier": "http:allow-fetch-read-body",
       "allow": [
-        { "url": "http://*:*" },
-        { "url": "https://*:*" }
+        { "url": "https://api.anthropic.com/**" },
+        { "url": "https://api.duckduckgo.com/**" },
+        { "url": "https://api.exa.ai/**" },
+        { "url": "https://api.search.brave.com/**" },
+        { "url": "https://api.tavily.com/**" },
+        { "url": "https://api.z.ai/**" },
+        { "url": "https://google.serper.dev/**" },
+        { "url": "https://open.bigmodel.cn/**" },
+        { "url": "https://openrouter.ai/**" }
       ]
     }
   ]
