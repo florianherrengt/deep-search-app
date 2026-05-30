@@ -22,6 +22,7 @@ import {
 } from "@/lib/chat-provider-settings";
 import { getChatProviderLabel, type ChatProvider } from "@/lib/chat-providers";
 import { cn } from "@/lib/utils";
+import { CURRENCIES } from "@/lib/settings-store";
 import type { Settings } from "@/hooks/use-settings";
 
 interface SettingsFieldsProps {
@@ -205,6 +206,30 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             onCommit={handleCommit}
           />
         ))}
+      </section>
+
+      <section className="space-y-2">
+        <Label htmlFor={`${fieldIdPrefix}-currency`}>Currency</Label>
+        <SelectRoot
+          value={settings.currency}
+          onValueChange={(value) => {
+            void updateSetting("currency", value);
+          }}
+        >
+          <SelectTrigger
+            id={`${fieldIdPrefix}-currency`}
+            className="w-full"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CURRENCIES.map((code) => (
+              <SelectItem key={code} value={code}>
+                {code}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </SelectRoot>
       </section>
     </div>
   );

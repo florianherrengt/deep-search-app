@@ -6,6 +6,44 @@ import {
 } from "@/lib/chat-providers";
 import { createStore } from "./store";
 
+export const CURRENCIES = [
+  "AED",
+  "AUD",
+  "BRL",
+  "CAD",
+  "CHF",
+  "CNY",
+  "CZK",
+  "DKK",
+  "EUR",
+  "GBP",
+  "HKD",
+  "HUF",
+  "IDR",
+  "ILS",
+  "INR",
+  "JPY",
+  "KRW",
+  "MXN",
+  "MYR",
+  "NOK",
+  "NZD",
+  "PHP",
+  "PLN",
+  "RON",
+  "SAR",
+  "SEK",
+  "SGD",
+  "THB",
+  "TRY",
+  "USD",
+  "ZAR",
+] as const;
+
+export type Currency = (typeof CURRENCIES)[number];
+
+export const currencySchema = z.enum(CURRENCIES);
+
 export const settingsSchema = z.object({
   chat_provider: chatProviderSchema,
   openrouter_api_key: z.string(),
@@ -20,6 +58,7 @@ export const settingsSchema = z.object({
   default_model: z.string(),
   anthropic_model: z.string(),
   zhipu_model: z.string(),
+  currency: currencySchema,
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -38,6 +77,7 @@ export const settingsDefaults: Settings = {
   default_model: CHAT_PROVIDER_DEFAULT_MODELS.openrouter,
   anthropic_model: CHAT_PROVIDER_DEFAULT_MODELS.anthropic,
   zhipu_model: CHAT_PROVIDER_DEFAULT_MODELS.zhipu,
+  currency: "USD",
 };
 
 export const settingsStore = createStore(

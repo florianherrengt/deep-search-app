@@ -12,3 +12,4 @@ export { createSequentialThinkingTool, sequentialThinkingInputSchema } from "./s
 export { createSearchResearchTool, searchResearchInputSchema } from "./search-research-tool";
 export { createSwitchResearchFolderTool, switchResearchFolderInputSchema } from "./switch-research-folder-tool";
 export { createResearchPlanTool, researchPlanInputSchema } from "./research-plan-tool";
+export { createCurrencyConversionTool, currencyConversionInputSchema } from "./currency-conversion-tool";

@@ -159,6 +159,7 @@ function AppInner() {
     serperApiKey: settings.serper_api_key || null,
     tavilyApiKey: settings.tavily_api_key || null,
     searxngBaseUrl: settings.searxng_url || null,
+    currency: settings.currency,
   };
   const effectiveSelectedModelId = selectedModelId || defaultChatModelId;
 
@@ -354,6 +355,7 @@ function AppInner() {
               onResearchFolderChange={handleResearchFolderChange}
               onSelectedModelIdChange={handleSelectedModelChange}
               searchKeys={searchKeys}
+              currency={settings.currency}
               onResearchChatSaved={(folderName) => {
                 if (folderName === activeResearchFolderRef.current) {
                   void refreshResearchChats(folderName);

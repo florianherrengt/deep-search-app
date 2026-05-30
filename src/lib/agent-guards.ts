@@ -9,12 +9,14 @@ import {
   evaluateToolCallRequirementForResponse,
   type ToolCallRequirementViolation,
 } from "@/lib/tool-call-requirements";
+import { CURRENCIES, type Currency } from "@/lib/settings-store";
 
 export const guardrailEventSchema = z.object({
   kind: z.enum([
     "question_tool",
     "research_checkpoint",
     "tool_call_requirement",
+    "currency_conversion",
   ]),
   status: z.enum(["retrying", "warning", "passed"]),
   title: z.string(),
@@ -61,7 +63,8 @@ export type ResearchCheckpointResult = z.infer<
 export type GuardName =
   | "question_tool"
   | "research_checkpoint"
-  | "tool_call_requirement";
+  | "tool_call_requirement"
+  | "currency_conversion";
 
 export type GuardDecision<TOOLS extends ToolSet = ToolSet> =
   | { action: "accept" }
@@ -150,6 +153,60 @@ const RESEARCH_TOOL_NAMES = new Set([
 
 const RESEARCH_CHECKPOINT_TOOL = "research_checkpoint";
 
+const CURRENCY_SYMBOL_MAP: Record<string, string> = {
+  $: "USD",
+  "€": "EUR",
+  "£": "GBP",
+  "¥": "JPY",
+  "₩": "KRW",
+  "₹": "INR",
+  "₽": "RUB",
+  "₺": "TRY",
+  "₴": "UAH",
+  "₱": "PHP",
+  "₫": "VND",
+  "₦": "NGN",
+  "₪": "ILS",
+  "₡": "CRC",
+  "₸": "KZT",
+  "₮": "MNT",
+};
+
+const CURRENCY_CODE_PATTERN = new RegExp(
+  `\\b\\d[\\d,.]*\\s*(${CURRENCIES.join("|")})\\b` +
+    `|` +
+    `\\b(${CURRENCIES.join("|")})\\s+\\d[\\d,.]*\\b`,
+  "i",
+);
+
+function detectForeignCurrencyMentions(
+  text: string,
+  targetCurrency: Currency,
+): string[] {
+  const matches = new Set<string>();
+
+  for (const [symbol, currency] of Object.entries(CURRENCY_SYMBOL_MAP)) {
+    if (currency === targetCurrency) continue;
+    const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const symbolPattern = new RegExp(
+      `${escaped}\\s*[\\d,.]+\\b|\\b[\\d,.]+\\s*${escaped}`,
+      "g",
+    );
+    for (const m of text.matchAll(symbolPattern)) {
+      matches.add(`${m[0]} (${currency})`);
+    }
+  }
+
+  for (const m of text.matchAll(CURRENCY_CODE_PATTERN)) {
+    const code = (m[1] || m[2]).toUpperCase();
+    if (code !== targetCurrency) {
+      matches.add(m[0]);
+    }
+  }
+
+  return [...matches];
+}
+
 export function stripCodeBlocksAndQuotes(text: string) {
   return text
     .replace(/```[\s\S]*?```/g, " ")
@@ -225,11 +282,11 @@ export function getMessageText(message: UIMessage | undefined): string {
 }
 
 export function getLatestUserText(messages: UIMessage[]): string {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role === "user") return getMessageText(message);
-  }
-  return "";
+  const latestUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+
+  return getMessageText(latestUserMessage);
 }
 
 export function isResearchLikeRequest(text: string): boolean {
@@ -280,9 +337,11 @@ export function hasRejectedResearchCheckpoint(message: UIMessage) {
 export function evaluateAssistantStep<TOOLS extends ToolSet>({
   messages,
   responseMessage,
+  targetCurrency,
 }: {
   messages: UIMessage[];
   responseMessage: UIMessage;
+  targetCurrency?: Currency;
 }): GuardDecision<TOOLS> {
   const toolRequirementViolation = evaluateToolCallRequirementForResponse({
     messages,
@@ -310,6 +369,29 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
         "Your previous response asked the user for input in plain text. Convert that request into an ask_questions tool call now. Do not answer in plain text.",
       toolChoice: { type: "tool", toolName: "ask_questions" } as ToolChoice<TOOLS>,
     };
+  }
+
+  if (targetCurrency && !hasToolCall(responseMessage, "currency_conversion")) {
+    const foreignMentions = detectForeignCurrencyMentions(
+      stripCodeBlocksAndQuotes(text),
+      targetCurrency,
+    );
+    if (foreignMentions.length > 0) {
+      return {
+        action: "retry",
+        guard: "currency_conversion",
+        event: {
+          kind: "currency_conversion",
+          status: "retrying",
+          title: "Currency conversion enforced",
+          message:
+            "Prompted the agent to convert foreign currency amounts.",
+          reason: `Foreign currency amounts found: ${foreignMentions.join(", ")}. Target currency: ${targetCurrency}.`,
+        },
+        retryInstruction: `Your response contains amounts in a foreign currency (${foreignMentions.join(", ")}). Use the currency_conversion tool to convert them to ${targetCurrency} before responding.`,
+        toolChoice: "required" as ToolChoice<TOOLS>,
+      };
+    }
   }
 
   if (shouldContinueFromLatestTool(responseMessage)) {
@@ -393,13 +475,10 @@ function toolRequirementRetry<TOOLS extends ToolSet>(
 }
 
 function getCurrentTurnMessages(messages: UIMessage[], responseMessage: UIMessage) {
-  let latestUserIndex = -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === "user") {
-      latestUserIndex = index;
-      break;
-    }
-  }
+  const latestUserIndex = messages.reduce(
+    (latest, message, index) => (message.role === "user" ? index : latest),
+    -1,
+  );
 
   return [
     ...(latestUserIndex === -1 ? messages : messages.slice(latestUserIndex)),
@@ -459,13 +538,10 @@ export function validateResearchCheckpoint(
 }
 
 function shouldContinueFromLatestTool(message: UIMessage) {
-  let lastToolIndex = -1;
-  for (let index = message.parts.length - 1; index >= 0; index -= 1) {
-    if (isToolUIPart(message.parts[index])) {
-      lastToolIndex = index;
-      break;
-    }
-  }
+  const lastToolIndex = message.parts.reduce(
+    (latest, part, index) => (isToolUIPart(part) ? index : latest),
+    -1,
+  );
 
   if (lastToolIndex === -1) return false;
 

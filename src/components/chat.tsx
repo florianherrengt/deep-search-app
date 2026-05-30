@@ -10,6 +10,7 @@ import {
   shouldContinueAfterToolResult,
   type SearchToolKeys,
 } from "@/lib/transport";
+import type { Currency } from "@/lib/settings-store";
 import {
   type ChatModelConfig,
   type ConfiguredChatModelOption,
@@ -30,6 +31,7 @@ export function Chat({
   onSelectedModelIdChange,
   onModelChange,
   searchKeys,
+  currency,
 }: {
   modelOptions: ConfiguredChatModelOption[];
   defaultModelId: string;
@@ -44,6 +46,7 @@ export function Chat({
   onSelectedModelIdChange: (modelId: string) => void;
   onModelChange?: (model: ConfiguredChatModelOption) => void;
   searchKeys: SearchToolKeys;
+  currency: Currency;
 }) {
   const enabledModels = useMemo(
     () => modelOptions.filter((option) => !option.disabled),
@@ -78,8 +81,13 @@ export function Chat({
   const researchApiKeyRef = useRef(researchApiKey);
   researchApiKeyRef.current = researchApiKey;
 
-  const searchKeysRef = useRef(searchKeys);
-  searchKeysRef.current = searchKeys;
+  const effectiveSearchKeys = useMemo(
+    () => ({ ...searchKeys, currency }),
+    [currency, searchKeys],
+  );
+
+  const searchKeysRef = useRef(effectiveSearchKeys);
+  searchKeysRef.current = effectiveSearchKeys;
 
   const researchFolderRef = useRef(researchFolder);
   if (researchFolder) {
@@ -122,7 +130,7 @@ export function Chat({
       () => researchApiKeyRef.current,
       () => searchKeysRef.current,
       researchFolder,
-      (folderName) => {
+      (folderName: string) => {
         researchFolderRef.current = folderName;
         onResearchFolderChange?.(folderName);
       },

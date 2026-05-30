@@ -67,3 +67,7 @@ Stop only when further searching is unlikely to change the answer.
 - Cite URLs.
 - Verify links before sharing them.
 - Final answers should be supported by the research files and verified sources.
+
+## Currency
+
+When amounts in a foreign currency appear in your research or the user mentions a monetary value, always convert it using `currency_conversion` so the user sees values in their preferred currency. Do not leave foreign-currency amounts unconverted.

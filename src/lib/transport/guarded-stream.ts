@@ -53,15 +53,15 @@ export function createGuardedStream({
         question_tool: 0,
         research_checkpoint: 0,
         tool_call_requirement: 0,
+        currency_conversion: 0,
       };
       let currentUiMessages = messages;
-      let currentModelMessages: ModelMessage[];
       let toolChoice: ToolChoice<AppToolSet> | undefined;
       let sendStart = true;
       let lastFinish: AttemptFinish | undefined;
 
       try {
-        const tools = createTools({
+        const tools = await createTools({
           model,
           getResearchFolder: async () => {
             if (activeResearchFolder) return activeResearchFolder;
@@ -91,9 +91,10 @@ export function createGuardedStream({
           searchKeys,
         });
 
-        currentModelMessages = await convertToModelMessages(currentUiMessages, {
-          tools,
-        });
+        let currentModelMessages = await convertToModelMessages(
+          currentUiMessages,
+          { tools },
+        );
 
         while (!abortSignal?.aborted) {
           lastFinish = await runAttempt({
@@ -114,6 +115,7 @@ export function createGuardedStream({
           const decision = evaluateAssistantStep<AppToolSet>({
             messages: currentUiMessages,
             responseMessage: lastFinish.responseMessage,
+            targetCurrency: searchKeys?.currency,
           });
 
           if (decision.action === "accept") break;

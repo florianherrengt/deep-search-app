@@ -13,8 +13,11 @@ import { createSequentialThinkingTool } from "@/tools/sequential-thinking-tool";
 import { createSearchResearchTool } from "@/tools/search-research-tool";
 import { createSwitchResearchFolderTool } from "@/tools/switch-research-folder-tool";
 import { createResearchPlanTool } from "@/tools/research-plan-tool";
+import { createCurrencyConversionTool } from "@/tools/currency-conversion-tool";
 import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
 import { isValidServiceUrl } from "@/lib/url-validation";
+import type { Currency } from "@/lib/settings-store";
+import { createChromeDevToolsMcpTools } from "@/lib/mcp/chrome-devtools-tools";
 
 export interface SearchToolKeys {
   braveApiKey?: string | null;
@@ -22,9 +25,10 @@ export interface SearchToolKeys {
   serperApiKey?: string | null;
   tavilyApiKey?: string | null;
   searxngBaseUrl?: string | null;
+  currency?: Currency;
 }
 
-export function createTools({
+export async function createTools({
   model,
   getResearchFolder,
   switchResearchFolder,
@@ -37,6 +41,7 @@ export function createTools({
   apiKey: string;
   searchKeys?: SearchToolKeys;
 }) {
+  const chromeDevToolsTools = await createChromeDevToolsMcpTools();
   const tools = {
     ask_questions: questionsTool,
     disambiguate: disambiguateTool,
@@ -52,9 +57,11 @@ export function createTools({
     search_research: createSearchResearchTool(apiKey),
     switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
     create_research_plan: createResearchPlanTool(model),
+    currency_conversion: createCurrencyConversionTool(searchKeys?.currency ?? "USD"),
+    ...chromeDevToolsTools,
   } as const satisfies ToolSet;
 
   return applyToolCallRequirementSafeguards(tools);
 }
 
-export type AppToolSet = ReturnType<typeof createTools>;
+export type AppToolSet = Awaited<ReturnType<typeof createTools>>;
