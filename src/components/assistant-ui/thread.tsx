@@ -13,15 +13,17 @@ import {
   ModelSelector,
   type ModelOption,
 } from "@/components/assistant-ui/model-selector";
-import { MarkdownText } from "@/components/assistant-ui/markdown-text";
+import { formatTokenCount } from "@/lib/context-window";import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { GuardrailCard } from "@/components/assistant-ui/guardrail-card";
+import { AgentDiagnosticCard } from "@/components/assistant-ui/agent-diagnostic-card";
 import {
   ReasoningRoot,
   ReasoningTrigger,
   ReasoningContent,
   ReasoningText,
 } from "@/components/assistant-ui/reasoning";
+import { PromptTemplateButton } from "@/components/assistant-ui/prompt-template-button";
 
 const SCROLL_THRESHOLD = 200;
 
@@ -38,16 +40,20 @@ interface ThreadProps {
   models: ModelOption[];
   selectedModelId: string;
   onSelectedModelIdChange: (modelId: string) => void;
+  tokenCount: number;
 }
 
 export function Thread({
   models,
   selectedModelId,
   onSelectedModelIdChange,
+  tokenCount,
 }: ThreadProps) {
+  const selectedModel = models.find((model) => model.id === selectedModelId);
+
   return (
     <ThreadPrimitive.Root className="relative flex h-full flex-col">
-      <ThreadPrimitive.Viewport className="flex flex-1 flex-col gap-3 overflow-y-auto px-6 py-4">
+      <ThreadPrimitive.Viewport className="flex flex-1 flex-col gap-3 overflow-y-auto px-6 py-4" scrollToBottomOnRunStart={false}>
         <AuiIf condition={(s) => s.thread.isEmpty}>
           <div className="flex h-[60vh] flex-col items-center justify-center text-center opacity-60">
             <h1 className="mb-1 text-2xl font-bold">Deep Search</h1>
@@ -74,15 +80,21 @@ export function Thread({
             autoFocus
           />
           <div className="flex items-center justify-between gap-2">
-            <ModelSelector
-              models={models}
-              value={selectedModelId}
-              onValueChange={onSelectedModelIdChange}
-              size="sm"
-              variant="ghost"
-              contentClassName="w-[min(24rem,calc(100vw-3rem))]"
-            />
+            <div className="flex min-w-0 items-center gap-2">
+              <ModelSelector
+                models={models}
+                value={selectedModelId}
+                onValueChange={onSelectedModelIdChange}
+                size="sm"
+                variant="ghost"
+                contentClassName="w-[min(24rem,calc(100vw-3rem))]"
+              />
+              <ContextWindowBadge model={selectedModel} tokenCount={tokenCount} />
+            </div>
             <div className="flex shrink-0 items-center gap-2">
+              <AuiIf condition={(s) => !s.thread.isRunning}>
+                <PromptTemplateButton />
+              </AuiIf>
               <AuiIf condition={(s) => !s.thread.isRunning}>
                 <ComposerPrimitive.Send className="rounded-xl bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
                   Send
@@ -98,6 +110,39 @@ export function Thread({
         </ComposerPrimitive.Root>
       </ThreadPrimitive.ViewportFooter>
     </ThreadPrimitive.Root>
+  );
+}
+
+function ContextWindowBadge({
+  model,
+  tokenCount,
+}: {
+  model: ModelOption | undefined;
+  tokenCount: number;
+}) {
+  const contextWindowLabel = formatTokenCount(model?.contextWindowTokens);
+  const usedLabel = formatTokenCount(tokenCount);
+
+  const displayText =
+    usedLabel && contextWindowLabel
+      ? `${usedLabel} / ${contextWindowLabel}`
+      : usedLabel
+        ? usedLabel
+        : contextWindowLabel
+          ? contextWindowLabel
+          : "unknown";
+
+  return (
+    <span
+      className="hidden shrink-0 rounded-md border border-zinc-200 px-2 py-1 text-xs text-muted-foreground sm:inline-flex dark:border-zinc-700"
+      title={
+        contextWindowLabel
+          ? `${contextWindowLabel} token context window`
+          : "Context window size unavailable"
+      }
+    >
+      Context: {displayText}
+    </span>
   );
 }
 
@@ -200,6 +245,9 @@ function ThreadMessage() {
                   };
                   if (dataPart.name === "guardrail_event") {
                     return <GuardrailCard event={dataPart.data} />;
+                  }
+                  if (dataPart.name === "agent_diagnostic") {
+                    return <AgentDiagnosticCard event={dataPart.data} />;
                   }
                   return null;
                 }

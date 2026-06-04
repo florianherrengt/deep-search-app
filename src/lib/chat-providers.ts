@@ -27,6 +27,7 @@ export interface ConfiguredChatModelOption extends ChatModelConfig {
   id: string;
   name: string;
   description?: string;
+  contextWindowTokens?: number;
   disabled?: boolean;
 }
 
@@ -44,10 +45,23 @@ export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
   zhipu: "glm-4.7-flash",
 };
 
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+
 const ALLOWED_ZHIPU_BASE_URL_ORIGINS = new Set([
   "https://open.bigmodel.cn",
   "https://api.z.ai",
 ]);
+
+const openRouterContextWindowCache = new Map<string, Promise<number | undefined>>();
+
+const openRouterModelsResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string(),
+      context_length: z.number().optional().nullable(),
+    }),
+  ),
+});
 
 export function getChatProviderLabel(provider: ChatProvider): string {
   return CHAT_PROVIDER_LABELS[provider];
@@ -89,6 +103,98 @@ export function createChatLanguageModel({
         fetch: providerFetch,
       })(modelId);
   }
+}
+
+export function getKnownChatModelContextWindowTokens({
+  provider,
+  model,
+}: Pick<ChatModelConfig, "provider" | "model">): number | undefined {
+  const modelId = normalizeModelId(provider, model);
+
+  if (provider === "anthropic" && modelId.startsWith("claude-")) {
+    return 200_000;
+  }
+
+  return undefined;
+}
+
+export async function fetchChatModelContextWindowTokens(
+  config: Pick<ChatModelConfig, "provider" | "model"> &
+    Partial<Pick<ChatModelConfig, "apiKey">>,
+  options: { abortSignal?: AbortSignal } = {},
+): Promise<number | undefined> {
+  const known = getKnownChatModelContextWindowTokens(config);
+  if (known) return known;
+
+  const modelId = normalizeModelId(config.provider, config.model);
+  const cacheKey = `${config.provider}:${modelId}`;
+  const cached = openRouterContextWindowCache.get(cacheKey);
+  if (cached) return cached;
+
+  const promise = fetchOpenRouterModelContextWindowTokens(
+    modelId,
+    config.provider === "openrouter" ? config.apiKey : undefined,
+    options.abortSignal,
+  )
+    .catch(() => undefined)
+    .then((tokens) => {
+      if (tokens === undefined) {
+        openRouterContextWindowCache.delete(cacheKey);
+      }
+
+      return tokens;
+    });
+  openRouterContextWindowCache.set(cacheKey, promise);
+
+  return promise;
+}
+
+async function fetchOpenRouterModelContextWindowTokens(
+  modelId: string,
+  apiKey: string | undefined,
+  abortSignal: AbortSignal | undefined,
+): Promise<number | undefined> {
+  const trimmedApiKey = apiKey?.trim();
+  const response = await providerFetch(OPENROUTER_MODELS_URL, {
+    ...(trimmedApiKey
+      ? { headers: { Authorization: `Bearer ${trimmedApiKey}` } }
+      : {}),
+    signal: abortSignal,
+  });
+  if (!response.ok) {
+    console.warn("[context-window] OpenRouter models fetch failed:", response.status);
+    return undefined;
+  }
+
+  const parsed = openRouterModelsResponseSchema.safeParse(await response.json());
+  if (!parsed.success) {
+    console.warn("[context-window] OpenRouter models parse failed:", parsed.error.message);
+    return undefined;
+  }
+
+  const baseName = modelId.includes("/") ? modelId.split("/").pop()! : modelId;
+  const model = parsed.data.data.find(
+    (candidate) => candidate.id.toLowerCase() === modelId,
+  ) ?? parsed.data.data.find(
+    (candidate) => candidate.id.toLowerCase().endsWith("/" + baseName),
+  );
+
+  if (!model) {
+    console.warn("[context-window] No OpenRouter match for:", modelId, "(baseName:", baseName, ")");
+  } else {
+    console.log("[context-window] Matched:", model.id, "->", model.context_length, "for lookup:", modelId);
+  }
+
+  return normalizeContextWindowTokens(model?.context_length);
+}
+
+function normalizeModelId(provider: ChatProvider, model: string) {
+  return (model.trim() || CHAT_PROVIDER_DEFAULT_MODELS[provider]).toLowerCase();
+}
+
+function normalizeContextWindowTokens(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value) || value <= 0) return undefined;
+  return Math.round(value);
 }
 
 function normalizeZhipuBaseURL(baseURL: string | undefined): string | undefined {
