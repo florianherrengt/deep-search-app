@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   convertReadableStreamToArray,
   MockLanguageModelV3,
@@ -9,6 +9,35 @@ import type {
   LanguageModelV3StreamPart,
   LanguageModelV3StreamResult,
 } from "@ai-sdk/provider";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  isTauri: () => false,
+}));
+
+vi.mock("@tauri-apps/plugin-fs", () => ({
+  mkdir: vi.fn(),
+  writeTextFile: vi.fn(),
+  readTextFile: vi.fn(),
+  readDir: vi.fn().mockResolvedValue([]),
+  remove: vi.fn(),
+  rename: vi.fn(),
+  exists: vi.fn().mockResolvedValue(false),
+  BaseDirectory: { AppData: "AppData" },
+}));
+
+vi.mock("@tauri-apps/plugin-store", () => ({
+  load: vi.fn().mockResolvedValue({
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn(),
+    save: vi.fn(),
+  }),
+}));
+
+vi.mock("@tauri-apps/plugin-http", () => ({
+  fetch: vi.fn(),
+}));
+
 import { createGuardedStream } from "@/lib/transport";
 
 describe("createGuardedStream", () => {
