@@ -6,10 +6,12 @@ export { createSerperSearchTool, serperSearchInputSchema } from "./serper-search
 export { createSearXNGSearchTool, searxngSearchInputSchema } from "./searxng-search-tool";
 export { questionsTool, questionsInputSchema } from "./questions-tool";
 export { createExtractPageContentTool, extractPageContentInputSchema } from "./extract-page-content-tool";
-export { createSaveResearchFileTool, saveResearchFileInputSchema } from "./research-file-tool";
+export { createCreateFileTool, createFileInputSchema, createReadFileTool, readFileInputSchema, createUpdateFileTool, updateFileInputSchema, createMoveFileTool, moveFileInputSchema, createDeleteFileTool, deleteFileInputSchema, createListFilesTool } from "./file-tools";
 export { createResearchCheckpointTool } from "./research-checkpoint-tool";
 export { createSequentialThinkingTool, sequentialThinkingInputSchema } from "./sequential-thinking-tool";
 export { createSearchResearchTool, searchResearchInputSchema } from "./search-research-tool";
 export { createSwitchResearchFolderTool, switchResearchFolderInputSchema } from "./switch-research-folder-tool";
+export { createRenameResearchFolderTool, renameResearchFolderInputSchema } from "./rename-research-folder-tool";
 export { createResearchPlanTool, researchPlanInputSchema } from "./research-plan-tool";
 export { createCurrencyConversionTool, currencyConversionInputSchema } from "./currency-conversion-tool";
+export { createVerifiedResearchIsGoodTool, verifiedResearchInputSchema } from "./verified-research-tool";

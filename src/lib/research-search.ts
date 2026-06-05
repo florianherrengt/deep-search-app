@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import { abortablePromise } from "@/lib/abort";
 
 interface ResearchSearchMock {
+  searchResearch?: (
+    apiKey: string,
+    query: string | string[],
+    options?: { folder?: string; limit?: number; abortSignal?: AbortSignal },
+  ) => Promise<SearchResult[]>;
   indexResearchFile?: (
     apiKey: string,
     folder: string,
@@ -8,6 +14,15 @@ interface ResearchSearchMock {
     content: string,
   ) => Promise<void>;
   registerResearchFolder?: (name: string, query: string) => Promise<number>;
+  renameResearchFolderIndex?: (
+    oldName: string,
+    newName: string,
+  ) => Promise<void>;
+  deleteResearchFolderIndex?: (name: string) => Promise<void>;
+  deleteResearchFileIndex?: (
+    folder: string,
+    filename: string,
+  ) => Promise<void>;
 }
 
 declare global {
@@ -42,15 +57,27 @@ export interface ResearchFolderInfo {
 export async function searchResearch(
   apiKey: string,
   query: string | string[],
-  options?: { folder?: string; limit?: number },
+  options?: { folder?: string; limit?: number; abortSignal?: AbortSignal },
 ): Promise<SearchResult[]> {
+  const abortSignal = options?.abortSignal;
+  const mock = getDevResearchSearchMock();
+  if (mock?.searchResearch) {
+    return abortablePromise(
+      mock.searchResearch(apiKey, query, options),
+      abortSignal,
+    );
+  }
+
   const queries = Array.isArray(query) ? query : [query];
-  return invoke<SearchResult[]>("search_research", {
-    apiKey,
-    queries,
-    folder: options?.folder ?? null,
-    limit: options?.limit ?? 8,
-  });
+  return abortablePromise(
+    invoke<SearchResult[]>("search_research", {
+      apiKey,
+      queries,
+      folder: options?.folder ?? null,
+      limit: options?.limit ?? 8,
+    }),
+    abortSignal,
+  );
 }
 
 export async function indexResearchFile(
@@ -77,6 +104,39 @@ export async function registerResearchFolder(
   }
 
   return invoke<number>("register_research_folder", { name, query });
+}
+
+export async function renameResearchFolderIndex(
+  oldName: string,
+  newName: string,
+): Promise<void> {
+  const mock = getDevResearchSearchMock();
+  if (mock?.renameResearchFolderIndex) {
+    return mock.renameResearchFolderIndex(oldName, newName);
+  }
+
+  return invoke("rename_research_folder_index", { oldName, newName });
+}
+
+export async function deleteResearchFolderIndex(name: string): Promise<void> {
+  const mock = getDevResearchSearchMock();
+  if (mock?.deleteResearchFolderIndex) {
+    return mock.deleteResearchFolderIndex(name);
+  }
+
+  return invoke("delete_research_folder_index", { name });
+}
+
+export async function deleteResearchFileIndex(
+  folder: string,
+  filename: string,
+): Promise<void> {
+  const mock = getDevResearchSearchMock();
+  if (mock?.deleteResearchFileIndex) {
+    return mock.deleteResearchFileIndex(folder, filename);
+  }
+
+  return invoke("delete_research_file_index", { folder, filename });
 }
 
 export async function listResearchFoldersDb(): Promise<ResearchFolderInfo[]> {

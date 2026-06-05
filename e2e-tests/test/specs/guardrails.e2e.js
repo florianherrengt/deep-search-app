@@ -45,7 +45,7 @@ describe('Visible Agent Guardrails', () => {
     expect(logs.filter((entry) => entry.kind === 'openrouter')).toHaveLength(2);
   });
 
-  it('shows a visible research-depth card and forces a checkpoint retry path', async () => {
+  it('shows a visible research-depth reminder and checkpoint guidance path', async () => {
     await installOpenRouterMock([
       textResponse('The current Acme Search price is about 10 pounds.'),
       toolCallResponse('research_checkpoint', {
@@ -62,8 +62,8 @@ describe('Visible Agent Guardrails', () => {
 
     await sendMessage('Find the latest pricing for Acme Search');
 
-    await waitForText('Research depth enforced');
-    await waitForText('Prompted the agent to research before answering.');
+    await waitForText('Research depth reminder');
+    await waitForText('Prompted the agent to consider whether more research is needed.');
     await waitForText('research_checkpoint');
 
     const logs = await browser.execute(() => window.__logs || []);

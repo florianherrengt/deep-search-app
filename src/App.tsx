@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UIMessage } from "ai";
 import { SettingsProvider, useSettings } from "@/hooks/use-settings";
+import { PromptTemplatesProvider } from "@/hooks/use-prompt-templates";
+import { SkillsProvider } from "@/hooks/use-skills";
 import { setupMenu } from "@/lib/setup-menu";
 import { subscribeResearchLibraryChanged } from "@/lib/research-library-events";
 import {
@@ -11,8 +13,11 @@ import { type ChatModelConfig, type ChatProvider } from "@/lib/chat-providers";
 import { Chat } from "@/components/chat";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ToolsPanel } from "@/components/tools-panel";
+import { PromptTemplatesSection } from "@/components/prompt-templates-section";
+import { SkillsSection } from "@/components/skills-section";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { TabPanel } from "@/components/tab-panel";
+import { AppUpdateButton } from "@/components/app-update-button";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
 import { ResearchSidebar } from "@/components/research-sidebar";
 import {
@@ -26,12 +31,142 @@ import {
   type ResearchChatSummary,
   type ResearchFolder,
 } from "@/lib/research-history";
+import type { ResearchFolderChangeOptions } from "@/lib/transport";
 
 declare global {
   interface Window {
     __mockQuestions?: boolean;
     __logs?: Array<Record<string, unknown>>;
   }
+}
+
+export interface ChatSessionRecord {
+  sessionId: string;
+  runtimeChatId: string;
+  researchChatId: string;
+  researchFolder: string | null;
+  isProvisionalResearchFolder: boolean;
+  initialMessages: UIMessage[];
+  isRunning: boolean;
+}
+
+interface ChatSessionState {
+  sessions: ChatSessionRecord[];
+  activeSessionId: string;
+}
+
+interface CreateChatSessionInput {
+  researchChatId: string;
+  researchFolder: string | null;
+  isProvisionalResearchFolder?: boolean;
+  initialMessages?: UIMessage[];
+}
+
+export function createChatSessionRecord({
+  researchChatId,
+  researchFolder,
+  isProvisionalResearchFolder = false,
+  initialMessages = [],
+}: CreateChatSessionInput): ChatSessionRecord {
+  return {
+    sessionId: createChatSessionId("session"),
+    runtimeChatId: createChatSessionId("chat"),
+    researchChatId,
+    researchFolder,
+    isProvisionalResearchFolder,
+    initialMessages,
+    isRunning: false,
+  };
+}
+
+export function activateChatSession(
+  current: ChatSessionState,
+  input: CreateChatSessionInput & { forceNew?: boolean },
+): ChatSessionState {
+  const existing = input.forceNew
+    ? undefined
+    : current.sessions.find(
+        (session) =>
+          session.researchFolder === input.researchFolder &&
+          session.researchChatId === input.researchChatId,
+      );
+
+  if (existing) {
+    if (!existing.isRunning) {
+      const session = createChatSessionRecord(input);
+      return {
+        sessions: current.sessions
+          .filter(
+            (currentSession) =>
+              currentSession.sessionId !== existing.sessionId,
+          )
+          .concat(session),
+        activeSessionId: session.sessionId,
+      };
+    }
+
+    return { ...current, activeSessionId: existing.sessionId };
+  }
+
+  const session = createChatSessionRecord(input);
+  return {
+    sessions: [...current.sessions, session],
+    activeSessionId: session.sessionId,
+  };
+}
+
+export function updateChatSessionResearchFolder(
+  sessions: ChatSessionRecord[],
+  sessionId: string,
+  folderName: string,
+  options: ResearchFolderChangeOptions = { isProvisional: false },
+) {
+  return sessions.map((session) =>
+    session.sessionId === sessionId
+      ? {
+          ...session,
+          researchFolder: folderName,
+          isProvisionalResearchFolder: options.isProvisional,
+        }
+      : session,
+  );
+}
+
+export function updateChatSessionRunState(
+  sessions: ChatSessionRecord[],
+  sessionId: string,
+  isRunning: boolean,
+) {
+  return sessions.map((session) =>
+    session.sessionId === sessionId
+      ? { ...session, isRunning }
+      : session,
+  );
+}
+
+export function getRunningResearchFolders(sessions: ChatSessionRecord[]) {
+  return Array.from(
+    new Set(
+      sessions
+        .filter((session) => session.isRunning && session.researchFolder)
+        .map((session) => session.researchFolder as string),
+    ),
+  );
+}
+
+export function getRunningResearchChatIds(sessions: ChatSessionRecord[]) {
+  return sessions
+    .filter((session) => session.isRunning)
+    .map((session) => session.researchChatId);
+}
+
+export function hasRunningResearchFolder(
+  sessions: ChatSessionRecord[],
+  folderName: string,
+) {
+  return sessions.some(
+    (session) => session.isRunning && session.researchFolder === folderName,
+  );
 }
 
 function AppInner() {
@@ -41,20 +176,37 @@ function AppInner() {
   const [researchFoldersStatus, setResearchFoldersStatus] = useState<
     "loading" | "ready" | "error"
   >("loading");
-  const [activeResearchFolder, setActiveResearchFolder] = useState<
-    string | null
-  >(null);
+  const [chatSessionState, setChatSessionState] = useState<ChatSessionState>(
+    () => {
+      const session = createChatSessionRecord({
+        researchChatId: createResearchChatId(),
+        researchFolder: null,
+      });
+
+      return {
+        sessions: [session],
+        activeSessionId: session.sessionId,
+      };
+    },
+  );
+  const chatSessions = chatSessionState.sessions;
+  const activeSessionId = chatSessionState.activeSessionId;
+  const activeSession =
+    chatSessions.find((session) => session.sessionId === activeSessionId) ??
+    chatSessions[0] ??
+    null;
+  const activeResearchFolder = activeSession?.researchFolder ?? null;
+  const activeResearchChatId = activeSession?.researchChatId ?? null;
   const activeResearchFolderRef = useRef(activeResearchFolder);
   activeResearchFolderRef.current = activeResearchFolder;
+  const chatSessionsRef = useRef(chatSessions);
+  chatSessionsRef.current = chatSessions;
   const [researchChats, setResearchChats] = useState<ResearchChatSummary[]>([]);
   const [researchChatsStatus, setResearchChatsStatus] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
-  const [activeResearchChatId, setActiveResearchChatId] = useState(() =>
-    createResearchChatId(),
-  );
-  const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
-  const [chatSessionId, setChatSessionId] = useState(() => createChatSessionId());
+  const researchChatsStatusRef = useRef(researchChatsStatus);
+  researchChatsStatusRef.current = researchChatsStatus;
   const [selectedModelId, setSelectedModelId] = useState("");
   const chatModelOptions = useMemo(
     () => getChatModelOptions(settings),
@@ -68,41 +220,54 @@ function AppInner() {
     (option) => !option.disabled,
   );
 
-  const handleNewChat = useCallback(() => {
-    const nextChatId = createResearchChatId();
+  const activateSession = useCallback(
+    (input: CreateChatSessionInput & { forceNew?: boolean }) => {
+      setChatSessionState((current) => activateChatSession(current, input));
+    },
+    [],
+  );
 
-    setActiveResearchFolder(null);
-    setActiveResearchChatId(nextChatId);
+  const handleNewChat = useCallback(() => {
+    activateSession({
+      researchChatId: createResearchChatId(),
+      researchFolder: null,
+      forceNew: true,
+    });
     setResearchChats([]);
     setResearchChatsStatus("idle");
-    setInitialMessages([]);
-    setChatSessionId(createChatSessionId());
     switchToTab("main");
-  }, [switchToTab]);
+  }, [activateSession, switchToTab]);
 
-  const refreshResearchFolders = useCallback(async () => {
-    setResearchFoldersStatus("loading");
+  const refreshResearchFolders = useCallback(
+    async (options: { showLoading?: boolean } = {}) => {
+      if (options.showLoading) {
+        setResearchFoldersStatus("loading");
+      }
 
-    try {
-      const folders = await listResearchFolders();
-      setResearchFolders((currentFolders) =>
-        mergeResearchFoldersWithCurrent(folders, currentFolders),
-      );
-      setResearchFoldersStatus("ready");
-    } catch {
-      setResearchFoldersStatus("error");
-    }
-  }, []);
+      try {
+        const folders = await listResearchFolders();
+        setResearchFolders((currentFolders) =>
+          mergeResearchFoldersWithCurrent(folders, currentFolders),
+        );
+        setResearchFoldersStatus("ready");
+      } catch {
+        setResearchFoldersStatus("error");
+      }
+    },
+    [],
+  );
 
   const refreshResearchChats = useCallback(async (folderName: string) => {
-    setResearchChatsStatus("loading");
-
     try {
       setResearchChats(await listResearchChats(folderName));
-      setResearchChatsStatus("ready");
+      if (researchChatsStatusRef.current === "idle") {
+        setResearchChatsStatus("ready");
+      }
     } catch {
-      setResearchChats([]);
-      setResearchChatsStatus("error");
+      if (researchChatsStatusRef.current !== "ready") {
+        setResearchChats([]);
+        setResearchChatsStatus("error");
+      }
     }
   }, []);
 
@@ -114,7 +279,7 @@ function AppInner() {
   }, [switchToTab, handleNewChat]);
 
   useEffect(() => {
-    void refreshResearchFolders();
+    void refreshResearchFolders({ showLoading: true });
   }, [refreshResearchFolders]);
 
   useEffect(() => {
@@ -151,6 +316,20 @@ function AppInner() {
     [settings.chat_provider, updateSetting],
   );
 
+  const handleRunStateChange = useCallback(
+    (sessionId: string, isRunning: boolean) => {
+      setChatSessionState((current) => ({
+        ...current,
+        sessions: updateChatSessionRunState(
+          current.sessions,
+          sessionId,
+          isRunning,
+        ),
+      }));
+    },
+    [],
+  );
+
   if (loading) return null;
 
   const searchKeys = {
@@ -160,6 +339,7 @@ function AppInner() {
     tavilyApiKey: settings.tavily_api_key || null,
     searxngBaseUrl: settings.searxng_url || null,
     currency: settings.currency,
+    chromeDevToolsMcpEnabled: settings.chrome_devtools_mcp_enabled,
   };
   const effectiveSelectedModelId = selectedModelId || defaultChatModelId;
 
@@ -209,7 +389,6 @@ function AppInner() {
   }
 
   const handleSelectResearchFolder = async (folderName: string) => {
-    setActiveResearchFolder(folderName);
     setResearchChatsStatus("loading");
     switchToTab("main");
 
@@ -222,16 +401,20 @@ function AppInner() {
 
       setResearchChats(chats);
       setResearchChatsStatus("ready");
-      setActiveResearchChatId(selectedChatId);
-      setInitialMessages(messages);
-      setChatSessionId(createChatSessionId());
+      activateSession({
+        researchChatId: selectedChatId,
+        researchFolder: folderName,
+        initialMessages: messages,
+      });
     } catch {
       const nextChatId = createResearchChatId();
       setResearchChats([]);
       setResearchChatsStatus("error");
-      setActiveResearchChatId(nextChatId);
-      setInitialMessages([]);
-      setChatSessionId(createChatSessionId());
+      activateSession({
+        researchChatId: nextChatId,
+        researchFolder: folderName,
+        forceNew: true,
+      });
     }
   };
 
@@ -240,36 +423,56 @@ function AppInner() {
     chatId: string,
   ) => {
     const messages = await readResearchChatMessages(folderName, chatId);
-    setActiveResearchFolder(folderName);
-    setActiveResearchChatId(chatId);
-    setInitialMessages(messages);
-    setChatSessionId(createChatSessionId());
+    activateSession({
+      researchChatId: chatId,
+      researchFolder: folderName,
+      initialMessages: messages,
+    });
     switchToTab("main");
   };
 
   const handleNewResearchChat = (folderName: string) => {
     const nextChatId = createResearchChatId();
 
-    setActiveResearchFolder(folderName);
-    setActiveResearchChatId(nextChatId);
-    setInitialMessages([]);
-    setChatSessionId(createChatSessionId());
+    activateSession({
+      researchChatId: nextChatId,
+      researchFolder: folderName,
+      forceNew: true,
+    });
     switchToTab("main");
   };
 
-  const handleResearchFolderChange = (folderName: string) => {
-    setActiveResearchFolder(folderName);
+  const handleResearchFolderChange = (
+    sessionId: string,
+    folderName: string,
+    options: ResearchFolderChangeOptions,
+  ) => {
+    setChatSessionState((current) => ({
+      ...current,
+      sessions: updateChatSessionResearchFolder(
+        current.sessions,
+        sessionId,
+        folderName,
+        options,
+      ),
+    }));
     setResearchFolders((folders) =>
       upsertRecentResearchFolder(folders, folderName),
     );
     void refreshResearchFolders();
-    void refreshResearchChats(folderName);
+    if (sessionId === chatSessionState.activeSessionId) {
+      void refreshResearchChats(folderName);
+    }
   };
 
   const handleRenameResearchFolder = async (
     oldFolderName: string,
     newFolderName: string,
   ) => {
+    if (hasRunningResearchFolder(chatSessionsRef.current, oldFolderName)) {
+      throw new Error("Stop the running research before renaming this search.");
+    }
+
     const renamed = await renameResearchFolder(oldFolderName, newFolderName);
 
     setResearchFolders((folders) =>
@@ -281,15 +484,16 @@ function AppInner() {
         )
         .sort(compareResearchFolders),
     );
+    setChatSessionState((current) => ({
+      ...current,
+      sessions: current.sessions.map((session) =>
+        session.researchFolder === oldFolderName
+          ? { ...session, researchFolder: renamed.name }
+          : session,
+      ),
+    }));
 
     if (activeResearchFolder === oldFolderName) {
-      const messages = await readResearchChatMessages(
-        renamed.name,
-        activeResearchChatId,
-      );
-      setActiveResearchFolder(renamed.name);
-      setInitialMessages(messages);
-      setChatSessionId(createChatSessionId());
       void refreshResearchChats(renamed.name);
     }
 
@@ -297,6 +501,10 @@ function AppInner() {
   };
 
   const handleDeleteResearchFolder = async (folderName: string) => {
+    if (hasRunningResearchFolder(chatSessionsRef.current, folderName)) {
+      throw new Error("Stop the running research before deleting this search.");
+    }
+
     await deleteResearchFolder(folderName);
 
     setResearchFolders((folders) =>
@@ -304,19 +512,42 @@ function AppInner() {
     );
 
     if (activeResearchFolder === folderName) {
-      const nextChatId = createResearchChatId();
-
-      setActiveResearchFolder(null);
-      setActiveResearchChatId(nextChatId);
       setResearchChats([]);
       setResearchChatsStatus("idle");
-      setInitialMessages([]);
-      setChatSessionId(createChatSessionId());
+      activateSession({
+        researchChatId: createResearchChatId(),
+        researchFolder: null,
+        forceNew: true,
+      });
       switchToTab("main");
     }
+    setChatSessionState((current) => {
+      const sessions = current.sessions.filter(
+        (session) => session.researchFolder !== folderName,
+      );
+
+      if (sessions.some((session) => session.sessionId === current.activeSessionId)) {
+        return { ...current, sessions };
+      }
+
+      const fallback = createChatSessionRecord({
+        researchChatId: createResearchChatId(),
+        researchFolder: null,
+      });
+      return {
+        sessions: [...sessions, fallback],
+        activeSessionId: fallback.sessionId,
+      };
+    });
 
     void refreshResearchFolders();
   };
+
+  const runningFolderNames = getRunningResearchFolders(chatSessions);
+  const runningChatIds = getRunningResearchChatIds(chatSessions);
+  const visibleChatSessions = chatSessions.filter(
+    (session) => session.sessionId === activeSessionId || session.isRunning,
+  );
 
   return (
     <TabPanel
@@ -330,6 +561,8 @@ function AppInner() {
             apiKey={settings.openrouter_api_key}
             status={researchFoldersStatus}
             chatsStatus={researchChatsStatus}
+            runningFolderNames={runningFolderNames}
+            runningChatIds={runningChatIds}
             onNewChat={handleNewChat}
             onSelectFolder={(folderName) => {
               void handleSelectResearchFolder(folderName);
@@ -342,30 +575,44 @@ function AppInner() {
             onDeleteFolder={handleDeleteResearchFolder}
           />
           <div className="min-w-0 flex-1">
-            <Chat
-              key={chatSessionId}
-              chatId={chatSessionId}
-              researchChatId={activeResearchChatId}
-              modelOptions={chatModelOptions}
-              defaultModelId={defaultChatModelId}
-              researchApiKey={settings.openrouter_api_key}
-              researchFolder={activeResearchFolder}
-              selectedModelId={effectiveSelectedModelId}
-              initialMessages={initialMessages}
-              onResearchFolderChange={handleResearchFolderChange}
-              onSelectedModelIdChange={handleSelectedModelChange}
-              searchKeys={searchKeys}
-              currency={settings.currency}
-              onResearchChatSaved={(folderName) => {
-                if (folderName === activeResearchFolderRef.current) {
-                  void refreshResearchChats(folderName);
-                }
-              }}
-            />
+            {visibleChatSessions.map((session) => (
+              <div
+                key={session.sessionId}
+                className="h-full"
+                hidden={session.sessionId !== activeSessionId}
+              >
+                <Chat
+                  sessionId={session.sessionId}
+                  runtimeChatId={session.runtimeChatId}
+                  researchChatId={session.researchChatId}
+                  modelOptions={chatModelOptions}
+                  defaultModelId={defaultChatModelId}
+                  researchApiKey={settings.openrouter_api_key}
+                  researchFolder={session.researchFolder}
+                  isProvisionalResearchFolder={
+                    session.isProvisionalResearchFolder
+                  }
+                  selectedModelId={effectiveSelectedModelId}
+                  initialMessages={session.initialMessages}
+                  onResearchFolderChange={handleResearchFolderChange}
+                  onRunStateChange={handleRunStateChange}
+                  onSelectedModelIdChange={handleSelectedModelChange}
+                  searchKeys={searchKeys}
+                  currency={settings.currency}
+                  onResearchChatSaved={(folderName) => {
+                    if (folderName === activeResearchFolderRef.current) {
+                      void refreshResearchChats(folderName);
+                    }
+                  }}
+                />
+              </div>
+            ))}
           </div>
         </div>
       }
       settingsPanel={<SettingsPanel />}
+      promptsPanel={<PromptTemplatesSection />}
+      skillsPanel={<SkillsSection />}
       toolsPanel={
         <ToolsPanel
           config={{
@@ -378,14 +625,15 @@ function AppInner() {
       }
       tabs={tabs}
       activeTabId={activeTabId}
+      toolbarEnd={<AppUpdateButton />}
       onSwitchTab={switchToTab}
       onCloseTab={closeTab}
     />
   );
 }
 
-function createChatSessionId() {
-  return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function createChatSessionId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function mergeResearchFoldersWithCurrent(
@@ -443,7 +691,11 @@ function sortableTimestamp(value?: string | null) {
 function App() {
   return (
     <SettingsProvider>
-      <AppInner />
+      <PromptTemplatesProvider>
+        <SkillsProvider>
+          <AppInner />
+        </SkillsProvider>
+      </PromptTemplatesProvider>
     </SettingsProvider>
   );
 }

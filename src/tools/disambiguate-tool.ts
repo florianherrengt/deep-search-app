@@ -2,10 +2,6 @@ import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
 import { rateLimit } from "@/lib/rate-limit";
-import nlp from "compromise";
-import stopwords from "stopwords-iso";
-
-const STOPWORDS = new Set(stopwords.en);
 
 const API_URL = "https://api.duckduckgo.com/";
 const MAX_RELATED_TOPICS = 8;
@@ -59,10 +55,13 @@ function flattenRelatedTopicText(relatedTopics: unknown[]): string[] {
   return flattened;
 }
 
-async function fetchDuckDuckGo(query: string): Promise<string> {
+async function fetchDuckDuckGo(
+  term: string,
+  abortSignal?: AbortSignal,
+): Promise<string> {
   return rateLimit(async () => {
     const url = new URL(API_URL);
-    url.searchParams.set("q", query.trim());
+    url.searchParams.set("q", term.trim());
     url.searchParams.set("format", "json");
     url.searchParams.set("no_redirect", "1");
     url.searchParams.set("no_html", "1");
@@ -73,18 +72,14 @@ async function fetchDuckDuckGo(query: string): Promise<string> {
       headers: {
         accept: "application/json",
       },
+      signal: abortSignal,
     });
 
     if (!response.ok) {
       return "";
     }
 
-    let raw: unknown;
-    try {
-      raw = await response.json();
-    } catch {
-      return "";
-    }
+    const raw = await response.json().catch(() => null);
 
     const parsed = DuckDuckGoResponseSchema.safeParse(raw);
     if (!parsed.success) {
@@ -113,43 +108,26 @@ async function fetchDuckDuckGo(query: string): Promise<string> {
     }
 
     return lines.join("\n");
-  });
-}
-
-function extractEntities(question: string): string[] {
-  const doc = nlp(question);
-
-  const nouns = doc.nouns().not("#Determiner").out("array") as string[];
-  const topics = doc.topics().out("array") as string[];
-
-  const candidates = [...nouns, ...topics]
-    .map((t) => t.toLowerCase().trim())
-    .filter((t) => t.length > 1 && !STOPWORDS.has(t));
-
-  return [...new Set(candidates)];
+  }, abortSignal);
 }
 
 export const disambiguateInputSchema = z.object({
-  question: z.string().describe("The user's question to disambiguate"),
+  terms: z.array(z.string()).describe("Specific terms to disambiguate. Only include terms that are genuinely ambiguous — e.g., acronyms with multiple expansions, words with common alternate meanings, or unfamiliar jargon. Do not include common unambiguous words."),
 });
 
 export const disambiguateTool = tool({
   description:
-    "Identify and resolve ambiguous entities, concepts, acronyms, and terms in a question. Returns concise descriptions and related context from DuckDuckGo. Pass the user's question as-is. Returns empty text if nothing needs disambiguation.",
+    "Resolve genuinely ambiguous terms — acronyms with multiple meanings, words that change meaning by context, or unfamiliar jargon. Do NOT use this as a general research or lookup tool. Pass only the specific terms that need disambiguation.",
   strict: true,
   inputSchema: zodSchema(disambiguateInputSchema),
-  outputSchema: zodSchema(z.array(z.string())),
-  execute: async ({ question }) => {
-    const entities = extractEntities(question);
-    if (entities.length === 0) return ["No disambiguation needed."];
-
+  execute: async ({ terms }, options) => {
     const results: string[] = [];
 
-    for (const entity of entities) {
-      const ddgResult = await fetchDuckDuckGo(entity);
-      results.push(`${entity}: ${ddgResult || "no ambiguity."}`);
+    for (const term of terms) {
+      const ddgResult = await fetchDuckDuckGo(term, options?.abortSignal);
+      results.push(`${term}: ${ddgResult || "no ambiguity."}`);
     }
 
-    return results;
+    return results.join("\n");
   },
 });

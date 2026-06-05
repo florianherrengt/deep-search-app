@@ -30,24 +30,25 @@ function renderCommentTree(
   comments: RedditComment[],
   prefix: string,
 ): string {
-  const lines: string[] = [];
   const last = comments.length - 1;
 
-  for (let i = 0; i < comments.length; i++) {
-    const c = comments[i];
-    const isLast = i === last;
-    const connector = isLast ? "└── " : "├── ";
-    const childPrefix = isLast ? "    " : "│   ";
+  return comments
+    .flatMap((comment, index) => {
+      const isLast = index === last;
+      const connector = isLast ? "└── " : "├── ";
+      const childPrefix = isLast ? "    " : "│   ";
+      const body = truncate(comment.body.replace(/\n/g, " "));
+      const lines = [
+        `${prefix}${connector}**${comment.author}** · ${scoreStr(comment.score)}: ${body}`,
+      ];
 
-    const body = truncate(c.body.replace(/\n/g, " "));
-    lines.push(`${prefix}${connector}**${c.author}** · ${scoreStr(c.score)}: ${body}`);
+      if (comment.replies.length > 0) {
+        lines.push(renderCommentTree(comment.replies, prefix + childPrefix));
+      }
 
-    if (c.replies.length > 0) {
-      lines.push(renderCommentTree(c.replies, prefix + childPrefix));
-    }
-  }
-
-  return lines.join("\n");
+      return lines;
+    })
+    .join("\n");
 }
 
 export function parseRedditJson(

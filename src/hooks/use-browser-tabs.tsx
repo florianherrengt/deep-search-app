@@ -1,5 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  BROWSER_TAB_CLOSED_EVENT,
+  BROWSER_TAB_OPENED_EVENT,
+  type BrowserTabClosedDetail,
+  type BrowserTabOpenedDetail,
+} from "@/lib/browser-tab-events";
 
 export interface BrowserTab {
   id: string;
@@ -12,9 +18,13 @@ export function useBrowserTabs() {
   const [activeTabId, setActiveTabId] = useState<string>("main");
 
   const addTab = useCallback(
-    (tab: BrowserTab) => {
-      setTabs((prev) => [...prev, tab]);
-      setActiveTabId(tab.id);
+    (tab: BrowserTab, activate = true) => {
+      setTabs((prev) =>
+        prev.some((existing) => existing.id === tab.id)
+          ? prev.map((existing) => (existing.id === tab.id ? tab : existing))
+          : [...prev, tab],
+      );
+      if (activate) setActiveTabId(tab.id);
     },
     [],
   );
@@ -22,18 +32,53 @@ export function useBrowserTabs() {
   const removeTab = useCallback(
     (id: string) => {
       setTabs((prev) => prev.filter((t) => t.id !== id));
-      if (activeTabId === id) {
-        setActiveTabId("main");
+      setActiveTabId((current) => {
+        if (current !== id) return current;
         invoke("switch_tab", { id: "main" }).catch(() => {});
-      }
+        return "main";
+      });
     },
-    [activeTabId],
+    [],
   );
 
   const switchToTab = useCallback((id: string) => {
     setActiveTabId(id);
     invoke("switch_tab", { id }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const handleTabOpened = (event: Event) => {
+      const detail = (event as CustomEvent<BrowserTabOpenedDetail>).detail;
+      if (!detail?.id || !detail.url) return;
+
+      addTab(
+        {
+          id: detail.id,
+          url: detail.url,
+          title: detail.title || detail.url,
+        },
+        detail.activate !== false,
+      );
+
+      if (detail.activate !== false) {
+        invoke("switch_tab", { id: detail.id }).catch(() => {});
+      }
+    };
+
+    const handleTabClosed = (event: Event) => {
+      const detail = (event as CustomEvent<BrowserTabClosedDetail>).detail;
+      if (!detail?.id) return;
+      removeTab(detail.id);
+    };
+
+    window.addEventListener(BROWSER_TAB_OPENED_EVENT, handleTabOpened);
+    window.addEventListener(BROWSER_TAB_CLOSED_EVENT, handleTabClosed);
+
+    return () => {
+      window.removeEventListener(BROWSER_TAB_OPENED_EVENT, handleTabOpened);
+      window.removeEventListener(BROWSER_TAB_CLOSED_EVENT, handleTabClosed);
+    };
+  }, [addTab, removeTab]);
 
   const openAndExtract = useCallback(
     async (url: string): Promise<string> => {
@@ -49,10 +94,9 @@ export function useBrowserTabs() {
       addTab({ id, url, title: hostname });
       await invoke("switch_tab", { id });
 
-      let html = "";
-      try {
-        html = await invoke<string>("extract_content", { id });
-      } catch {}
+      const html = await invoke<string>("extract_content", { id }).catch(
+        () => "",
+      );
 
       removeTab(id);
       return html;

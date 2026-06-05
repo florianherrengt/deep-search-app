@@ -1,6 +1,7 @@
 import { useState, useCallback, type FormEvent } from "react";
 import {
   FolderIcon,
+  FolderOpenIcon,
   LoaderIcon,
   MessageSquareIcon,
   PencilIcon,
@@ -9,6 +10,8 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
+import { appDataDir, join } from "@tauri-apps/api/path";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +22,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -28,12 +38,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type {
   ResearchChatSummary,
@@ -52,6 +56,8 @@ interface ResearchSidebarProps {
   apiKey: string;
   status: "loading" | "ready" | "error";
   chatsStatus: "idle" | "loading" | "ready" | "error";
+  runningFolderNames?: string[];
+  runningChatIds?: string[];
   onNewChat: () => void;
   onSelectFolder: (folderName: string) => void;
   onNewResearchChat: (folderName: string) => void;
@@ -68,6 +74,8 @@ export function ResearchSidebar({
   apiKey,
   status,
   chatsStatus,
+  runningFolderNames = [],
+  runningChatIds = [],
   onNewChat,
   onSelectFolder,
   onNewResearchChat,
@@ -86,6 +94,8 @@ export function ResearchSidebar({
   const [searchLoading, setSearchLoading] = useState(false);
 
   function openRenameDialog(folder: ResearchFolder) {
+    if (runningFolderNames.includes(folder.name)) return;
+
     setActionError(null);
     setRenameValue(folder.name);
     setRenameTarget(folder);
@@ -185,10 +195,18 @@ export function ResearchSidebar({
     }
   }
 
+  async function handleRevealInFinder(folderName: string) {
+    const dir = await appDataDir();
+    const folderPath = await join(dir, "search-results", folderName);
+    await openPath(folderPath);
+  }
+
   const matchedFolders =
     searchResults !== null
       ? Array.from(new Set(searchResults.map((r) => r.folder_name)))
       : [];
+  const runningFolderSet = new Set(runningFolderNames);
+  const runningChatIdSet = new Set(runningChatIds);
 
   const showSearchResults = searchLoading || searchResults !== null;
 
@@ -252,6 +270,20 @@ export function ResearchSidebar({
                     >
                       <FolderIcon className="size-4 shrink-0" />
                       <span className="min-w-0 flex-1 truncate">{name}</span>
+                      {runningFolderSet.has(name) && (
+                        <span
+                          className="shrink-0 text-muted-foreground"
+                          title="Research running"
+                        >
+                          <LoaderIcon
+                            className="size-3 animate-spin"
+                            aria-hidden="true"
+                          />
+                          <span className="sr-only">
+                            Research running in {name}
+                          </span>
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -271,92 +303,107 @@ export function ResearchSidebar({
               Previous Searches
             </div>
 
-          {status === "loading" && (
-            <div className="px-2 py-2 text-sm text-muted-foreground">
-              Loading...
-            </div>
-          )}
+            {status === "loading" && folders.length === 0 && (
+              <div className="px-2 py-2 text-sm text-muted-foreground">
+                Loading...
+              </div>
+            )}
 
-          {status === "error" && (
-            <div className="px-2 py-2 text-sm text-destructive">
-              Could not load searches.
-            </div>
-          )}
+            {status === "error" && folders.length === 0 && (
+              <div className="px-2 py-2 text-sm text-destructive">
+                Could not load searches.
+              </div>
+            )}
 
-          {status === "ready" && folders.length === 0 && (
-            <div className="px-2 py-2 text-sm text-muted-foreground">
-              No searches yet
-            </div>
-          )}
+            {status === "ready" && folders.length === 0 && (
+              <div className="px-2 py-2 text-sm text-muted-foreground">
+                No searches yet
+              </div>
+            )}
 
-          {status === "ready" && folders.length > 0 && (
-            <TooltipProvider>
+            {folders.length > 0 && (
               <div className="space-y-1">
                 {folders.map((folder) => {
                   const active = folder.name === activeFolderName;
+                  const folderRunning = runningFolderSet.has(folder.name);
                   return (
                     <div key={folder.name}>
-                      <div
-                        className={cn(
-                          "group flex min-h-9 items-center gap-1 rounded-md px-1 transition-colors",
-                          "hover:bg-accent hover:text-accent-foreground",
-                          active
-                            ? "bg-secondary text-secondary-foreground"
-                            : "text-sidebar-foreground",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          aria-current={active ? "page" : undefined}
-                          className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={() => onSelectFolder(folder.name)}
-                          title={folder.name}
-                        >
-                          <FolderIcon className="size-4 shrink-0" />
-                          <span className="min-w-0 flex-1 truncate">
-                            {folder.name}
-                          </span>
-                        </button>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
+                      <ContextMenu>
+                        <ContextMenuTrigger asChild>
+                          <div
+                            className={cn(
+                              "group flex min-h-9 items-center gap-1 rounded-md px-1 transition-colors",
+                              "hover:bg-accent hover:text-accent-foreground",
+                              active
+                                ? "bg-secondary text-secondary-foreground"
+                                : "text-sidebar-foreground",
+                            )}
+                          >
+                            <button
                               type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              aria-label={`Rename ${folder.name}`}
-                              className="opacity-70 hover:opacity-100 focus-visible:opacity-100"
-                              onClick={() => openRenameDialog(folder)}
+                              aria-current={active ? "page" : undefined}
+                              className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={() => onSelectFolder(folder.name)}
+                              title={folder.name}
                             >
-                              <PencilIcon />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="right">Rename</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              aria-label={`Delete ${folder.name}`}
-                              className="opacity-70 hover:text-destructive hover:opacity-100 focus-visible:opacity-100"
-                              onClick={() => {
-                                setActionError(null);
-                                setDeleteTarget(folder);
-                              }}
-                            >
-                              <Trash2Icon />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="right">Delete</TooltipContent>
-                        </Tooltip>
-                      </div>
+                              <FolderIcon className="size-4 shrink-0" />
+                              <span className="min-w-0 flex-1 truncate">
+                                {folder.name}
+                              </span>
+                              {folderRunning && (
+                                <span
+                                  className="shrink-0 text-muted-foreground"
+                                  title="Research running"
+                                >
+                                  <LoaderIcon
+                                    className="size-3 animate-spin"
+                                    aria-hidden="true"
+                                  />
+                                  <span className="sr-only">
+                                    Research running in {folder.name}
+                                  </span>
+                                </span>
+                              )}
+                            </button>
+                          </div>
+                        </ContextMenuTrigger>
+                        <ContextMenuContent>
+                          <ContextMenuItem
+                            disabled={folderRunning}
+                            onSelect={() => openRenameDialog(folder)}
+                          >
+                            <PencilIcon className="size-4" />
+                            Rename
+                          </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={folderRunning}
+                            className="text-destructive focus:text-destructive"
+                            onSelect={() => {
+                              setActionError(null);
+                              setDeleteTarget(folder);
+                            }}
+                          >
+                            <Trash2Icon className="size-4" />
+                            Delete
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem
+                            onSelect={() =>
+                              void handleRevealInFinder(folder.name)
+                            }
+                          >
+                            <FolderOpenIcon className="size-4" />
+                            Open in Finder
+                          </ContextMenuItem>
+                        </ContextMenuContent>
+                      </ContextMenu>
                       {active && (
                         <ResearchChatList
                           folderName={folder.name}
                           chats={chats}
                           activeChatId={activeChatId}
                           status={chatsStatus}
+                          runningChatIds={runningChatIdSet}
                           onNewChat={onNewResearchChat}
                           onSelectChat={onSelectChat}
                         />
@@ -365,9 +412,8 @@ export function ResearchSidebar({
                   );
                 })}
               </div>
-            </TooltipProvider>
-          )}
-        </nav>
+            )}
+          </nav>
         )}
       </aside>
 
@@ -459,6 +505,7 @@ interface ResearchChatListProps {
   chats: ResearchChatSummary[];
   activeChatId: string | null;
   status: "idle" | "loading" | "ready" | "error";
+  runningChatIds: Set<string>;
   onNewChat: (folderName: string) => void;
   onSelectChat: (folderName: string, chatId: string) => void;
 }
@@ -468,6 +515,7 @@ function ResearchChatList({
   chats,
   activeChatId,
   status,
+  runningChatIds,
   onNewChat,
   onSelectChat,
 }: ResearchChatListProps) {
@@ -486,28 +534,29 @@ function ResearchChatList({
         Previous Chats
       </div>
 
-      {status === "loading" && (
+      {status === "loading" && chats.length === 0 && (
         <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
           <LoaderIcon className="size-3.5 animate-spin" />
           Loading chats...
         </div>
       )}
 
-      {status === "error" && (
+      {status === "error" && chats.length === 0 && (
         <div className="px-2 py-1.5 text-xs text-destructive">
           Could not load chats.
         </div>
       )}
 
-      {status === "ready" && chats.length === 0 && (
+      {chats.length === 0 && (status === "ready" || status === "idle") && (
         <div className="px-2 py-1.5 text-xs text-muted-foreground">
           No saved chats
         </div>
       )}
 
-      {status === "ready" &&
+      {chats.length > 0 &&
         chats.map((chat) => {
           const active = chat.id === activeChatId;
+          const chatRunning = runningChatIds.has(chat.id);
 
           return (
             <button
@@ -530,6 +579,20 @@ function ResearchChatList({
                   {formatChatTimestamp(chat.updatedAt ?? chat.createdAt)}
                 </span>
               </span>
+              {chatRunning && (
+                <span
+                  className="mt-0.5 shrink-0 text-muted-foreground"
+                  title="Research running"
+                >
+                  <LoaderIcon
+                    className="size-3 animate-spin"
+                    aria-hidden="true"
+                  />
+                  <span className="sr-only">
+                    Research running in {chat.title}
+                  </span>
+                </span>
+              )}
             </button>
           );
         })}

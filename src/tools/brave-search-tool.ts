@@ -2,35 +2,32 @@ import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
 import { rateLimit } from "@/lib/rate-limit";
+import {
+  searchQueryInputSchema,
+  searchResultSchema,
+  formatSearchResults,
+  type SearchResult,
+} from "./search-result";
 
 const API_BASE_URL = "https://api.search.brave.com/res/v1";
-
-const SearchResultSchema = z.object({
-  title: z.string(),
-  url: z.string(),
-  description: z.string(),
-});
 
 const BraveWebResponseSchema = z.object({
   web: z
     .object({
-      results: z.array(SearchResultSchema).optional(),
+      results: z.array(searchResultSchema).optional(),
     })
     .optional(),
 });
 
-type SearchResult = z.infer<typeof SearchResultSchema>;
+export const braveSearchInputSchema = searchQueryInputSchema;
 
-export const braveSearchInputSchema = z.object({
-  query: z.string().min(1).describe("Search query"),
-});
-
-export const braveSearchOutputSchema = z.object({
-  results: z.array(SearchResultSchema),
-});
+export const braveSearchOutputSchema = z.string();
 
 export function createBraveSearchTool(apiKey: string) {
-  async function search(query: string): Promise<SearchResult[]> {
+  async function search(
+    query: string,
+    abortSignal?: AbortSignal,
+  ): Promise<SearchResult[]> {
     return rateLimit(async () => {
       const url = new URL(`${API_BASE_URL}/web/search`);
       url.searchParams.set("q", query);
@@ -40,6 +37,7 @@ export function createBraveSearchTool(apiKey: string) {
           accept: "application/json",
           "x-subscription-token": apiKey,
         },
+        signal: abortSignal,
       });
 
       if (!response.ok) return [];
@@ -48,16 +46,15 @@ export function createBraveSearchTool(apiKey: string) {
       if (!parsed.success) return [];
 
       return parsed.data.web?.results ?? [];
-    });
+    }, abortSignal);
   }
 
   return tool({
     description: "Search the web with Brave Search",
     strict: true,
     inputSchema: zodSchema(braveSearchInputSchema),
-    outputSchema: zodSchema(braveSearchOutputSchema),
-    execute: async ({ query }) => {
-      return { results: await search(query) };
+    execute: async ({ query }, options) => {
+      return formatSearchResults(await search(query, options?.abortSignal));
     },
   });
 }

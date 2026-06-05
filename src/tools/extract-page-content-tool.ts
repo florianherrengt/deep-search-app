@@ -3,9 +3,27 @@ import { load, type CheerioAPI } from "cheerio";
 import type { AnyNode, Element, Text } from "domhandler";
 import { z } from "zod";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  abortableDelay,
+  abortablePromise,
+  isAbortError,
+  throwIfAborted,
+} from "@/lib/abort";
 import { writeAppFile } from "@/lib/app-file-storage";
+import {
+  emitBrowserTabClosed,
+  emitBrowserTabOpened,
+} from "@/lib/browser-tab-events";
+import { tryParseJson } from "@/lib/json";
+import { slugifyText } from "@/lib/slug";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";
-import { registry, setWebViewExtractor, type WebViewExtractorOptions } from "./extractors";
+import {
+  registry,
+  setWebViewExtractor,
+  setAmazonWebViewExtractor,
+  setShopifyWebViewExtractor,
+  type WebViewExtractorOptions,
+} from "./extractors";
 
 const MIN_CONTENT_LENGTH = 200;
 const DEFAULT_WEBVIEW_RETRY_INTERVAL_MS = 5_000;
@@ -19,6 +37,57 @@ interface ExtractPageContentOptions {
   method?: ExtractionMethod;
   model?: LanguageModel;
   getResearchFolder?: () => Promise<string | null | undefined>;
+  abortSignal?: AbortSignal;
+}
+
+type ExtractedPageContent = {
+  html: string | null;
+  content: string;
+  usedCustomExtractor: boolean;
+};
+
+type RawContentLocation = {
+  rawPath: string;
+  page: string;
+};
+
+interface WebviewExtractionMock {
+  openTab?: (input: { id: string; url: string }) => Promise<void>;
+  switchTab?: (input: { id: string }) => Promise<void>;
+  extractContent?: (input: { id: string }) => Promise<string>;
+  closeTab?: (input: { id: string }) => Promise<void>;
+}
+
+declare global {
+  interface Window {
+    __deepSearchWebviewExtractionMock?: WebviewExtractionMock;
+  }
+}
+
+let webviewExtractionQueue: Promise<void> = Promise.resolve();
+let nextWebviewTabId = 0;
+
+function createWebviewTabId(): string {
+  nextWebviewTabId += 1;
+  return `tab-${Date.now()}-${nextWebviewTabId}`;
+}
+
+async function runExclusiveWebviewExtraction<T>(
+  task: () => Promise<T>,
+): Promise<T> {
+  const previous = webviewExtractionQueue;
+  let release!: () => void;
+  webviewExtractionQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous.catch(() => undefined);
+
+  try {
+    return await task();
+  } finally {
+    release();
+  }
 }
 
 function domainFromUrl(url: string): string {
@@ -29,31 +98,116 @@ function domainFromUrl(url: string): string {
   }
 }
 
-function pathSlug(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 120);
-}
-
 function pageSlugFromUrl(url: string): string {
   try {
     const u = new URL(url);
-    const base = pathSlug(u.pathname.replace(/\/$/, "") || "index");
+    const base = slugifyText(u.pathname.replace(/\/$/, "") || "index", {
+      maxLength: 120,
+    });
     return base || "page";
   } catch {
     return "page";
   }
 }
 
-export async function fetchHtml(url: string): Promise<string | null> {
+function rawContentLocation(
+  url: string,
+  researchFolder: string,
+): RawContentLocation {
+  const domain = domainFromUrl(url);
+  const page = pageSlugFromUrl(url);
+
+  return {
+    rawPath: `search-results/${researchFolder}/raw/${domain}`,
+    page,
+  };
+}
+
+function getDevWebviewExtractionMock(): WebviewExtractionMock | null {
+  if (!import.meta.env.DEV || typeof window === "undefined") return null;
+  return window.__deepSearchWebviewExtractionMock ?? null;
+}
+
+function waitForBrowserPaint(): Promise<void> {
+  if (
+    typeof window === "undefined" ||
+    typeof window.requestAnimationFrame !== "function"
+  ) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+async function openWebviewTab(
+  id: string,
+  url: string,
+  abortSignal?: AbortSignal,
+) {
+  const mock = getDevWebviewExtractionMock();
+  if (mock?.openTab) {
+    await abortablePromise(mock.openTab({ id, url }), abortSignal);
+    return;
+  }
+
+  await abortablePromise(invoke("open_tab", { url, id }), abortSignal);
+}
+
+async function switchWebviewTab(
+  id: string,
+  abortSignal?: AbortSignal,
+) {
+  const mock = getDevWebviewExtractionMock();
+  if (mock?.switchTab) {
+    await abortablePromise(mock.switchTab({ id }), abortSignal);
+    return;
+  }
+
+  await abortablePromise(
+    invoke("switch_tab", { id }).catch(() => undefined),
+    abortSignal,
+  );
+}
+
+async function extractWebviewContent(
+  id: string,
+  abortSignal?: AbortSignal,
+): Promise<string> {
+  const mock = getDevWebviewExtractionMock();
+  if (mock?.extractContent) {
+    return abortablePromise(mock.extractContent({ id }), abortSignal);
+  }
+
+  return abortablePromise(
+    invoke<string>("extract_content", { id }),
+    abortSignal,
+  );
+}
+
+async function closeWebviewTab(id: string) {
+  const mock = getDevWebviewExtractionMock();
+  if (mock?.closeTab) {
+    await mock.closeTab({ id }).catch(() => undefined);
+    return;
+  }
+
+  await invoke("close_tab", { id }).catch(() => undefined);
+}
+
+export async function fetchHtml(
+  url: string,
+  abortSignal?: AbortSignal,
+): Promise<string | null> {
   try {
     validateUrl(url);
-    return await invoke<string | null>("fetch_html", { url });
-  } catch {
+    return await abortablePromise(
+      invoke<string | null>("fetch_html", { url }),
+      abortSignal,
+    );
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     return null;
   }
 }
@@ -62,6 +216,7 @@ async function summarizeContent(
   model: LanguageModel,
   markdown: string,
   query?: string,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
   if (!markdown.trim()) return "";
   const { text } = await generateText({
@@ -69,6 +224,7 @@ async function summarizeContent(
     system:
       "You are a research assistant. Extract and summarize the key information from this page content. Be concise but thorough. Preserve factual details, names, dates, and numbers.",
     prompt: `${markdown}${query ? `\n\nFocus on information related to: ${query}` : ""}`,
+    abortSignal,
   });
   return text;
 }
@@ -362,26 +518,20 @@ export function sanitizeHtml(html: string): string {
   return extractVisibleTextFromHtml(html);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function normalizeWebviewHtml(html: string): string {
   const trimmed = html.trim();
   if (!trimmed.startsWith('"') && !trimmed.startsWith("{")) return html;
 
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (typeof parsed === "string") return parsed;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      "value" in parsed &&
-      typeof parsed.value === "string"
-    ) {
-      return parsed.value;
-    }
-  } catch {}
+  const parsed = tryParseJson(trimmed);
+  if (typeof parsed === "string") return parsed;
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    "value" in parsed &&
+    typeof parsed.value === "string"
+  ) {
+    return parsed.value;
+  }
 
   return html;
 }
@@ -389,108 +539,208 @@ function normalizeWebviewHtml(html: string): string {
 async function extractViaWebview(
   url: string,
   options?: WebViewExtractorOptions,
+  abortSignal?: AbortSignal,
 ): Promise<string | null> {
   validateUrl(url);
-  const id = `tab-${Date.now()}`;
-  try {
-    await invoke("open_tab", { url, id });
-    const startedAt = Date.now();
+  throwIfAborted(abortSignal);
 
-    while (true) {
-      const rawHtml: string = await invoke("extract_content", { id });
-      const html = normalizeWebviewHtml(rawHtml);
-      const shouldRetry = options?.shouldRetry?.(html) ?? false;
-
-      if (!shouldRetry) return html;
-
-      const maxWaitMs = options?.maxWaitMs ?? DEFAULT_WEBVIEW_MAX_WAIT_MS;
-      if (Date.now() - startedAt >= maxWaitMs) return html;
-
-      await sleep(options?.retryIntervalMs ?? DEFAULT_WEBVIEW_RETRY_INTERVAL_MS);
-    }
-  } catch {
-    return null;
-  } finally {
+  return runExclusiveWebviewExtraction(async () => {
+    const id = createWebviewTabId();
+    let tabAnnounced = false;
     try {
-      await invoke("close_tab", { id });
-    } catch {}
-  }
+      emitBrowserTabOpened({
+        id,
+        url,
+        title: domainFromUrl(url),
+        activate: true,
+      });
+      tabAnnounced = true;
+
+      await abortablePromise(waitForBrowserPaint(), abortSignal);
+      await openWebviewTab(id, url, abortSignal);
+      await switchWebviewTab(id, abortSignal);
+      const startedAt = Date.now();
+
+      while (true) {
+        throwIfAborted(abortSignal);
+        const rawHtml = await extractWebviewContent(id, abortSignal);
+        const html = normalizeWebviewHtml(rawHtml);
+        const shouldRetry = options?.shouldRetry?.(html) ?? false;
+
+        if (!shouldRetry) return html;
+
+        const maxWaitMs = options?.maxWaitMs ?? DEFAULT_WEBVIEW_MAX_WAIT_MS;
+        if (Date.now() - startedAt >= maxWaitMs) return html;
+
+        await abortableDelay(
+          options?.retryIntervalMs ?? DEFAULT_WEBVIEW_RETRY_INTERVAL_MS,
+          abortSignal,
+        );
+      }
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      return null;
+    } finally {
+      await closeWebviewTab(id);
+      if (tabAnnounced) emitBrowserTabClosed({ id });
+    }
+  });
 }
 
 setWebViewExtractor(extractViaWebview);
+setAmazonWebViewExtractor(extractViaWebview);
+setShopifyWebViewExtractor(extractViaWebview);
+
+async function extractRawContent(
+  url: string,
+  method: ExtractionMethod,
+  abortSignal?: AbortSignal,
+): Promise<ExtractedPageContent> {
+  throwIfAborted(abortSignal);
+
+  const extractor = registry.find(url);
+  if (extractor) {
+    return {
+      html: null,
+      content: await extractor.extract(url),
+      usedCustomExtractor: true,
+    };
+  }
+
+  if (method === "webview") {
+    const html = await extractViaWebview(url, undefined, abortSignal);
+    return {
+      html,
+      content: html ? sanitizeHtml(html) : "",
+      usedCustomExtractor: false,
+    };
+  }
+
+  const html = await fetchHtml(url, abortSignal);
+  const content = html ? sanitizeHtml(html) : "";
+
+  if (method === "auto" && content.length < MIN_CONTENT_LENGTH) {
+    const webviewHtml = await extractViaWebview(url, undefined, abortSignal);
+    return {
+      html: webviewHtml,
+      content: webviewHtml ? sanitizeHtml(webviewHtml) : "",
+      usedCustomExtractor: false,
+    };
+  }
+
+  return {
+    html,
+    content,
+    usedCustomExtractor: false,
+  };
+}
+
+function shouldSummarizeContent(
+  options: ExtractPageContentOptions,
+  usedCustomExtractor: boolean,
+): boolean {
+  if (options.query) return true;
+  return (
+    options.summarize === true ||
+    (!usedCustomExtractor && options.summarize !== false)
+  );
+}
+
+async function saveExtractedContent({
+  location,
+  html,
+  content,
+}: {
+  location: RawContentLocation;
+  html: string | null;
+  content: string;
+}) {
+  if (html) {
+    await writeAppFile({
+      subfolder: location.rawPath,
+      filename: `${location.page}.html`,
+      content: html,
+    });
+  }
+
+  if (content) {
+    await writeAppFile({
+      subfolder: location.rawPath,
+      filename: `${location.page}-content.html`,
+      content,
+    });
+  }
+}
+
+async function saveSummaryContent(
+  location: RawContentLocation,
+  summary: string,
+) {
+  await writeAppFile({
+    subfolder: location.rawPath,
+    filename: `${location.page}-summary.md`,
+    content: summary,
+  });
+}
+
+async function trySummarizeContent(
+  model: LanguageModel | undefined,
+  content: string,
+  query: string | undefined,
+  abortSignal?: AbortSignal,
+): Promise<string | null> {
+  if (!model || !content.trim()) return null;
+
+  try {
+    return await summarizeContent(model, content, query, abortSignal);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return null;
+  }
+}
 
 export async function extractPageContent(
   url: string,
   options: ExtractPageContentOptions = {},
 ): Promise<string> {
   const forced = options.method ?? "auto";
-  let html: string | null = null;
-  let content = "";
-  let usedCustomExtractor = false;
+  const { html, content, usedCustomExtractor } = await extractRawContent(
+    url,
+    forced,
+    options.abortSignal,
+  );
 
-  const extractor = registry.find(url);
-  if (extractor) {
-    usedCustomExtractor = true;
-    content = await extractor.extract(url);
-  } else if (forced === "webview") {
-    html = await extractViaWebview(url);
-    content = html ? sanitizeHtml(html) : "";
-  } else {
-    html = await fetchHtml(url);
-    content = html ? sanitizeHtml(html) : "";
-    if (forced === "auto" && content.length < MIN_CONTENT_LENGTH) {
-      html = await extractViaWebview(url);
-      content = html ? sanitizeHtml(html) : "";
-    }
+  if (!html && !content) return content;
+
+  const shouldSummarize = shouldSummarizeContent(options, usedCustomExtractor);
+  const researchFolder = await options.getResearchFolder?.();
+
+  if (!researchFolder) {
+    if (!shouldSummarize) return content;
+    return (
+      (await trySummarizeContent(
+        options.model,
+        content,
+        options.query,
+        options.abortSignal,
+      )) ??
+      content
+    );
   }
 
-  if (html || content) {
-    const shouldSummarize =
-      options.summarize === true ||
-      (!usedCustomExtractor && options.summarize !== false);
-    const researchFolder = await options.getResearchFolder?.();
-    if (researchFolder) {
-      const domain = domainFromUrl(url);
-      const page = pageSlugFromUrl(url);
-      const rawPath = `search-results/${researchFolder}/raw/${domain}`;
+  const location = rawContentLocation(url, researchFolder);
+  await saveExtractedContent({ location, html, content });
 
-      if (html) {
-        await writeAppFile({
-          subfolder: rawPath,
-          filename: `${page}.html`,
-          content: html,
-        });
-      }
-
-      if (content) {
-        await writeAppFile({
-          subfolder: rawPath,
-          filename: `${page}-content.html`,
-          content,
-        });
-      }
-
-      if (shouldSummarize && content.trim() && options.model) {
-        try {
-          const summary = await summarizeContent(options.model, content, options.query);
-          if (summary) {
-            await writeAppFile({
-              subfolder: rawPath,
-              filename: `${page}-summary.md`,
-              content: summary,
-            });
-          }
-          return summary;
-        } catch {}
-      }
-    } else if (
-      shouldSummarize &&
-      content.trim() &&
-      options.model
-    ) {
-      try {
-        return await summarizeContent(options.model, content, options.query);
-      } catch {}
+  if (shouldSummarize) {
+    const summary = await trySummarizeContent(
+      options.model,
+      content,
+      options.query,
+      options.abortSignal,
+    );
+    if (summary) {
+      await saveSummaryContent(location, summary);
+      return summary;
     }
   }
 
@@ -502,12 +752,14 @@ export const extractPageContentInputSchema = z.object({
   query: z
     .string()
     .optional()
-    .describe("What to look for on the page (focuses the summary)"),
+    .describe(
+      "What you want from the page — focuses the summary on specific information (e.g. \"price\", \"ingredients list\", \"author biography\").",
+    ),
   summarize: z
     .boolean()
     .optional()
     .describe(
-      "Summarize the content before returning it. Set to false if you need the full page information.",
+      "Set to false to get the full page content. By default the page is summarized.",
     ),
   method: z
     .enum(["auto", "fetch", "webview"])
@@ -523,11 +775,11 @@ export function createExtractPageContentTool(
 ) {
   return tool({
     description:
-      "Extract the plain-text content of a web page with scripts, styles, hidden UI, and obvious boilerplate stripped. Use this to read the content of a URL found during research. Raw HTML and cleaned text are automatically saved to the research folder.",
+      "Extract the plain-text content of a web page with scripts, styles, hidden UI, and obvious boilerplate stripped. Use this to read the content of a URL found during research. Raw HTML and cleaned text are automatically saved to the research folder.\n\nBy default the page is summarized. Provide a `query` to focus the summary on specific information — for example `query: \"price and availability\"` returns a summary centered on those details. Set `summarize: false` when you need the full page content.",
     strict: true,
     inputSchema: zodSchema(extractPageContentInputSchema),
     outputSchema: zodSchema(z.string().describe("Extracted page content")),
-    execute: async ({ url, query, summarize: doSummarize, method }) => {
+    execute: async ({ url, query, summarize: doSummarize, method }, options) => {
       try {
         validateUrl(url);
       } catch (e) {
@@ -540,6 +792,7 @@ export function createExtractPageContentTool(
         method,
         model,
         getResearchFolder,
+        abortSignal: options?.abortSignal,
       });
     },
   });

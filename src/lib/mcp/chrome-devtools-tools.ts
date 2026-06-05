@@ -12,7 +12,16 @@ const TOOL_NAME_PREFIX = "chrome_devtools_";
 let clientPromise: Promise<McpStdioClient> | null = null;
 let toolsPromise: Promise<ToolSet> | null = null;
 
-export async function createChromeDevToolsMcpTools(): Promise<ToolSet> {
+export async function createChromeDevToolsMcpTools({
+  enabled,
+}: {
+  enabled: boolean;
+}): Promise<ToolSet> {
+  if (!enabled) {
+    await shutdownChromeDevToolsMcp();
+    return {};
+  }
+
   if (!isTauri()) return {};
 
   toolsPromise ??= createChromeDevToolsMcpToolsInternal().catch((error) => {
@@ -96,7 +105,7 @@ function uniqueToolName(toolName: string, usedNames: Set<string>) {
 
 function describeMcpTool(mcpTool: McpToolDefinition) {
   const baseDescription = mcpTool.description?.trim() || mcpTool.name;
-  return `${baseDescription}\n\nChrome DevTools MCP tool. Use this to inspect or control a local Chrome browser/page when the user asks for browser automation, page inspection, console/network/performance checks, screenshots, or navigation. Original MCP tool name: ${mcpTool.name}.`;
+  return `${baseDescription}\n\nChrome DevTools MCP tool. Use only as a last resort when the internal webview/search/extraction tools cannot inspect the page well enough, or when the user explicitly asks you to control or debug their local Chrome session. Do not use for ordinary web research. Original MCP tool name: ${mcpTool.name}.`;
 }
 
 function normalizeInputSchema(inputSchema: unknown) {

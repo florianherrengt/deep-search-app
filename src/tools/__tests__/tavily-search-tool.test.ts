@@ -14,9 +14,7 @@ import { createTavilySearchTool } from "@/tools/tavily-search-tool";
 type ExecutableTavilyTool = {
   execute: (input: {
     query: string;
-  }) => Promise<{
-    results: Array<{ title: string; url: string; description: string }>;
-  }>;
+  }) => Promise<string>;
 };
 
 describe("createTavilySearchTool", () => {
@@ -44,15 +42,9 @@ describe("createTavilySearchTool", () => {
       }),
     });
 
-    await expect(tool.execute({ query: "standing desk" })).resolves.toEqual({
-      results: [
-        {
-          title: "Desk review",
-          url: "https://example.com/desk",
-          description: "Compact standing desk review.",
-        },
-      ],
-    });
+    await expect(tool.execute({ query: "standing desk" })).resolves.toBe(
+      "Desk review: https://example.com/desk\nCompact standing desk review.",
+    );
     expect(tauriMocks.fetch).toHaveBeenCalledWith(
       "https://api.tavily.com/search",
       expect.objectContaining({

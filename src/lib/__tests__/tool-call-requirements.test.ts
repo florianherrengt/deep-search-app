@@ -14,13 +14,24 @@ describe("tool call requirements", () => {
 
     expect(activeTools).toContain("ask_questions");
     expect(activeTools).toContain("disambiguate");
+    expect(activeTools).toContain("rename_research_folder");
     expect(activeTools).not.toContain("create_research_plan");
   });
 
-  it("enables gated tools when prerequisites were called previously", () => {
+  it("still hides create_research_plan when only ask_questions was called", () => {
     const activeTools = getActiveToolNamesForMessages(fakeTools(), [
       userMessage("Research the market"),
       assistantToolCallMessage("ask_questions"),
+    ]);
+
+    expect(activeTools).not.toContain("create_research_plan");
+  });
+
+  it("enables gated tools when all prerequisites were called previously", () => {
+    const activeTools = getActiveToolNamesForMessages(fakeTools(), [
+      userMessage("Research the market"),
+      assistantToolCallMessage("ask_questions"),
+      assistantToolCallMessage("rename_research_folder"),
     ]);
 
     expect(activeTools).toContain("create_research_plan");
@@ -30,6 +41,7 @@ describe("tool call requirements", () => {
     const activeTools = getActiveToolNamesForMessages(fakeTools(), [
       userMessage("Research the market"),
       assistantToolCallMessage("ask_questions"),
+      assistantToolCallMessage("rename_research_folder"),
       userMessage("Now research a different market"),
     ]);
 
@@ -53,7 +65,7 @@ describe("tool call requirements", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("allows execution after the required previous tool call", () => {
+  it("allows execution after all required previous tool calls", () => {
     const execute = vi.fn(() => "plan");
     const tools = applyToolCallRequirementSafeguards({
       create_research_plan: {
@@ -66,6 +78,7 @@ describe("tool call requirements", () => {
       executeTool(tools, "create_research_plan", [
         { role: "user", content: "Research the market" },
         modelToolCallMessage("ask_questions"),
+        modelToolCallMessage("rename_research_folder"),
       ]),
     ).toBe("plan");
     expect(execute).toHaveBeenCalledOnce();
@@ -76,6 +89,7 @@ function fakeTools() {
   return {
     ask_questions: {},
     disambiguate: {},
+    rename_research_folder: {},
     create_research_plan: {},
   } as unknown as ToolSet;
 }

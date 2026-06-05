@@ -2,14 +2,13 @@ import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
 import { rateLimit } from "@/lib/rate-limit";
+import {
+  searchQueryInputSchema,
+  formatSearchResults,
+  type SearchResult,
+} from "./search-result";
 
 const API_BASE_URL = "https://api.exa.ai";
-
-const SearchResultSchema = z.object({
-  title: z.string(),
-  url: z.string(),
-  description: z.string(),
-});
 
 const ExaWebResponseSchema = z.object({
   results: z.array(
@@ -21,18 +20,15 @@ const ExaWebResponseSchema = z.object({
   ),
 });
 
-type SearchResult = z.infer<typeof SearchResultSchema>;
+export const exaSearchInputSchema = searchQueryInputSchema;
 
-export const exaSearchInputSchema = z.object({
-  query: z.string().min(1).describe("Search query"),
-});
-
-export const exaSearchOutputSchema = z.object({
-  results: z.array(SearchResultSchema),
-});
+export const exaSearchOutputSchema = z.string();
 
 export function createExaSearchTool(apiKey: string) {
-  async function search(query: string): Promise<SearchResult[]> {
+  async function search(
+    query: string,
+    abortSignal?: AbortSignal,
+  ): Promise<SearchResult[]> {
     return rateLimit(async () => {
       const response = await fetch(`${API_BASE_URL}/search`, {
         method: "POST",
@@ -46,6 +42,7 @@ export function createExaSearchTool(apiKey: string) {
           numResults: 5,
           contents: { text: true },
         }),
+        signal: abortSignal,
       });
 
       if (!response.ok) return [];
@@ -58,16 +55,15 @@ export function createExaSearchTool(apiKey: string) {
         url: r.url,
         description: r.text,
       }));
-    });
+    }, abortSignal);
   }
 
   return tool({
     description: "Search the web with Exa",
     strict: true,
     inputSchema: zodSchema(exaSearchInputSchema),
-    outputSchema: zodSchema(exaSearchOutputSchema),
-    execute: async ({ query }) => {
-      return { results: await search(query) };
+    execute: async ({ query }, options) => {
+      return formatSearchResults(await search(query, options?.abortSignal));
     },
   });
 }

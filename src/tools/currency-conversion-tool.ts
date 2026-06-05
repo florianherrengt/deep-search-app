@@ -27,13 +27,7 @@ export const currencyConversionInputSchema = z.object({
     .describe("Currency code of the amount (e.g. USD, EUR, GBP)"),
 });
 
-export const currencyConversionOutputSchema = z.object({
-  converted_amount: z.number(),
-  from_currency: z.string(),
-  to_currency: z.string(),
-  rate: z.number(),
-  date: z.string(),
-});
+export const currencyConversionOutputSchema = z.string();
 
 export function createCurrencyConversionTool(targetCurrency: Currency) {
   return tool({
@@ -41,18 +35,12 @@ export function createCurrencyConversionTool(targetCurrency: Currency) {
     strict: true,
     inputSchema: zodSchema(currencyConversionInputSchema),
     outputSchema: zodSchema(currencyConversionOutputSchema),
-    execute: async ({ amount, from_currency }) => {
+    execute: async ({ amount, from_currency }, options) => {
       const from = from_currency.toUpperCase();
       const to = targetCurrency;
 
       if (from === to) {
-        return {
-          converted_amount: amount,
-          from_currency: from,
-          to_currency: to,
-          rate: 1,
-          date: new Date().toISOString().slice(0, 10),
-        };
+        return amount.toFixed(2);
       }
 
       const key = cacheKey(from, to);
@@ -61,7 +49,10 @@ export function createCurrencyConversionTool(targetCurrency: Currency) {
       if (!cached) {
         const response = await fetch(
           `${API_BASE}/rate/${from}/${to}`,
-          { headers: { accept: "application/json" } },
+          {
+            headers: { accept: "application/json" },
+            signal: options?.abortSignal,
+          },
         );
 
         if (!response.ok) {
@@ -82,13 +73,7 @@ export function createCurrencyConversionTool(targetCurrency: Currency) {
         ratesCache.set(key, cached);
       }
 
-      return {
-        converted_amount: +(amount * cached.rate).toFixed(2),
-        from_currency: from,
-        to_currency: to,
-        rate: cached.rate,
-        date: cached.date,
-      };
+      return (amount * cached.rate).toFixed(2);
     },
   });
 }

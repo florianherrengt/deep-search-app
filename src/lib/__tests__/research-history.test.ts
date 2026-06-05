@@ -10,6 +10,10 @@ const fsMocks = vi.hoisted(() => ({
   exists: vi.fn(),
 }));
 
+const tauriMocks = vi.hoisted(() => ({
+  invoke: vi.fn(),
+}));
+
 vi.mock("@tauri-apps/plugin-fs", () => ({
   ...fsMocks,
   BaseDirectory: {
@@ -17,9 +21,15 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   },
 }));
 
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: tauriMocks.invoke,
+}));
+
 import { BaseDirectory } from "@tauri-apps/plugin-fs";
 import {
+  createProvisionalResearchFolder,
   createResearchChatId,
+  createTimestampResearchFolderName,
   deleteResearchFolder,
   listResearchChats,
   listResearchFolders,
@@ -31,6 +41,13 @@ import {
 describe("research history", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    tauriMocks.invoke.mockResolvedValue(undefined);
+  });
+
+  it("formats provisional folder names with local date and time", () => {
+    expect(
+      createTimestampResearchFolderName(new Date(2026, 4, 22, 9, 8, 7)),
+    ).toBe("2026-05-22_09-08-07");
   });
 
   it("lists research folders from search-results", async () => {
@@ -260,6 +277,40 @@ describe("research history", () => {
     );
   });
 
+  it("creates a unique provisional timestamp folder with the first chat", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+    ];
+    mockAppStorage({
+      directories: {
+        "search-results": [
+          directoryEntry("2026-05-22_10-11-12"),
+          directoryEntry("2026-05-22_10-11-12-2"),
+        ],
+      },
+    });
+
+    await expect(
+      createProvisionalResearchFolder(
+        "2026-05-22T10-11-12.123Z",
+        messages as never,
+        new Date(2026, 4, 22, 10, 11, 12),
+      ),
+    ).resolves.toBe("2026-05-22_10-11-12-3");
+
+    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
+      "search-results/2026-05-22_10-11-12-3/chats/2026-05-22T10-11-12.123Z.json",
+      expect.any(String),
+      {
+        baseDir: BaseDirectory.AppData,
+      },
+    );
+  });
+
   it("renames research folders", async () => {
     fsMocks.exists.mockResolvedValueOnce(false);
 
@@ -275,6 +326,13 @@ describe("research history", () => {
         newPathBaseDir: BaseDirectory.AppData,
       },
     );
+    expect(tauriMocks.invoke).toHaveBeenCalledWith(
+      "rename_research_folder_index",
+      {
+        oldName: "market-map",
+        newName: "pricing-review",
+      },
+    );
   });
 
   it("deletes research folders", async () => {
@@ -286,6 +344,12 @@ describe("research history", () => {
       baseDir: BaseDirectory.AppData,
       recursive: true,
     });
+    expect(tauriMocks.invoke).toHaveBeenCalledWith(
+      "delete_research_folder_index",
+      {
+        name: "market-map",
+      },
+    );
   });
 });
 

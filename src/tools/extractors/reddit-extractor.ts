@@ -150,12 +150,15 @@ function parseOldRedditHtml(html: string): string | null {
     };
   }
 
-  let topLevelComments = $(".commentarea > .sitetable > .thing.comment");
-  if (topLevelComments.length === 0) {
-    topLevelComments = $(".thing.comment").filter(
-      (_, el) => $(el).parents(".thing.comment").length === 0,
-    );
-  }
+  const directTopLevelComments = $(
+    ".commentarea > .sitetable > .thing.comment",
+  );
+  const topLevelComments =
+    directTopLevelComments.length > 0
+      ? directTopLevelComments
+      : $(".thing.comment").filter(
+          (_, el) => $(el).parents(".thing.comment").length === 0,
+        );
 
   const comments: RedditComment[] = [];
   topLevelComments.each((_, el) => {

@@ -59,6 +59,7 @@ export const settingsSchema = z.object({
   anthropic_model: z.string(),
   zhipu_model: z.string(),
   currency: currencySchema,
+  chrome_devtools_mcp_enabled: z.boolean(),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -78,6 +79,7 @@ export const settingsDefaults: Settings = {
   anthropic_model: CHAT_PROVIDER_DEFAULT_MODELS.anthropic,
   zhipu_model: CHAT_PROVIDER_DEFAULT_MODELS.zhipu,
   currency: "USD",
+  chrome_devtools_mcp_enabled: false,
 };
 
 export const settingsStore = createStore(

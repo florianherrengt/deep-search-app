@@ -6,7 +6,7 @@ import {
 } from "@/lib/app-file-storage";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 
-type SwitchResearchFolder = (folderName: string) => void;
+type SwitchResearchFolder = (folderName: string) => void | Promise<void>;
 
 export const switchResearchFolderInputSchema = z.object({
   folder: SafePathSegmentSchema.describe(
@@ -37,7 +37,7 @@ export function createSwitchResearchFolderTool(
         throw new Error(`Research folder not found: ${parsedFolder}`);
       }
 
-      switchResearchFolder(parsedFolder);
+      await switchResearchFolder(parsedFolder);
 
       return {
         researchFolder: parsedFolder,

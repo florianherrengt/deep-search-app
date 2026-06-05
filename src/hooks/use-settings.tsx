@@ -12,6 +12,7 @@ import {
   settingsDefaults,
   type Settings,
 } from "@/lib/settings-store";
+import { tryParseJson } from "@/lib/json";
 
 export type { Settings };
 
@@ -20,7 +21,10 @@ const DEV_TEST_SETTINGS_KEY = "deep-search-test-settings";
 interface SettingsContextValue {
   settings: Settings;
   loading: boolean;
-  updateSetting: (key: keyof Settings, value: string) => Promise<void>;
+  updateSetting: <K extends keyof Settings>(
+    key: K,
+    value: Settings[K],
+  ) => Promise<void>;
   resetAll: () => Promise<void>;
 }
 
@@ -47,7 +51,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateSetting = useCallback(
-    async (key: keyof Settings, value: string) => {
+    async <K extends keyof Settings>(key: K, value: Settings[K]) => {
       if (hasDevTestSettings()) {
         setSettings((prev) => {
           const next = settingsSchema.parse({ ...prev, [key]: value });
@@ -100,9 +104,10 @@ function getDevTestSettings(): Settings | null {
   try {
     const raw = window.localStorage.getItem(DEV_TEST_SETTINGS_KEY);
     if (!raw) return null;
+    const parsed = tryParseJson(raw);
     return settingsSchema.parse({
       ...settingsDefaults,
-      ...JSON.parse(raw),
+      ...(parsed && typeof parsed === "object" ? parsed : {}),
     });
   } catch {
     return null;

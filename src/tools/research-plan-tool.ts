@@ -16,11 +16,12 @@ export function createResearchPlanTool(model: LanguageModel) {
       "Call this after asking clarifying questions to create a research plan.",
     strict: true,
     inputSchema: zodSchema(researchPlanInputSchema),
-    execute: async ({ query }) => {
+    execute: async ({ query }, options) => {
       const { text } = await generateText({
         model,
         system: RESEARCH_PLANNER_SYSTEM,
         prompt: query,
+        abortSignal: options?.abortSignal,
       });
 
       return text;

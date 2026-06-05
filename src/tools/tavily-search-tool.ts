@@ -2,14 +2,13 @@ import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
 import { rateLimit } from "@/lib/rate-limit";
+import {
+  searchQueryInputSchema,
+  formatSearchResults,
+  type SearchResult,
+} from "./search-result";
 
 const API_BASE_URL = "https://api.tavily.com";
-
-const SearchResultSchema = z.object({
-  title: z.string(),
-  url: z.string(),
-  description: z.string(),
-});
 
 const TavilyWebResponseSchema = z.object({
   results: z.array(
@@ -21,20 +20,17 @@ const TavilyWebResponseSchema = z.object({
   ),
 });
 
-type SearchResult = z.infer<typeof SearchResultSchema>;
+export const tavilySearchInputSchema = searchQueryInputSchema;
 
-export const tavilySearchInputSchema = z.object({
-  query: z.string().min(1).describe("Search query"),
-});
-
-export const tavilySearchOutputSchema = z.object({
-  results: z.array(SearchResultSchema),
-});
+export const tavilySearchOutputSchema = z.string();
 
 export function createTavilySearchTool(apiKey: string) {
   const normalizedApiKey = apiKey.trim();
 
-  async function search(query: string): Promise<SearchResult[]> {
+  async function search(
+    query: string,
+    abortSignal?: AbortSignal,
+  ): Promise<SearchResult[]> {
     return rateLimit(async () => {
       const response = await fetch(`${API_BASE_URL}/search`, {
         method: "POST",
@@ -47,6 +43,7 @@ export function createTavilySearchTool(apiKey: string) {
           search_depth: "basic",
           max_results: 5,
         }),
+        signal: abortSignal,
       });
 
       if (!response.ok) {
@@ -66,16 +63,15 @@ export function createTavilySearchTool(apiKey: string) {
         url: r.url,
         description: r.content,
       }));
-    });
+    }, abortSignal);
   }
 
   return tool({
     description: "Search the web with Tavily Search",
     strict: true,
     inputSchema: zodSchema(tavilySearchInputSchema),
-    outputSchema: zodSchema(tavilySearchOutputSchema),
-    execute: async ({ query }) => {
-      return { results: await search(query) };
+    execute: async ({ query }, options) => {
+      return formatSearchResults(await search(query, options?.abortSignal));
     },
   });
 }

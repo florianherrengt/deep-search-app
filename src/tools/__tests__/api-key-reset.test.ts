@@ -139,7 +139,7 @@ describe("search tool availability from config", () => {
     expect(tools.find((t) => t.name === "extract_page_content")?.available).toBe(
       true,
     );
-    expect(tools.find((t) => t.name === "save_research_file")?.available).toBe(
+    expect(tools.find((t) => t.name === "create_file")?.available).toBe(
       true,
     );
     expect(tools.find((t) => t.name === "research_checkpoint")?.available).toBe(
@@ -148,5 +148,8 @@ describe("search tool availability from config", () => {
     expect(tools.find((t) => t.name === "create_research_plan")?.available).toBe(
       true,
     );
+    expect(
+      tools.find((t) => t.name === "verified_research_is_good")?.available,
+    ).toBe(true);
   });
 });

@@ -16,6 +16,8 @@ interface AppFileStorageMock {
   readAppFile?: (input: ReadAppFileInput) => Promise<string | null>;
   listAppSubfolders?: (input: ListAppSubfoldersInput) => Promise<string[]>;
   listAppFiles?: (input: ListAppFilesInput) => Promise<string[]>;
+  deleteAppFile?: (input: ReadAppFileInput) => Promise<void>;
+  renameAppFile?: (input: { subfolder: string; oldFilename: string; newFilename: string }) => Promise<void>;
   deleteAppSubfolder?: (input: DeleteAppSubfolderInput) => Promise<void>;
   renameAppSubfolder?: (input: RenameAppSubfolderInput) => Promise<void>;
 }
@@ -214,6 +216,59 @@ export async function listAppFiles(input: ListAppFilesInput): Promise<string[]> 
     )
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b));
+}
+
+export async function deleteAppFile(
+  input: ReadAppFileInput,
+): Promise<void> {
+  const parsed = ReadAppFileInputSchema.parse(input);
+  const mock = getDevAppFileStorageMock();
+
+  if (mock?.deleteAppSubfolder) {
+    await mock.deleteAppSubfolder({ subfolder: parsed.subfolder });
+    return;
+  }
+
+  const path = `${parsed.subfolder}/${parsed.filename}`;
+  const fileExists = await exists(path, {
+    baseDir: BaseDirectory.AppData,
+  });
+
+  if (!fileExists) {
+    return;
+  }
+
+  await remove(path, {
+    baseDir: BaseDirectory.AppData,
+  });
+}
+
+export async function renameAppFile(
+  input: { subfolder: string; oldFilename: string; newFilename: string },
+): Promise<void> {
+  const validatedSubfolder = SafeSubfolderSchema.parse(input.subfolder);
+  const validatedOld = SafePathSegmentSchema.parse(input.oldFilename);
+  const validatedNew = SafePathSegmentSchema.parse(input.newFilename);
+
+  if (validatedOld === validatedNew) {
+    return;
+  }
+
+  const oldPath = `${validatedSubfolder}/${validatedOld}`;
+  const newPath = `${validatedSubfolder}/${validatedNew}`;
+
+  const newExists = await exists(newPath, {
+    baseDir: BaseDirectory.AppData,
+  });
+
+  if (newExists) {
+    throw new Error(`A file named "${validatedNew}" already exists.`);
+  }
+
+  await rename(oldPath, newPath, {
+    oldPathBaseDir: BaseDirectory.AppData,
+    newPathBaseDir: BaseDirectory.AppData,
+  });
 }
 
 export async function deleteAppSubfolder(

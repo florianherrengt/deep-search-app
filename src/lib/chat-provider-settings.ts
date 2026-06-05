@@ -2,6 +2,7 @@ import {
   CHAT_PROVIDER_DEFAULT_MODELS,
   DEFAULT_CHAT_PROVIDER,
   createChatModelId,
+  getKnownChatModelContextWindowTokens,
   getChatProviderLabel,
   type ChatProvider,
   type ConfiguredChatModelOption,
@@ -178,6 +179,10 @@ function getChatModelOption(
   const baseURL = definition.baseURLKey
     ? getSettingValue(settings, definition.baseURLKey).trim()
     : "";
+  const contextWindowTokens = getKnownChatModelContextWindowTokens({
+    provider,
+    model,
+  });
 
   return {
     id: createChatModelId(provider, model),
@@ -189,6 +194,7 @@ function getChatModelOption(
     description: apiKey
       ? providerLabel
       : `Add ${providerLabel} API key in Settings`,
+    ...(contextWindowTokens ? { contextWindowTokens } : {}),
     disabled: !apiKey,
   };
 }

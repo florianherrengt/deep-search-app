@@ -38,21 +38,26 @@ export class UrlValidationError extends Error {
   }
 }
 
-export function validateUrl(raw: string): URL {
+function parseUrl(raw: string): URL {
   const trimmed = raw.trim();
+  const lower = trimmed.toLowerCase();
+  const blockedScheme = BLOCKED_SCHEMES.find((scheme) =>
+    lower.startsWith(scheme),
+  );
 
-  for (const scheme of BLOCKED_SCHEMES) {
-    if (trimmed.toLowerCase().startsWith(scheme)) {
-      throw new UrlValidationError(`Blocked scheme: ${scheme}`);
-    }
+  if (blockedScheme) {
+    throw new UrlValidationError(`Blocked scheme: ${blockedScheme}`);
   }
 
-  let parsed: URL;
   try {
-    parsed = new URL(trimmed);
+    return new URL(trimmed);
   } catch {
     throw new UrlValidationError(`Invalid URL: ${trimmed}`);
   }
+}
+
+export function validateUrl(raw: string): URL {
+  const parsed = parseUrl(raw);
 
   if (parsed.protocol !== "https:") {
     throw new UrlValidationError(`Only https URLs are allowed, got: ${parsed.protocol}`);
@@ -89,20 +94,7 @@ export function isValidUrl(raw: string): boolean {
 }
 
 export function validateServiceUrl(raw: string): URL {
-  const trimmed = raw.trim();
-
-  for (const scheme of BLOCKED_SCHEMES) {
-    if (trimmed.toLowerCase().startsWith(scheme)) {
-      throw new UrlValidationError(`Blocked scheme: ${scheme}`);
-    }
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new UrlValidationError(`Invalid URL: ${trimmed}`);
-  }
+  const parsed = parseUrl(raw);
 
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     throw new UrlValidationError(`Only http or https service URLs are allowed, got: ${parsed.protocol}`);

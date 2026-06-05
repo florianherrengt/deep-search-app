@@ -72,6 +72,18 @@ WHERE id = ?1
   AND TRIM(COALESCE(query, '')) = ''
 "#;
 
+pub const UPDATE_FOLDER_NAME: &str = r#"
+UPDATE research_folders
+SET name = ?2
+WHERE id = ?1
+"#;
+
+pub const DELETE_FOLDER: &str = "DELETE FROM research_folders WHERE id = ?1";
+
+pub const GET_FOLDER_CHUNK_IDS: &str = "SELECT id FROM chunks WHERE folder_id = ?1";
+
+pub const DELETE_FOLDER_CHUNKS: &str = "DELETE FROM chunks WHERE folder_id = ?1";
+
 pub const LIST_FOLDERS: &str = r#"
 SELECT f.id, f.name, f.query, f.created_at, COUNT(c.id) as chunk_count
 FROM research_folders f

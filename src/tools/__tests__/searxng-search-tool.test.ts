@@ -11,9 +11,7 @@ import { createSearXNGSearchTool } from "@/tools/searxng-search-tool";
 type ExecutableSearXNGTool = {
   execute: (input: {
     query: string;
-  }) => Promise<{
-    results: Array<{ title: string; url: string; description: string }>;
-  }>;
+  }) => Promise<string>;
 };
 
 describe("createSearXNGSearchTool", () => {
@@ -37,15 +35,9 @@ describe("createSearXNGSearchTool", () => {
       }),
     );
 
-    await expect(tool.execute({ query: "test query" })).resolves.toEqual({
-      results: [
-        {
-          title: "Local result",
-          url: "https://example.com",
-          description: "From local SearXNG",
-        },
-      ],
-    });
+    await expect(tool.execute({ query: "test query" })).resolves.toBe(
+      "Local result: https://example.com\nFrom local SearXNG",
+    );
     expect(tauriMocks.invoke).toHaveBeenCalledWith("fetch_searxng_json", {
       baseUrl: "http://localhost:8080",
       query: "test query",

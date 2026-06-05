@@ -32,6 +32,10 @@ export async function clearChatTestState() {
     delete window.__deepSearchAppFileStorageLog;
     delete window.__deepSearchResearchSearchMock;
     delete window.__deepSearchProviderFetchMock;
+    delete window.__deepSearchOpenRouterReleases;
+    delete window.__deepSearchWebviewExtractionMock;
+    delete window.__deepSearchReleaseExtraction;
+    delete window.__deepSearchWebviewExtractionLog;
     delete window.__logs;
   });
 }
@@ -115,6 +119,9 @@ export async function installAppFileStorageMock(initialFiles = {}) {
     };
 
     window.__deepSearchResearchSearchMock = {
+      async searchResearch() {
+        return [];
+      },
       async indexResearchFile() {},
       async registerResearchFolder() {
         return 1;
@@ -136,14 +143,120 @@ export async function refreshResearchLibraryFromMock() {
   });
 }
 
+export async function installTauriWebviewExtractionMock(html) {
+  await browser.execute((mockHtml) => {
+    window.__deepSearchWebviewExtractionLog = [];
+    window.__deepSearchReleaseExtraction = null;
+
+    window.__deepSearchWebviewExtractionMock = {
+      async openTab(args) {
+        window.__deepSearchWebviewExtractionLog.push({
+          cmd: 'open_tab',
+          args,
+        });
+      },
+      async switchTab(args) {
+        window.__deepSearchWebviewExtractionLog.push({
+          cmd: 'switch_tab',
+          args,
+        });
+      },
+      async extractContent(args) {
+        window.__deepSearchWebviewExtractionLog.push({
+          cmd: 'extract_content',
+          args,
+        });
+        await new Promise((resolve) => {
+          window.__deepSearchReleaseExtraction = resolve;
+        });
+        return mockHtml;
+      },
+      async closeTab(args) {
+        window.__deepSearchWebviewExtractionLog.push({
+          cmd: 'close_tab',
+          args,
+        });
+      },
+    };
+  }, html);
+}
+
+export async function releaseTauriWebviewExtractionMock() {
+  await browser.waitUntil(
+    async () =>
+      browser.execute(
+        () => typeof window.__deepSearchReleaseExtraction === 'function',
+      ),
+    {
+      timeout: 10000,
+      interval: 100,
+      timeoutMsg: 'Expected mocked extraction to be waiting for release',
+    },
+  );
+
+  await browser.execute(() => {
+    window.__deepSearchReleaseExtraction();
+  });
+}
+
+export async function waitForHeldOpenRouterResponse(releaseKey = 'default') {
+  await browser.waitUntil(
+    async () =>
+      browser.execute(
+        (key) =>
+          typeof window.__deepSearchOpenRouterReleases?.[key] === 'function',
+        releaseKey,
+      ),
+    {
+      timeout: 10000,
+      interval: 100,
+      timeoutMsg: `Expected held OpenRouter response "${releaseKey}" to be waiting for release`,
+    },
+  );
+}
+
+export async function releaseHeldOpenRouterResponse(releaseKey = 'default') {
+  await waitForHeldOpenRouterResponse(releaseKey);
+
+  await browser.execute((key) => {
+    window.__deepSearchOpenRouterReleases[key]();
+  }, releaseKey);
+}
+
+export async function waitForOpenRouterStreamEvent(
+  releaseKey,
+  event,
+  timeout = 10000,
+) {
+  await browser.waitUntil(
+    async () =>
+      browser.execute(
+        ({ key, expectedEvent }) =>
+          (window.__logs || []).some(
+            (entry) =>
+              entry.kind === 'openrouter-stream' &&
+              entry.releaseKey === key &&
+              entry.event === expectedEvent,
+          ),
+        { key: releaseKey, expectedEvent: event },
+      ),
+    {
+      timeout,
+      interval: 100,
+      timeoutMsg: `Expected OpenRouter stream "${releaseKey}" event "${event}"`,
+    },
+  );
+}
+
 export async function sendMessage(text) {
-  const textarea = await $('textarea');
+  const textarea = await findVisibleTextarea();
   await textarea.setValue(text);
 
   await browser.waitUntil(
     async () => {
       const buttons = await $$('button');
       for (const btn of buttons) {
+        if (!(await btn.isDisplayed())) continue;
         const btnText = await btn.getText();
         const disabled = await btn.getAttribute('disabled');
         if (btnText === 'Send' && disabled === null) {
@@ -157,11 +270,40 @@ export async function sendMessage(text) {
   );
 }
 
+async function findVisibleTextarea() {
+  await browser.waitUntil(
+    async () => {
+      const textareas = await $$('textarea');
+      for (const textarea of textareas) {
+        if (await textarea.isDisplayed()) {
+          return true;
+        }
+      }
+      return false;
+    },
+    {
+      timeout: 5000,
+      interval: 100,
+      timeoutMsg: 'Expected a visible chat composer textarea',
+    },
+  );
+
+  const textareas = await $$('textarea');
+  for (const textarea of textareas) {
+    if (await textarea.isDisplayed()) {
+      return textarea;
+    }
+  }
+
+  throw new Error('Visible chat composer textarea not found');
+}
+
 export async function clickButtonWithText(text) {
   await browser.waitUntil(
     async () => {
       const buttons = await $$('button');
       for (const btn of buttons) {
+        if (!(await btn.isDisplayed())) continue;
         const btnText = await btn.getText();
         if (btnText === text) {
           await btn.click();
@@ -187,6 +329,7 @@ export async function waitForText(text, timeout = 15000) {
 export async function installOpenRouterMock(responses) {
   await browser.execute((mockResponses) => {
     window.__logs = [];
+    window.__deepSearchOpenRouterReleases = {};
     const originalFetch = window.fetch.bind(window);
     let callIndex = 0;
 
@@ -203,28 +346,131 @@ export async function installOpenRouterMock(responses) {
         kind: 'openrouter',
         callIndex,
         responseType: response.type,
+        releaseKey: response.releaseKey ?? null,
       });
-      return streamResponse(response.events);
+      return streamResponse(response, callIndex);
     };
 
     window.fetch = mockFetch;
     window.__deepSearchProviderFetchMock = mockFetch;
 
-    function streamResponse(events) {
+    function streamResponse(response, callIndex) {
       const encoder = new TextEncoder();
+      const events = response.events;
+      const releaseKey = response.releaseKey ?? null;
+      const holdAfterEventIndex =
+        Number.isInteger(response.holdAfterEventIndex)
+          ? response.holdAfterEventIndex
+          : null;
+      const eventDelayMs = response.eventDelayMs ?? 25;
+      let cancelled = false;
+      let completed = false;
+      const timers = [];
+
+      function log(event) {
+        window.__logs.push({
+          kind: 'openrouter-stream',
+          callIndex,
+          responseType: response.type,
+          releaseKey,
+          event,
+        });
+      }
+
+      function clearTimers() {
+        for (const timer of timers) {
+          clearTimeout(timer);
+        }
+        timers.length = 0;
+      }
+
+      function clearRelease() {
+        if (releaseKey) {
+          delete window.__deepSearchOpenRouterReleases[releaseKey];
+        }
+      }
+
       const stream = new ReadableStream({
         start(controller) {
-          events.forEach((event, index) => {
-            setTimeout(() => {
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
-              );
-              if (index === events.length - 1) {
-                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-                controller.close();
+          log('started');
+
+          const enqueueEvent = (event) => {
+            if (cancelled || completed) return;
+
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+            );
+          };
+
+          const finish = () => {
+            if (cancelled || completed) return;
+
+            completed = true;
+            clearRelease();
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            controller.close();
+            log('completed');
+          };
+
+          const schedule = (fn, delay) => {
+            const timer = setTimeout(() => {
+              const index = timers.indexOf(timer);
+              if (index !== -1) {
+                timers.splice(index, 1);
               }
-            }, (index + 1) * 25);
-          });
+              fn();
+            }, delay);
+            timers.push(timer);
+          };
+
+          const emitEvents = (startIndex, endIndex, onDone) => {
+            if (startIndex > endIndex) {
+              onDone();
+              return;
+            }
+
+            for (let index = startIndex; index <= endIndex; index += 1) {
+              schedule(() => {
+                enqueueEvent(events[index]);
+                if (index === endIndex) {
+                  onDone();
+                }
+              }, (index - startIndex + 1) * eventDelayMs);
+            }
+          };
+
+          const emitRemainingAndFinish = () => {
+            emitEvents(
+              (holdAfterEventIndex ?? -1) + 1,
+              events.length - 1,
+              finish,
+            );
+          };
+
+          if (releaseKey && holdAfterEventIndex !== null) {
+            emitEvents(0, holdAfterEventIndex, () => {
+              if (cancelled || completed) return;
+
+              log('waiting');
+              window.__deepSearchOpenRouterReleases[releaseKey] = () => {
+                if (cancelled || completed) return;
+
+                clearRelease();
+                log('released');
+                emitRemainingAndFinish();
+              };
+            });
+          } else {
+            emitEvents(0, events.length - 1, finish);
+          }
+        },
+        cancel() {
+          if (completed) return;
+
+          cancelled = true;
+          clearTimers();
+          clearRelease();
+          log('cancelled');
         },
       });
 
@@ -262,6 +508,15 @@ export function textResponse(content) {
         choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
       },
     ],
+  };
+}
+
+export function heldTextResponse(content, releaseKey = 'default') {
+  return {
+    ...textResponse(content),
+    type: 'held-text',
+    releaseKey,
+    holdAfterEventIndex: 0,
   };
 }
 

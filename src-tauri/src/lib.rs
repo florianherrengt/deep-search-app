@@ -455,6 +455,37 @@ fn register_research_folder(app: AppHandle, name: String, query: String) -> Resu
 }
 
 #[tauri::command]
+fn rename_research_folder_index(
+    app: AppHandle,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    let db = app.state::<Database>();
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    research_search::indexing::rename_folder(&conn, &old_name, &new_name)
+}
+
+#[tauri::command]
+fn delete_research_folder_index(app: AppHandle, name: String) -> Result<(), String> {
+    let db = app.state::<Database>();
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    research_search::indexing::delete_folder(&conn, &name)
+}
+
+#[tauri::command]
+fn delete_research_file_index(
+    app: AppHandle,
+    folder: String,
+    filename: String,
+) -> Result<(), String> {
+    let db = app.state::<Database>();
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let folder_id = research_search::get_folder_id(&conn, &folder)?
+        .ok_or_else(|| format!("Folder not found: {}", folder))?;
+    research_search::indexing::delete_file_chunks(&conn, folder_id, &filename)
+}
+
+#[tauri::command]
 async fn index_research_file(
     app: AppHandle,
     api_key: String,
@@ -575,9 +606,11 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(&app_data).map_err(|e| e.to_string())?;
@@ -593,6 +626,9 @@ pub fn run() {
             fetch_html,
             fetch_searxng_json,
             register_research_folder,
+            rename_research_folder_index,
+            delete_research_folder_index,
+            delete_research_file_index,
             index_research_file,
             search_research,
             list_research_folders_db,

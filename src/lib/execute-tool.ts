@@ -2,24 +2,80 @@ import {
   createChatLanguageModel,
   type ChatModelConfig,
 } from "@/lib/chat-providers";
+import { z } from "zod";
 import { describeTool, type ToolDescriptor } from "@/lib/tool-descriptor";
-import { createBraveSearchTool, braveSearchInputSchema } from "@/tools/brave-search-tool";
-import { createExaSearchTool, exaSearchInputSchema } from "@/tools/exa-search-tool";
-import { createSerperSearchTool, serperSearchInputSchema } from "@/tools/serper-search-tool";
-import { createTavilySearchTool, tavilySearchInputSchema } from "@/tools/tavily-search-tool";
-import { createSearXNGSearchTool, searxngSearchInputSchema } from "@/tools/searxng-search-tool";
-import { disambiguateTool, disambiguateInputSchema } from "@/tools/disambiguate-tool";
-import { createExtractPageContentTool, extractPageContentInputSchema } from "@/tools/extract-page-content-tool";
-import { createSearchResearchTool, searchResearchInputSchema } from "@/tools/search-research-tool";
-import { createSaveResearchFileTool, saveResearchFileInputSchema } from "@/tools/research-file-tool";
-import { createSwitchResearchFolderTool, switchResearchFolderInputSchema } from "@/tools/switch-research-folder-tool";
+import {
+  braveSearchInputSchema,
+  createBraveSearchTool,
+} from "@/tools/brave-search-tool";
+import {
+  createExaSearchTool,
+  exaSearchInputSchema,
+} from "@/tools/exa-search-tool";
+import {
+  createSerperSearchTool,
+  serperSearchInputSchema,
+} from "@/tools/serper-search-tool";
+import {
+  createTavilySearchTool,
+  tavilySearchInputSchema,
+} from "@/tools/tavily-search-tool";
+import {
+  createSearXNGSearchTool,
+  searxngSearchInputSchema,
+} from "@/tools/searxng-search-tool";
+import {
+  disambiguateInputSchema,
+  disambiguateTool,
+} from "@/tools/disambiguate-tool";
+import {
+  createExtractPageContentTool,
+  extractPageContentInputSchema,
+} from "@/tools/extract-page-content-tool";
+import {
+  createSearchResearchTool,
+  searchResearchInputSchema,
+} from "@/tools/search-research-tool";
+import {
+  createCreateFileTool,
+  createFileInputSchema,
+  createReadFileTool,
+  readFileInputSchema,
+  createUpdateFileTool,
+  updateFileInputSchema,
+  createMoveFileTool,
+  moveFileInputSchema,
+  createDeleteFileTool,
+  deleteFileInputSchema,
+  createListFilesTool,
+} from "@/tools/file-tools";
+import {
+  createSwitchResearchFolderTool,
+  switchResearchFolderInputSchema,
+} from "@/tools/switch-research-folder-tool";
+import {
+  createRenameResearchFolderTool,
+  renameResearchFolderInputSchema,
+} from "@/tools/rename-research-folder-tool";
 import { createResearchCheckpointTool } from "@/tools/research-checkpoint-tool";
-import { createSequentialThinkingTool, sequentialThinkingInputSchema } from "@/tools/sequential-thinking-tool";
-import { createResearchPlanTool, researchPlanInputSchema } from "@/tools/research-plan-tool";
+import {
+  createSequentialThinkingTool,
+  sequentialThinkingInputSchema,
+} from "@/tools/sequential-thinking-tool";
+import {
+  createResearchPlanTool,
+  researchPlanInputSchema,
+} from "@/tools/research-plan-tool";
+import {
+  createVerifiedResearchIsGoodTool,
+  verifiedResearchInputSchema,
+} from "@/tools/verified-research-tool";
 import { researchCheckpointInputSchema } from "@/lib/agent-guards";
 import { isValidServiceUrl } from "@/lib/url-validation";
 
 export type { ToolDescriptor, ToolParameter } from "@/lib/tool-descriptor";
+
+type ToolInputSchema = z.ZodObject<Record<string, z.ZodTypeAny>>;
 
 export interface ToolExecuteConfig {
   researchFolder: string | null;
@@ -30,6 +86,14 @@ export interface ToolExecuteConfig {
   serperApiKey?: string | null;
   tavilyApiKey?: string | null;
   searxngBaseUrl?: string | null;
+}
+
+function describeOptionalTool(
+  name: string,
+  tool: unknown | undefined,
+  schema: ToolInputSchema,
+): ToolDescriptor {
+  return describeTool(name, tool, schema, Boolean(tool));
 }
 
 export function getAvailableTools(
@@ -54,74 +118,152 @@ export function getAvailableTools(
   const exaTool = exaApiKey ? createExaSearchTool(exaApiKey) : undefined;
   const serperTool = serperApiKey ? createSerperSearchTool(serperApiKey) : undefined;
   const tavilyTool = tavilyApiKey ? createTavilySearchTool(tavilyApiKey) : undefined;
-  const searxngAvailable = !!searxngBaseUrl && isValidServiceUrl(searxngBaseUrl);
-  const searxngTool = searxngAvailable ? createSearXNGSearchTool(searxngBaseUrl!) : undefined;
+  const searxngTool =
+    searxngBaseUrl && isValidServiceUrl(searxngBaseUrl)
+      ? createSearXNGSearchTool(searxngBaseUrl)
+      : undefined;
   const extractTool = model && getResearchFolder
     ? createExtractPageContentTool(model, getResearchFolder)
     : undefined;
-  const searchResearchTool = apiKey ? createSearchResearchTool(apiKey) : undefined;
-  const saveTool = getResearchFolder
-    ? createSaveResearchFileTool(getResearchFolder, apiKey)
+  const searchResearchTool = apiKey && model ? createSearchResearchTool(apiKey, model) : undefined;
+  const createTool = getResearchFolder
+    ? createCreateFileTool(getResearchFolder, apiKey)
+    : undefined;
+  const readTool = getResearchFolder
+    ? createReadFileTool(getResearchFolder)
+    : undefined;
+  const updateTool = getResearchFolder
+    ? createUpdateFileTool(getResearchFolder, apiKey)
+    : undefined;
+  const moveTool = getResearchFolder
+    ? createMoveFileTool(getResearchFolder, apiKey)
+    : undefined;
+  const deleteTool = getResearchFolder
+    ? createDeleteFileTool(getResearchFolder)
+    : undefined;
+  const listTool = getResearchFolder
+    ? createListFilesTool(getResearchFolder)
     : undefined;
   const checkpointTool = model ? createResearchCheckpointTool(model) : undefined;
   const planTool = model ? createResearchPlanTool(model) : undefined;
+  const verifiedResearchTool = model
+    ? createVerifiedResearchIsGoodTool(model, {
+        braveApiKey,
+        exaApiKey,
+        serperApiKey,
+        tavilyApiKey,
+        searxngBaseUrl,
+      })
+    : undefined;
 
   return [
-    ...(braveTool
-      ? [describeTool("brave_search", braveTool as any, braveSearchInputSchema, true)]
-      : [describeTool("brave_search", {} as any, braveSearchInputSchema, false)]),
-    ...(exaTool
-      ? [describeTool("exa_search", exaTool as any, exaSearchInputSchema, true)]
-      : [describeTool("exa_search", {} as any, exaSearchInputSchema, false)]),
-    ...(serperTool
-      ? [describeTool("serper_search", serperTool as any, serperSearchInputSchema, true)]
-      : [describeTool("serper_search", {} as any, serperSearchInputSchema, false)]),
-    ...(tavilyTool
-      ? [describeTool("tavily_search", tavilyTool as any, tavilySearchInputSchema, true)]
-      : [describeTool("tavily_search", {} as any, tavilySearchInputSchema, false)]),
-    ...(searxngTool
-      ? [describeTool("searxng_search", searxngTool as any, searxngSearchInputSchema, true)]
-      : [describeTool("searxng_search", {} as any, searxngSearchInputSchema, false)]),
+    describeOptionalTool("brave_search", braveTool, braveSearchInputSchema),
+    describeOptionalTool("exa_search", exaTool, exaSearchInputSchema),
+    describeOptionalTool("serper_search", serperTool, serperSearchInputSchema),
+    describeOptionalTool("tavily_search", tavilyTool, tavilySearchInputSchema),
+    describeOptionalTool(
+      "searxng_search",
+      searxngTool,
+      searxngSearchInputSchema,
+    ),
 
     describeTool(
       "disambiguate",
-      disambiguateTool as any,
+      disambiguateTool,
       disambiguateInputSchema,
       true,
     ),
 
-    ...(extractTool
-      ? [describeTool("extract_page_content", extractTool as any, extractPageContentInputSchema, true)]
-      : [describeTool("extract_page_content", {} as any, extractPageContentInputSchema, false)]),
+    describeOptionalTool(
+      "extract_page_content",
+      extractTool,
+      extractPageContentInputSchema,
+    ),
 
     describeTool(
       "sequential_thinking",
-      createSequentialThinkingTool() as any,
+      createSequentialThinkingTool(),
       sequentialThinkingInputSchema,
       true,
     ),
 
-    ...(searchResearchTool
-      ? [describeTool("search_research", searchResearchTool as any, searchResearchInputSchema, true)]
-      : [describeTool("search_research", {} as any, searchResearchInputSchema, false)]),
+    describeOptionalTool(
+      "search_research",
+      searchResearchTool,
+      searchResearchInputSchema,
+    ),
 
-    ...(saveTool
-      ? [describeTool("save_research_file", saveTool as any, saveResearchFileInputSchema, true)]
-      : [describeTool("save_research_file", {} as any, saveResearchFileInputSchema, false)]),
+    describeOptionalTool(
+      "create_file",
+      createTool,
+      createFileInputSchema,
+    ),
+
+    describeOptionalTool(
+      "read_file",
+      readTool,
+      readFileInputSchema,
+    ),
+
+    describeOptionalTool(
+      "update_file",
+      updateTool,
+      updateFileInputSchema,
+    ),
+
+    describeOptionalTool(
+      "move_file",
+      moveTool,
+      moveFileInputSchema,
+    ),
+
+    describeOptionalTool(
+      "delete_file",
+      deleteTool,
+      deleteFileInputSchema,
+    ),
+
+    describeOptionalTool(
+      "list_files",
+      listTool,
+      z.object({}),
+    ),
 
     describeTool(
       "switch_research_folder",
-      createSwitchResearchFolderTool(() => {}) as any,
+      createSwitchResearchFolderTool(() => {}),
       switchResearchFolderInputSchema,
       true,
     ),
 
-    ...(checkpointTool
-      ? [describeTool("research_checkpoint", checkpointTool as any, researchCheckpointInputSchema as any, true)]
-      : [describeTool("research_checkpoint", {} as any, researchCheckpointInputSchema as any, false)]),
+    describeOptionalTool(
+      "rename_research_folder",
+      getResearchFolder
+        ? createRenameResearchFolderTool({
+            getResearchFolder,
+            onFolderRenamed: async () => {},
+            apiKey: apiKey ?? "",
+          })
+        : undefined,
+      renameResearchFolderInputSchema,
+    ),
 
-    ...(planTool
-      ? [describeTool("create_research_plan", planTool as any, researchPlanInputSchema, true)]
-      : [describeTool("create_research_plan", {} as any, researchPlanInputSchema, false)]),
+    describeOptionalTool(
+      "research_checkpoint",
+      checkpointTool,
+      researchCheckpointInputSchema,
+    ),
+
+    describeOptionalTool(
+      "create_research_plan",
+      planTool,
+      researchPlanInputSchema,
+    ),
+
+    describeOptionalTool(
+      "verified_research_is_good",
+      verifiedResearchTool,
+      verifiedResearchInputSchema,
+    ),
   ];
 }

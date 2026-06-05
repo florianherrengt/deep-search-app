@@ -1,16 +1,17 @@
 import { tool, zodSchema } from "ai";
 import { invoke } from "@tauri-apps/api/core";
 import { z } from "zod";
+import { abortablePromise } from "@/lib/abort";
+import { tryParseJson } from "@/lib/json";
 import { rateLimit } from "@/lib/rate-limit";
 import { validateServiceUrl } from "@/lib/url-validation";
+import {
+  searchQueryInputSchema,
+  formatSearchResults,
+  type SearchResult,
+} from "./search-result";
 
 const DEFAULT_BASE_URL = "http://localhost:8080";
-
-const SearchResultSchema = z.object({
-  title: z.string(),
-  url: z.string(),
-  description: z.string(),
-});
 
 const SearXNGResponseSchema = z.object({
   results: z.array(
@@ -22,35 +23,29 @@ const SearXNGResponseSchema = z.object({
   ),
 });
 
-type SearchResult = z.infer<typeof SearchResultSchema>;
+export const searxngSearchInputSchema = searchQueryInputSchema;
 
-export const searxngSearchInputSchema = z.object({
-  query: z.string().min(1).describe("Search query"),
-});
-
-export const searxngSearchOutputSchema = z.object({
-  results: z.array(SearchResultSchema),
-});
+export const searxngSearchOutputSchema = z.string();
 
 export function createSearXNGSearchTool(baseUrl: string = DEFAULT_BASE_URL) {
   validateServiceUrl(baseUrl);
 
-  async function search(query: string): Promise<SearchResult[]> {
+  async function search(
+    query: string,
+    abortSignal?: AbortSignal,
+  ): Promise<SearchResult[]> {
     return rateLimit(async () => {
-      const responseText = await invoke<string | null>("fetch_searxng_json", {
-        baseUrl,
-        query,
-      });
+      const responseText = await abortablePromise(
+        invoke<string | null>("fetch_searxng_json", {
+          baseUrl,
+          query,
+        }),
+        abortSignal,
+      );
 
       if (!responseText) return [];
 
-      let raw: unknown;
-      try {
-        raw = JSON.parse(responseText);
-      } catch {
-        return [];
-      }
-
+      const raw = tryParseJson(responseText);
       const parsed = SearXNGResponseSchema.safeParse(raw);
       if (!parsed.success) return [];
 
@@ -59,16 +54,15 @@ export function createSearXNGSearchTool(baseUrl: string = DEFAULT_BASE_URL) {
         url: r.url,
         description: r.content,
       }));
-    });
+    }, abortSignal);
   }
 
   return tool({
     description: "Search the web with SearXNG (self-hosted meta search engine)",
     strict: true,
     inputSchema: zodSchema(searxngSearchInputSchema),
-    outputSchema: zodSchema(searxngSearchOutputSchema),
-    execute: async ({ query }) => {
-      return { results: await search(query) };
+    execute: async ({ query }, options) => {
+      return formatSearchResults(await search(query, options?.abortSignal));
     },
   });
 }

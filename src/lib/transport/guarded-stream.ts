@@ -25,6 +25,7 @@ import { createTools, type AppToolSet, type SearchToolKeys } from "./tool-regist
 import type { SearchResult } from "@/lib/research-search";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
+import { skillsStore } from "@/lib/skills-store";
 
 export interface ResearchFolderContext {
   folderName: string;
@@ -67,6 +68,7 @@ export function createGuardedStream({
   messages,
   abortSignal,
   onResearchFolderChange,
+  onProvisionalFolderRenamed,
   searchKeys,
   upfrontSearchResults,
   folderContext,
@@ -77,6 +79,7 @@ export function createGuardedStream({
   messages: UIMessage[];
   abortSignal: AbortSignal | undefined;
   onResearchFolderChange?: (folderName: string) => void | Promise<void>;
+  onProvisionalFolderRenamed?: (newName: string) => void | Promise<void>;
   searchKeys?: SearchToolKeys;
   upfrontSearchResults?: SearchResult[];
   folderContext?: ResearchFolderContext;
@@ -107,11 +110,16 @@ export function createGuardedStream({
             activeResearchFolder = SafePathSegmentSchema.parse(folderName);
             await onResearchFolderChange?.(activeResearchFolder);
           },
+          onFolderRenamed: async (newName) => {
+            activeResearchFolder = newName;
+            await onProvisionalFolderRenamed?.(newName);
+          },
           apiKey,
           searchKeys,
         });
 
-        const effectiveSystemPrompt = buildSystemPrompt(upfrontSearchResults, folderContext);
+        const skillsData = await skillsStore.get();
+        const effectiveSystemPrompt = buildSystemPrompt(upfrontSearchResults, folderContext, skillsData.skills);
 
         let currentModelMessages = await convertToModelMessages(
           currentUiMessages,
@@ -464,6 +472,7 @@ function maxRetryWarning(
 function buildSystemPrompt(
   upfrontSearchResults?: SearchResult[],
   folderContext?: ResearchFolderContext,
+  skills?: { slug: string; whenToUse: string }[],
 ): string {
   let prompt = systemPrompt;
 
@@ -490,6 +499,13 @@ function buildSystemPrompt(
       .join("\n");
 
     prompt += `\n\n## Previous research found\n\nAn upfront search found ${uniqueFolders.length} existing research folder(s) related to this topic:\n\n${folderList}\n\nYou MUST ask the user whether to continue one of these existing research folders or start fresh. Use \`ask_questions\` with options like \`continue:<folder-name>\` for each match and \`new\` to start fresh. Do this BEFORE calling \`create_file\` or \`extract_page_content\`.`;
+  }
+
+  if (skills && skills.length > 0) {
+    const skillList = skills
+      .map((s) => `- ${s.slug}: ${s.whenToUse}`)
+      .join("\n");
+    prompt += `\n\n## Available skills\n\nLoad a skill with the \`load_skill\` tool when the user's request matches its description.\n\n${skillList}`;
   }
 
   return prompt;

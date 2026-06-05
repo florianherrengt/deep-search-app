@@ -6,6 +6,14 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "process:allow-restart",
+    "updater:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$APPDATA/search-results/*" }
+      ]
+    },
     "store:default",
     "core:menu:default",
     "core:webview:allow-create-webview",

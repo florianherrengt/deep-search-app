@@ -10,6 +10,7 @@ import {
   type ToolCallRequirementViolation,
 } from "@/lib/tool-call-requirements";
 import { CURRENCIES, type Currency } from "@/lib/settings-store";
+import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 
 export const guardrailEventSchema = z.object({
   kind: z.enum([
@@ -44,14 +45,7 @@ export const researchCheckpointInputSchema = z.object({
   readyToAnswer: z.boolean(),
 });
 
-export const researchCheckpointResultSchema = z.object({
-  approved: z.boolean(),
-  severity: z.enum(["none", "minor", "major"]),
-  visibleSummary: z.string(),
-  missingAngles: z.array(z.string()),
-  weakClaims: z.array(z.string()),
-  requiredNextActions: z.array(z.string()),
-});
+export const researchCheckpointResultSchema = z.string().min(1);
 
 export type ResearchCheckpointInput = z.infer<
   typeof researchCheckpointInputSchema
@@ -148,7 +142,7 @@ const RESEARCH_TOOL_NAMES = new Set([
   "tavily_search",
   "searxng_search",
   "extract_page_content",
-  "save_research_file",
+  "create_file",
 ]);
 
 const RESEARCH_CHECKPOINT_TOOL = "research_checkpoint";
@@ -176,7 +170,7 @@ const CURRENCY_CODE_PATTERN = new RegExp(
   `\\b\\d[\\d,.]*\\s*(${CURRENCIES.join("|")})\\b` +
     `|` +
     `\\b(${CURRENCIES.join("|")})\\s+\\d[\\d,.]*\\b`,
-  "i",
+  "gi",
 );
 
 function detectForeignCurrencyMentions(
@@ -231,9 +225,7 @@ export function asksUserForInput(text: string): boolean {
 
   if (/\bthe question is\b/.test(normalized)) return false;
 
-  const userDirected = /\b(you|your|you'd|you'll|yourself)\b/i.test(
-    normalized,
-  );
+  const userDirected = /\b(you|your|you'd|you'll|yourself)\b/i.test(normalized);
   const questionSentences = normalized.match(
     /(?:^|[.!?]\s+|\n\s*)[^.!?\n]{1,260}\?/g,
   );
@@ -262,9 +254,7 @@ export function asksUserForInput(text: string): boolean {
     );
   const strongImperativeRequest =
     /\bplease\s+(provide|confirm)\b/i.test(normalized) ||
-    /\b(let me know|tell me|before i continue|to proceed)\b/i.test(
-      normalized,
-    );
+    /\b(let me know|tell me|before i continue|to proceed)\b/i.test(normalized);
 
   return (
     choiceNeedsReply ||
@@ -275,7 +265,11 @@ export function asksUserForInput(text: string): boolean {
 export function getMessageText(message: UIMessage | undefined): string {
   if (!message) return "";
   return message.parts
-    .filter((part) => part.type === "text")
+    .filter(
+      (part): part is Extract<UIMessage["parts"][number], { type: "text" }> =>
+        part.type === "text",
+    )
+    .filter((part) => !isSubAgentOutputTextPart(part))
     .map((part) => part.text)
     .join("\n")
     .trim();
@@ -318,20 +312,8 @@ export function hasDeepResearchToolCall(message: UIMessage) {
   });
 }
 
-export function hasApprovedResearchCheckpoint(message: UIMessage) {
-  return message.parts.some((part) => {
-    if (getToolNameFromPart(part) !== RESEARCH_CHECKPOINT_TOOL) return false;
-    if (!("state" in part) || part.state !== "output-available") return false;
-    return isApprovedCheckpointOutput(part.output);
-  });
-}
-
-export function hasRejectedResearchCheckpoint(message: UIMessage) {
-  return message.parts.some((part) => {
-    if (getToolNameFromPart(part) !== RESEARCH_CHECKPOINT_TOOL) return false;
-    if (!("state" in part) || part.state !== "output-available") return false;
-    return isResearchCheckpointOutput(part.output) && !part.output.approved;
-  });
+export function hasResearchCheckpoint(message: UIMessage) {
+  return hasToolCall(message, RESEARCH_CHECKPOINT_TOOL);
 }
 
 export function evaluateAssistantStep<TOOLS extends ToolSet>({
@@ -354,7 +336,10 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
   const text = getMessageText(responseMessage);
   if (!text) return { action: "accept" };
 
-  if (!hasToolCall(responseMessage, "ask_questions") && asksUserForInput(text)) {
+  if (
+    !hasToolCall(responseMessage, "ask_questions") &&
+    asksUserForInput(text)
+  ) {
     return {
       action: "retry",
       guard: "question_tool",
@@ -367,7 +352,10 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
       },
       retryInstruction:
         "Your previous response asked the user for input in plain text. Convert that request into an ask_questions tool call now. Do not answer in plain text.",
-      toolChoice: { type: "tool", toolName: "ask_questions" } as ToolChoice<TOOLS>,
+      toolChoice: {
+        type: "tool",
+        toolName: "ask_questions",
+      } as ToolChoice<TOOLS>,
     };
   }
 
@@ -384,9 +372,8 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
           kind: "currency_conversion",
           status: "retrying",
           title: "Currency conversion enforced",
-          message:
-            "Prompted the agent to convert foreign currency amounts.",
-          reason: `Foreign currency amounts found: ${foreignMentions.join(", ")}. Target currency: ${targetCurrency}.`,
+          message: "Prompted the agent to convert foreign currency amounts.",
+          reason: `Foreign currency amounts found: ${foreignMentions.join(", ")}. Target currency: ${targetCurrency}. Do not display foreign currencies.`,
         },
         retryInstruction: `Your response contains amounts in a foreign currency (${foreignMentions.join(", ")}). Use the currency_conversion tool to convert them to ${targetCurrency} before responding.`,
         toolChoice: "required" as ToolChoice<TOOLS>,
@@ -403,7 +390,7 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
 
   const currentTurnMessages = getCurrentTurnMessages(messages, responseMessage);
 
-  if (currentTurnMessages.some(hasApprovedResearchCheckpoint)) {
+  if (currentTurnMessages.some(hasResearchCheckpoint)) {
     return { action: "accept" };
   }
 
@@ -414,34 +401,30 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
       event: {
         kind: "research_checkpoint",
         status: "retrying",
-        title: "Research depth enforced",
-        message: "Prompted the agent to research before answering.",
+        title: "Research depth reminder",
+        message:
+          "Prompted the agent to consider whether more research is needed.",
         reason: "The answer did not show enough research tool use.",
       },
       retryInstruction:
-        "Your previous response answered a research-like request without enough research. Continue with search and page-reading tools before answering. When ready, call research_checkpoint.",
+        "Your previous response answered a research-like request without showing research. Reconsider whether you searched deeply enough. If more evidence would materially improve the answer, use search and page-reading tools before answering. You may call research_checkpoint for plain-text guidance when ready.",
       toolChoice: "required" as ToolChoice<TOOLS>,
     };
   }
 
-  if (
-    !currentTurnMessages.some((message) =>
-      hasToolCall(message, RESEARCH_CHECKPOINT_TOOL),
-    ) ||
-    currentTurnMessages.some(hasRejectedResearchCheckpoint)
-  ) {
+  if (!currentTurnMessages.some(hasResearchCheckpoint)) {
     return {
       action: "retry",
       guard: "research_checkpoint",
       event: {
         kind: "research_checkpoint",
         status: "retrying",
-        title: "Research checkpoint enforced",
-        message: "Prompted the agent to run a research checkpoint.",
-        reason: "The answer did not include an approved research checkpoint.",
+        title: "Research checkpoint guidance",
+        message: "Prompted the agent to get advisory checkpoint guidance.",
+        reason: "The answer did not include a research checkpoint.",
       },
       retryInstruction:
-        "Before finalizing this research answer, call research_checkpoint with the searches, opened sources, verified claims, unresolved questions, confidence, and readiness.",
+        "Before finalizing this research answer, call research_checkpoint once for plain-text guidance. Use the guidance to decide whether further research would materially improve the answer; do not wait for an approval status.",
       toolChoice: {
         type: "tool",
         toolName: RESEARCH_CHECKPOINT_TOOL,
@@ -474,7 +457,10 @@ function toolRequirementRetry<TOOLS extends ToolSet>(
   };
 }
 
-function getCurrentTurnMessages(messages: UIMessage[], responseMessage: UIMessage) {
+function getCurrentTurnMessages(
+  messages: UIMessage[],
+  responseMessage: UIMessage,
+) {
   const latestUserIndex = messages.reduce(
     (latest, message, index) => (message.role === "user" ? index : latest),
     -1,
@@ -489,52 +475,47 @@ function getCurrentTurnMessages(messages: UIMessage[], responseMessage: UIMessag
 export function validateResearchCheckpoint(
   input: ResearchCheckpointInput,
 ): ResearchCheckpointResult {
+  const guidance: string[] = [];
+
   if (!input.readyToAnswer) {
-    return rejection("major", "Research checkpoint needs more work.", [
-      "Continue researching until readyToAnswer is true.",
-    ]);
+    guidance.push("You marked the research as not ready to answer.");
   }
 
   if (input.searchesRun.length === 0) {
-    return rejection("major", "Research checkpoint needs search evidence.", [
-      "Run at least one real search query.",
-    ]);
+    guidance.push(
+      "Run at least one real search query before relying on the answer.",
+    );
   }
 
   if (input.sourcesOpened.length < 2) {
-    return rejection("major", "Research checkpoint needs more sources.", [
-      "Open and inspect at least two relevant sources.",
-    ]);
+    guidance.push(
+      "Open and inspect more than one relevant source when the topic depends on external facts.",
+    );
   }
 
   if (input.claimsVerified.length < 2) {
-    return rejection("major", "Research checkpoint needs verified claims.", [
-      "Verify the key claims that will appear in the answer.",
-    ]);
+    guidance.push(
+      "List the key claims you verified, especially dates, prices, numbers, and source-specific facts.",
+    );
   }
 
   if (input.unresolvedQuestions.length > 0) {
-    return rejection(
-      "major",
-      "Research checkpoint still has unresolved questions.",
-      input.unresolvedQuestions,
+    guidance.push(
+      `Resolve or explicitly disclose these open questions: ${input.unresolvedQuestions.join("; ")}.`,
     );
   }
 
   if (input.confidence === "low") {
-    return rejection("major", "Research checkpoint confidence is too low.", [
-      "Continue research until confidence is medium or high.",
-    ]);
+    guidance.push(
+      "Confidence is low; do more research or make the uncertainty prominent in the final answer.",
+    );
   }
 
-  return {
-    approved: true,
-    severity: "none",
-    visibleSummary: "Research checkpoint passed.",
-    missingAngles: [],
-    weakClaims: [],
-    requiredNextActions: [],
-  };
+  if (guidance.length === 0) {
+    return "Research checkpoint guidance: You appear ready to answer. Synthesize the verified claims, cite the sources you opened, and state any residual uncertainty.";
+  }
+
+  return `Research checkpoint guidance:\n${guidance.map((item) => `- ${item}`).join("\n")}`;
 }
 
 function shouldContinueFromLatestTool(message: UIMessage) {
@@ -547,57 +528,27 @@ function shouldContinueFromLatestTool(message: UIMessage) {
 
   return !message.parts
     .slice(lastToolIndex + 1)
-    .some((part) => part.type === "text" && part.text.trim().length > 0);
+    .some(
+      (part) =>
+        part.type === "text" &&
+        part.text.trim().length > 0 &&
+        !isSubAgentOutputTextPart(part),
+    );
 }
 
 export async function reviewResearchCheckpoint(
   input: ResearchCheckpointInput,
-  judge?: (
-    input: ResearchCheckpointInput,
-  ) => Promise<ResearchCheckpointResult>,
+  judge?: (input: ResearchCheckpointInput) => Promise<ResearchCheckpointResult>,
 ): Promise<ResearchCheckpointResult> {
-  const deterministic = validateResearchCheckpoint(input);
-  if (!deterministic.approved) return deterministic;
-  if (!judge) return deterministic;
+  const fallbackGuidance = validateResearchCheckpoint(input);
+  if (!judge) return fallbackGuidance;
 
   try {
-    return researchCheckpointResultSchema.parse(await judge(input));
+    const guidance = researchCheckpointResultSchema.parse(await judge(input));
+    return guidance.trim() || fallbackGuidance;
   } catch {
-    return {
-      approved: true,
-      severity: "minor",
-      visibleSummary:
-        "Research checkpoint passed basic checks; judge review was unavailable.",
-      missingAngles: [],
-      weakClaims: [],
-      requiredNextActions: [],
-    };
+    return fallbackGuidance;
   }
-}
-
-function rejection(
-  severity: "minor" | "major",
-  visibleSummary: string,
-  requiredNextActions: string[],
-): ResearchCheckpointResult {
-  return {
-    approved: false,
-    severity,
-    visibleSummary,
-    missingAngles: [],
-    weakClaims: [],
-    requiredNextActions,
-  };
-}
-
-function isResearchCheckpointOutput(
-  output: unknown,
-): output is ResearchCheckpointResult {
-  return researchCheckpointResultSchema.safeParse(output).success;
-}
-
-function isApprovedCheckpointOutput(output: unknown) {
-  return isResearchCheckpointOutput(output) && output.approved;
 }
 
 function escapeRegex(value: string) {

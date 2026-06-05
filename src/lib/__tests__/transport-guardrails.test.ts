@@ -283,7 +283,7 @@ describe("createGuardedStream", () => {
     );
   });
 
-  it("retries with research_checkpoint forced when research tools are used without a checkpoint", async () => {
+  it("emits a research-depth reminder and lets the model choose a tool", async () => {
     let callCount = 0;
     const model = new MockLanguageModelV3({
       doStream: async (options): Promise<LanguageModelV3StreamResult> => {
@@ -349,13 +349,14 @@ describe("createGuardedStream", () => {
         data: expect.objectContaining({
           kind: "research_checkpoint",
           status: "retrying",
+          title: "Research depth reminder",
         }),
       }),
     );
     expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
   });
 
-  it("accepts immediately when research checkpoint is approved", async () => {
+  it("accepts immediately when research checkpoint guidance exists", async () => {
     let callCount = 0;
     const model = new MockLanguageModelV3({
       doStream: async (): Promise<LanguageModelV3StreamResult> => {
@@ -381,7 +382,13 @@ describe("createGuardedStream", () => {
                   readyToAnswer: true,
                 }),
               },
-              { type: "tool-result" as const, toolCallId: "call-checkpoint", toolName: "research_checkpoint", result: { approved: true, severity: "none", visibleSummary: "OK", missingAngles: [], weakClaims: [], requiredNextActions: [] } },
+              {
+                type: "tool-result" as const,
+                toolCallId: "call-checkpoint",
+                toolName: "research_checkpoint",
+                result:
+                  "Research checkpoint guidance: cite the pricing page.",
+              },
               finishChunk("tool-calls"),
             ],
           }),
@@ -518,6 +525,62 @@ describe("createGuardedStream", () => {
     expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
   });
 
+  it("emits a diagnostic when the model finishes without visible reply text", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({ chunks: emptyChunks("stop") }),
+      }),
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Hello")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "data-agent_diagnostic",
+        data: expect.objectContaining({
+          kind: "empty_response",
+          title: "No assistant reply",
+          finishReason: "stop",
+        }),
+      }),
+    );
+    expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
+  });
+
+  it("does not emit an empty-response diagnostic for normal tool-call steps", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({
+          chunks: toolCallChunks("brave_search", "call-brave", {
+            query: "pricing",
+          }),
+        }),
+      }),
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        apiKey: "test-key",
+        messages: [userMessage("Find pricing")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks.some((chunk) => chunk.type === "data-agent_diagnostic")).toBe(
+      false,
+    );
+  });
+
   it("always ends the stream with exactly one finish or abort event", async () => {
     const endings: string[] = [];
 
@@ -568,6 +631,15 @@ function userMessage(text: string): UIMessage {
   };
 }
 
+function emptyChunks(
+  finishReason: "stop" | "length" | "content-filter" | "other",
+): LanguageModelV3StreamPart[] {
+  return [
+    { type: "stream-start" as const, warnings: [] },
+    finishChunk(finishReason),
+  ];
+}
+
 function textChunks(text: string): LanguageModelV3StreamPart[] {
   return [
     { type: "stream-start" as const, warnings: [] },
@@ -596,7 +668,7 @@ function toolCallChunks(
 }
 
 function finishChunk(
-  finishReason: "stop" | "tool-calls",
+  finishReason: "stop" | "tool-calls" | "length" | "content-filter" | "other",
 ): LanguageModelV3StreamPart {
   return {
     type: "finish" as const,

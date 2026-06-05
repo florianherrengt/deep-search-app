@@ -28,6 +28,46 @@ pub fn register_folder(conn: &Connection, name: &str, query: &str) -> Result<i64
     Ok(id)
 }
 
+pub fn rename_folder(conn: &Connection, old_name: &str, new_name: &str) -> Result<(), String> {
+    if old_name == new_name {
+        return Ok(());
+    }
+
+    let Some(old_id) = get_folder_id(conn, old_name)? else {
+        return Ok(());
+    };
+
+    if let Some(new_id) = get_folder_id(conn, new_name)? {
+        if new_id != old_id {
+            delete_folder(conn, new_name)?;
+        }
+    }
+
+    conn.execute(schema::UPDATE_FOLDER_NAME, rusqlite::params![old_id, new_name])
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+pub fn delete_folder(conn: &Connection, name: &str) -> Result<(), String> {
+    let Some(folder_id) = get_folder_id(conn, name)? else {
+        return Ok(());
+    };
+
+    let chunk_ids = get_folder_chunk_ids(conn, folder_id)?;
+    conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
+    for id in &chunk_ids {
+        let _ = conn.execute(schema::DELETE_EMBEDDING, rusqlite::params![id]);
+    }
+    conn.execute(schema::DELETE_FOLDER_CHUNKS, rusqlite::params![folder_id])
+        .map_err(|e| e.to_string())?;
+    conn.execute(schema::DELETE_FOLDER, rusqlite::params![folder_id])
+        .map_err(|e| e.to_string())?;
+    conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 pub fn sync_folders_from_dir(conn: &Connection, search_results_dir: &Path) -> Result<(), String> {
     if !search_results_dir.exists() {
         return Ok(());
@@ -276,6 +316,20 @@ fn get_chunk_ids_above_index(
     Ok(ids)
 }
 
+fn get_folder_chunk_ids(conn: &Connection, folder_id: i64) -> Result<Vec<i64>, String> {
+    let mut stmt = conn
+        .prepare(schema::GET_FOLDER_CHUNK_IDS)
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt
+        .query(rusqlite::params![folder_id])
+        .map_err(|e| e.to_string())?;
+    let mut ids = Vec::new();
+    while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        ids.push(row.get(0).map_err(|e| e.to_string())?);
+    }
+    Ok(ids)
+}
+
 fn find_existing_chunk_id(
     conn: &Connection,
     folder_id: i64,
@@ -384,6 +438,37 @@ mod tests {
             indices.push(row.get(0).unwrap());
         }
         indices
+    }
+
+    #[test]
+    fn rename_folder_updates_existing_index_row() {
+        let conn = test_db();
+        let folder_id = insert_test_folder(&conn, "2026-05-22_10-11-12");
+
+        rename_folder(&conn, "2026-05-22_10-11-12", "market-map").unwrap();
+
+        assert_eq!(get_folder_id(&conn, "2026-05-22_10-11-12").unwrap(), None);
+        assert_eq!(get_folder_id(&conn, "market-map").unwrap(), Some(folder_id));
+    }
+
+    #[test]
+    fn delete_folder_removes_folder_and_chunks() {
+        let conn = test_db();
+        let folder_id = insert_test_folder(&conn, "market-map");
+        insert_test_chunk(&conn, folder_id, "notes.md", 0, "chunk 0");
+        insert_test_chunk(&conn, folder_id, "notes.md", 1, "chunk 1");
+
+        delete_folder(&conn, "market-map").unwrap();
+
+        assert_eq!(get_folder_id(&conn, "market-map").unwrap(), None);
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM chunks WHERE folder_id = ?1",
+                rusqlite::params![folder_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]

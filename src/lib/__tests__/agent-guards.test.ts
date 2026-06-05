@@ -5,6 +5,7 @@ import {
   evaluateAssistantStep,
   reviewResearchCheckpoint,
 } from "@/lib/agent-guards";
+import { SUB_AGENT_TEXT_PROVIDER_METADATA } from "@/lib/sub-agent-stream";
 
 describe("asksUserForInput", () => {
   it("detects direct user-facing questions", () => {
@@ -69,88 +70,62 @@ describe("reviewResearchCheckpoint", () => {
     readyToAnswer: true,
   };
 
-  it("rejects checkpoints with no searches or sources", async () => {
+  it("returns guidance for checkpoints with no searches or sources", async () => {
     await expect(
       reviewResearchCheckpoint({
         ...validCheckpoint,
         searchesRun: [],
         sourcesOpened: [],
       }),
-    ).resolves.toMatchObject({
-      approved: false,
-      severity: "major",
-    });
+    ).resolves.toContain("Run at least one real search query");
   });
 
-  it("rejects checkpoints with too few sources", async () => {
+  it("returns guidance for checkpoints with too few sources", async () => {
     await expect(
       reviewResearchCheckpoint({
         ...validCheckpoint,
         sourcesOpened: validCheckpoint.sourcesOpened.slice(0, 1),
       }),
-    ).resolves.toMatchObject({
-      approved: false,
-      visibleSummary: "Research checkpoint needs more sources.",
-    });
+    ).resolves.toContain("Open and inspect more than one relevant source");
   });
 
-  it("rejects unresolved questions and low confidence", async () => {
+  it("returns guidance for unresolved questions and low confidence", async () => {
     await expect(
       reviewResearchCheckpoint({
         ...validCheckpoint,
         unresolvedQuestions: ["Need official pricing confirmation"],
       }),
-    ).resolves.toMatchObject({
-      approved: false,
-      visibleSummary: "Research checkpoint still has unresolved questions.",
-    });
+    ).resolves.toContain("Need official pricing confirmation");
 
     await expect(
       reviewResearchCheckpoint({
         ...validCheckpoint,
         confidence: "low",
       }),
-    ).resolves.toMatchObject({
-      approved: false,
-      visibleSummary: "Research checkpoint confidence is too low.",
-    });
+    ).resolves.toContain("Confidence is low");
   });
 
-  it("approves a balanced checkpoint", async () => {
-    await expect(reviewResearchCheckpoint(validCheckpoint)).resolves.toMatchObject({
-      approved: true,
-      severity: "none",
-    });
+  it("returns ready-to-answer guidance for a balanced checkpoint", async () => {
+    await expect(reviewResearchCheckpoint(validCheckpoint)).resolves.toContain(
+      "You appear ready to answer",
+    );
   });
 
-  it("uses the judge after deterministic checks pass", async () => {
+  it("uses the judge text when available", async () => {
     await expect(
-      reviewResearchCheckpoint(validCheckpoint, async () => ({
-        approved: false,
-        severity: "major",
-        visibleSummary: "Research checkpoint is missing primary sources.",
-        missingAngles: ["Primary source confirmation"],
-        weakClaims: ["Pricing claim"],
-        requiredNextActions: ["Open the vendor pricing page"],
-      })),
-    ).resolves.toMatchObject({
-      approved: false,
-      visibleSummary: "Research checkpoint is missing primary sources.",
-      requiredNextActions: ["Open the vendor pricing page"],
-    });
+      reviewResearchCheckpoint(
+        validCheckpoint,
+        async () => "Open the vendor pricing page before finalizing.",
+      ),
+    ).resolves.toBe("Open the vendor pricing page before finalizing.");
   });
 
-  it("falls back to basic approval when the judge fails", async () => {
+  it("falls back to local guidance when the judge fails", async () => {
     await expect(
       reviewResearchCheckpoint(validCheckpoint, async () => {
         throw new Error("judge unavailable");
       }),
-    ).resolves.toMatchObject({
-      approved: true,
-      severity: "minor",
-      visibleSummary:
-        "Research checkpoint passed basic checks; judge review was unavailable.",
-    });
+    ).resolves.toContain("You appear ready to answer");
   });
 });
 
@@ -189,11 +164,12 @@ describe("evaluateAssistantStep", () => {
     });
   });
 
-  it("accepts prerequisite-gated tools after the required tool was called", () => {
+  it("accepts prerequisite-gated tools after all required tools were called", () => {
     const decision = evaluateAssistantStep({
       messages: [
         userMessage("Research the market"),
         assistantWithQuestionTool(),
+        assistantWithRenameFolderTool(),
       ],
       responseMessage: assistantWithResearchPlanTool(),
     });
@@ -222,11 +198,35 @@ describe("evaluateAssistantStep", () => {
     });
   });
 
-  it("accepts a final answer after an approved checkpoint in the same turn", () => {
+  it("requests advisory checkpoint guidance after research tool use", () => {
     const decision = evaluateAssistantStep({
       messages: [
         userMessage("Find the latest pricing for Acme Search"),
-        approvedCheckpointMessage(),
+        assistantWithSearchTool(),
+      ],
+      responseMessage: assistantMessage(
+        "Acme Search appears to cost about 10 pounds.",
+      ),
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "research_checkpoint",
+      event: {
+        title: "Research checkpoint guidance",
+      },
+      toolChoice: {
+        type: "tool",
+        toolName: "research_checkpoint",
+      },
+    });
+  });
+
+  it("accepts a final answer after checkpoint guidance in the same turn", () => {
+    const decision = evaluateAssistantStep({
+      messages: [
+        userMessage("Find the latest pricing for Acme Search"),
+        checkpointGuidanceMessage(),
       ],
       responseMessage: assistantMessage(
         "Acme Search currently lists pricing from the verified sources.",
@@ -240,6 +240,15 @@ describe("evaluateAssistantStep", () => {
     const decision = evaluateAssistantStep({
       messages: [userMessage("Find the latest pricing for Acme Search")],
       responseMessage: assistantWithSearchTool(),
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+  });
+
+  it("treats sub-agent text after a tool as continuation output", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Find the latest pricing for Acme Search")],
+      responseMessage: assistantWithSearchToolAndSubAgentText(),
     });
 
     expect(decision).toMatchObject({ action: "accept" });
@@ -262,7 +271,7 @@ function assistantMessage(text: string): UIMessage {
   };
 }
 
-function approvedCheckpointMessage(): UIMessage {
+function checkpointGuidanceMessage(): UIMessage {
   return {
     id: "assistant-checkpoint",
     role: "assistant",
@@ -283,14 +292,8 @@ function approvedCheckpointMessage(): UIMessage {
           confidence: "high",
           readyToAnswer: true,
         },
-        output: {
-          approved: true,
-          severity: "none",
-          visibleSummary: "Research checkpoint passed.",
-          missingAngles: [],
-          weakClaims: [],
-          requiredNextActions: [],
-        },
+        output:
+          "Research checkpoint guidance: verify source dates and cite the pricing page.",
       } as UIMessage["parts"][number],
     ],
   };
@@ -312,6 +315,23 @@ function assistantWithQuestionTool(): UIMessage {
               candidates: [{ label: "Red", value: "red" }],
             },
           ],
+        },
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantWithRenameFolderTool(): UIMessage {
+  return {
+    id: "assistant-rename-folder",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-rename_research_folder",
+        toolCallId: "rename-1",
+        state: "input-available",
+        input: {
+          name: "market-research",
         },
       } as UIMessage["parts"][number],
     ],
@@ -356,6 +376,35 @@ function assistantWithSearchTool(): UIMessage {
           ],
         },
       } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantWithSearchToolAndSubAgentText(): UIMessage {
+  return {
+    id: "assistant-search-sub-agent",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-brave_search",
+        toolCallId: "search-1",
+        state: "output-available",
+        input: { query: "acme search pricing" },
+        output: {
+          results: [
+            {
+              title: "Pricing",
+              url: "https://example.com/pricing",
+              description: "Pricing page",
+            },
+          ],
+        },
+      } as UIMessage["parts"][number],
+      {
+        type: "text",
+        text: "Verification found no high-risk factual errors.",
+        providerMetadata: SUB_AGENT_TEXT_PROVIDER_METADATA,
+      },
     ],
   };
 }

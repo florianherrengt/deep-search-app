@@ -27,7 +27,10 @@ import type { Settings } from "@/hooks/use-settings";
 
 interface SettingsFieldsProps {
   settings: Settings;
-  updateSetting: (key: keyof Settings, value: string) => Promise<void>;
+  updateSetting: <K extends keyof Settings>(
+    key: K,
+    value: Settings[K],
+  ) => Promise<void>;
 }
 
 const SERVICE_FIELDS: readonly SettingsFieldDefinition[] = [
@@ -73,7 +76,7 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
 
   async function handleCommit(key: keyof Settings, value: string) {
     if (value !== settings[key]) {
-      await updateSetting(key, value);
+      await updateSetting(key, value as Settings[typeof key]);
     }
   }
 
@@ -213,7 +216,7 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
         <SelectRoot
           value={settings.currency}
           onValueChange={(value) => {
-            void updateSetting("currency", value);
+            void updateSetting("currency", value as Settings["currency"]);
           }}
         >
           <SelectTrigger
@@ -230,6 +233,34 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             ))}
           </SelectContent>
         </SelectRoot>
+      </section>
+
+      <section className="space-y-2 rounded-md border p-3">
+        <label
+          htmlFor={`${fieldIdPrefix}-chrome-devtools-mcp`}
+          className="flex items-start gap-3"
+        >
+          <input
+            id={`${fieldIdPrefix}-chrome-devtools-mcp`}
+            type="checkbox"
+            className="mt-1 h-4 w-4 rounded border-input"
+            checked={settings.chrome_devtools_mcp_enabled}
+            onChange={(event) => {
+              void updateSetting(
+                "chrome_devtools_mcp_enabled",
+                event.currentTarget.checked,
+              );
+            }}
+          />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">
+              Chrome DevTools MCP
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Allow last-resort control of a local Chrome session when normal extraction is not enough.
+            </span>
+          </span>
+        </label>
       </section>
     </div>
   );

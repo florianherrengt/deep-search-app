@@ -33,6 +33,14 @@ const OLD_REDDIT_HTML = `
 </html>
 `;
 
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 describe("extractPageContent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -84,6 +92,88 @@ describe("extractPageContent", () => {
     expect(mockInvoke).toHaveBeenCalledWith("fetch_html", {
       url: "https://example.com/page",
     });
+  });
+
+  it("serializes webview extractions so concurrent calls do not share the active page", async () => {
+    const firstExtractStarted = deferred();
+    const releaseFirstExtract = deferred();
+    const idToUrl = new Map<string, string>();
+    const events: string[] = [];
+    const firstUrl =
+      "https://old.reddit.com/r/test/comments/first/first_post/";
+    const secondUrl =
+      "https://old.reddit.com/r/test/comments/second/second_post/";
+
+    mockInvoke.mockImplementation(async (command, args) => {
+      if (command === "open_tab") {
+        const { id, url } = args as { id: string; url: string };
+        idToUrl.set(id, url);
+        events.push(`open:${url}`);
+        return undefined;
+      }
+
+      if (command === "extract_content") {
+        const { id } = args as { id: string };
+        const url = idToUrl.get(id) ?? id;
+        events.push(`extract:${url}`);
+        if (url === firstUrl) {
+          firstExtractStarted.resolve();
+          await releaseFirstExtract.promise;
+          return OLD_REDDIT_HTML;
+        }
+        return OLD_REDDIT_HTML;
+      }
+
+      if (command === "close_tab") {
+        const { id } = args as { id: string };
+        events.push(`close:${idToUrl.get(id) ?? id}`);
+        return undefined;
+      }
+
+      return undefined;
+    });
+
+    const first = extractPageContent(
+      "https://www.reddit.com/r/test/comments/first/first_post/",
+      {
+        summarize: false,
+      },
+    );
+    await firstExtractStarted.promise;
+
+    const second = extractPageContent(
+      "https://www.reddit.com/r/test/comments/second/second_post/",
+      {
+        summarize: false,
+      },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    let concurrentOpenError: unknown;
+    try {
+      expect(events).toEqual([
+        `open:${firstUrl}`,
+        `extract:${firstUrl}`,
+      ]);
+    } catch (error) {
+      concurrentOpenError = error;
+    }
+
+    releaseFirstExtract.resolve();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    if (concurrentOpenError) throw concurrentOpenError;
+    expect(firstResult).toContain("# Test Post");
+    expect(secondResult).toContain("# Test Post");
+    expect(events).toEqual([
+      `open:${firstUrl}`,
+      `extract:${firstUrl}`,
+      `close:${firstUrl}`,
+      `open:${secondUrl}`,
+      `extract:${secondUrl}`,
+      `close:${secondUrl}`,
+    ]);
   });
 
   it("extracts compact visible text while preserving product page details", () => {

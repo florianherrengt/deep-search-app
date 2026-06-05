@@ -9,6 +9,11 @@ import {
   SafePathSegmentSchema,
   writeAppFile,
 } from "@/lib/app-file-storage";
+import { tryParseJson } from "@/lib/json";
+import {
+  deleteResearchFolderIndex,
+  renameResearchFolderIndex,
+} from "@/lib/research-search";
 
 export const SEARCH_RESULTS_SUBFOLDER = "search-results";
 const CHATS_SUBFOLDER = "chats";
@@ -181,8 +186,55 @@ export async function saveResearchChatMessages(
   });
 }
 
+export async function createProvisionalResearchFolder(
+  chatId: string,
+  messages: UIMessage[],
+  date = new Date(),
+): Promise<string> {
+  const folderName = await resolveUniqueResearchFolderName(
+    createTimestampResearchFolderName(date),
+  );
+
+  await saveResearchChatMessages(folderName, chatId, messages);
+  return folderName;
+}
+
+export async function moveResearchChatToFolder({
+  fromFolderName,
+  toFolderName,
+  chatId,
+  messages,
+}: {
+  fromFolderName: string;
+  toFolderName: string;
+  chatId: string;
+  messages: UIMessage[];
+}): Promise<void> {
+  const parsedFromFolderName = SafePathSegmentSchema.parse(fromFolderName);
+  const parsedToFolderName = SafePathSegmentSchema.parse(toFolderName);
+
+  if (parsedFromFolderName === parsedToFolderName) {
+    await saveResearchChatMessages(parsedToFolderName, chatId, messages);
+    return;
+  }
+
+  await saveResearchChatMessages(parsedToFolderName, chatId, messages);
+  await deleteResearchFolder(parsedFromFolderName);
+}
+
 export function createResearchChatId(date = new Date()): string {
   return date.toISOString().replace(/:/g, "-");
+}
+
+export function createTimestampResearchFolderName(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = padDatePart(date.getMonth() + 1);
+  const day = padDatePart(date.getDate());
+  const hours = padDatePart(date.getHours());
+  const minutes = padDatePart(date.getMinutes());
+  const seconds = padDatePart(date.getSeconds());
+
+  return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
 }
 
 async function readLegacyResearchChatMessages(
@@ -198,7 +250,7 @@ async function readLegacyResearchChatMessages(
   }
 
   try {
-    const parsed = StoredChatMessagesSchema.parse(JSON.parse(content));
+    const parsed = StoredChatMessagesSchema.parse(tryParseJson(content));
     return parsed as UIMessage[];
   } catch {
     return [];
@@ -219,7 +271,7 @@ async function readStoredResearchChat(
   }
 
   try {
-    const parsed = StoredResearchChatSchema.parse(JSON.parse(content));
+    const parsed = StoredResearchChatSchema.parse(tryParseJson(content));
     const messages = parsed.messages as UIMessage[];
     const storedChatId =
       typeof parsed.id === "string" &&
@@ -250,6 +302,7 @@ export async function renameResearchFolder(
     oldSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedOldFolderName}`,
     newSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedNewFolderName}`,
   });
+  await renameResearchFolderIndex(parsedOldFolderName, parsedNewFolderName);
 
   return { name: parsedNewFolderName };
 }
@@ -260,6 +313,7 @@ export async function deleteResearchFolder(folderName: string): Promise<void> {
   await deleteAppSubfolder({
     subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
   });
+  await deleteResearchFolderIndex(parsedFolderName);
 }
 
 export function compareResearchFolders(
@@ -272,6 +326,22 @@ export function compareResearchFolders(
 
 function researchChatsSubfolder(folderName: string) {
   return `${SEARCH_RESULTS_SUBFOLDER}/${folderName}/${CHATS_SUBFOLDER}`;
+}
+
+async function resolveUniqueResearchFolderName(
+  candidate: string,
+): Promise<string> {
+  const parsedCandidate = SafePathSegmentSchema.parse(candidate);
+  const existing = await listAppSubfolders({
+    subfolder: SEARCH_RESULTS_SUBFOLDER,
+  });
+  if (!existing.includes(parsedCandidate)) return parsedCandidate;
+
+  let counter = 2;
+  while (existing.includes(`${parsedCandidate}-${counter}`)) {
+    counter++;
+  }
+  return `${parsedCandidate}-${counter}`;
 }
 
 function researchChatFilename(chatId: string) {
@@ -352,4 +422,8 @@ function dateFromResearchChatId(chatId: string) {
   );
   const timestamp = Date.parse(normalized);
   return Number.isNaN(timestamp) ? null : normalized;
+}
+
+function padDatePart(value: number) {
+  return String(value).padStart(2, "0");
 }

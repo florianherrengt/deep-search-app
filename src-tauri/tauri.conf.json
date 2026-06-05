@@ -21,6 +21,12 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self'; connect-src 'self' https://api.anthropic.com https://api.duckduckgo.com https://api.exa.ai https://api.frankfurter.dev https://api.search.brave.com https://api.tavily.com https://api.z.ai https://google.serper.dev https://open.bigmodel.cn https://openrouter.ai; frame-src https:; media-src 'self' https:; object-src 'none'; base-uri 'self'; form-action 'self'"
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [],
+      "pubkey": ""
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

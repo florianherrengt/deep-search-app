@@ -1,4 +1,4 @@
-import { load } from "@tauri-apps/plugin-store";
+import { load, type StoreOptions } from "@tauri-apps/plugin-store";
 import { z } from "zod";
 
 type StoreApi<T extends z.ZodObject<any>> = {
@@ -7,6 +7,15 @@ type StoreApi<T extends z.ZodObject<any>> = {
   reset: () => Promise<void>;
 };
 
+function createStoreOptions<T extends z.ZodObject<any>>(
+  defaults: z.infer<T>,
+): StoreOptions {
+  return {
+    autoSave: false,
+    defaults: defaults as Record<string, unknown>,
+  };
+}
+
 export function createStore<T extends z.ZodObject<any>>(
   filename: string,
   schema: T,
@@ -14,9 +23,14 @@ export function createStore<T extends z.ZodObject<any>>(
 ): StoreApi<T> {
   const shape = schema.shape;
   const keys = Object.keys(shape) as (keyof z.infer<T>)[];
+  const storeOptions = createStoreOptions<T>(defaults);
+
+  function loadStore() {
+    return load(filename, storeOptions);
+  }
 
   async function get(): Promise<z.infer<T>> {
-    const store = await load(filename, { autoSave: false } as any);
+    const store = await loadStore();
     const result = { ...defaults };
 
     for (const key of keys) {
@@ -41,13 +55,13 @@ export function createStore<T extends z.ZodObject<any>>(
     const fieldSchema = shape[key as string];
     fieldSchema.parse(value);
 
-    const store = await load(filename, { autoSave: false } as any);
+    const store = await loadStore();
     await store.set(key as string, value);
     await store.save();
   }
 
   async function reset(): Promise<void> {
-    const store = await load(filename, { autoSave: false } as any);
+    const store = await loadStore();
     for (const key of keys) {
       await store.set(key as string, defaults[key]);
     }

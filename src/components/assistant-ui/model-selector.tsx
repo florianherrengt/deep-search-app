@@ -13,6 +13,7 @@ import { CheckIcon } from "lucide-react";
 import { useAui } from "@assistant-ui/react";
 
 import { cn } from "@/lib/utils";
+import { formatContextWindowTokens } from "@/lib/context-window";
 import {
   SelectContent,
   SelectItem,
@@ -25,6 +26,7 @@ export type ModelOption = {
   id: string;
   name: string;
   description?: string;
+  contextWindowTokens?: number;
   icon?: ReactNode;
   disabled?: boolean;
 };
@@ -162,6 +164,13 @@ export type ModelSelectorItemProps = Omit<
 };
 
 function ModelSelectorItem({ model, className, ...props }: ModelSelectorItemProps) {
+  const contextWindowLabel = formatContextWindowTokens(
+    model.contextWindowTokens,
+  );
+  const metadata = [model.description, contextWindowLabel]
+    .filter(Boolean)
+    .join(" - ");
+
   return (
     <SelectPrimitive.Item
       data-slot="model-selector-item"
@@ -190,9 +199,9 @@ function ModelSelectorItem({ model, className, ...props }: ModelSelectorItemProp
             )}
             <span className="truncate font-medium">{model.name}</span>
           </span>
-          {model.description && (
+          {metadata && (
             <span className="truncate text-xs text-muted-foreground">
-              {model.description}
+              {metadata}
             </span>
           )}
         </span>
