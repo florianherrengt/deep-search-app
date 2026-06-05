@@ -47,5 +47,8 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Create dummy external binary for Tauri build
+        run: touch src-tauri/binaries/node-x86_64-unknown-linux-gnu
+
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
