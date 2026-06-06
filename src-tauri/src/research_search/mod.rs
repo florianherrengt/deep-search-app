@@ -1,5 +1,6 @@
 pub mod chunking;
 pub mod embeddings;
+pub mod http_client;
 pub mod indexing;
 pub mod reranker;
 pub mod schema;

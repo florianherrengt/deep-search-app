@@ -1,10 +1,9 @@
+use crate::research_search::http_client::shared_client;
 use serde::Deserialize;
-use std::time::Duration;
 
 const DEFAULT_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL: &str = "cohere/rerank-4-pro";
 const MAX_RERANK_CANDIDATES: usize = 15;
-const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RerankerConfig {
@@ -64,10 +63,7 @@ pub fn rerank(
         .map(|s| s.as_str())
         .collect();
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    let client = shared_client()?;
     let body = serde_json::json!({
         "model": config.model,
         "query": query,

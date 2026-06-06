@@ -1,12 +1,11 @@
+use crate::research_search::http_client::shared_client;
 use serde::Deserialize;
-use std::time::Duration;
 
 const DEFAULT_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const DEFAULT_MODEL: &str = "qwen/qwen3-embedding-4b";
 const DEFAULT_DIMENSIONS: usize = 1024;
 const DEFAULT_QUERY_PREFIX: &str = "Represent this sentence for searching relevant passages: ";
 const MAX_BATCH_SIZE: usize = 64;
-const REQUEST_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct EmbeddingConfig {
@@ -64,10 +63,7 @@ pub fn embed_texts(
     texts: &[String],
     is_query: bool,
 ) -> Result<Vec<Vec<f32>>, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    let client = shared_client()?;
     let mut all_embeddings = Vec::with_capacity(texts.len());
 
     let base_url = config.base_url.trim_end_matches('/');
