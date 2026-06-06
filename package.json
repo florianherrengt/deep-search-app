@@ -29,6 +29,7 @@
     "@assistant-ui/react-markdown": "^0.14.0",
     "@mantine/core": "^7.17.8",
     "@mantine/hooks": "^7.17.8",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozilla/readability": "^0.6.0",
     "@openrouter/ai-sdk-provider": "^2.9.0",
     "@tauri-apps/api": "^2",
