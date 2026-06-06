@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 
 use crate::research_search::chunking;
-use crate::research_search::embeddings;
+use crate::research_search::embeddings::{self, EmbeddingConfig};
 use crate::research_search::schema;
 use crate::research_search::{get_folder_id, serialize_f32_vec, Database, ResearchFolder};
 
@@ -104,7 +104,7 @@ struct PendingChunk {
 
 pub fn index_file(
     db: &Database,
-    api_key: &str,
+    embedding_config: &EmbeddingConfig,
     folder: &str,
     filename: &str,
     content: &str,
@@ -174,7 +174,7 @@ pub fn index_file(
         Vec::new()
     } else {
         let texts: Vec<String> = new_or_changed.iter().map(|p| p.content.clone()).collect();
-        embeddings::embed_texts(api_key, &texts, false)?
+        embeddings::embed_texts(embedding_config, &texts, false)?
     };
 
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
@@ -383,7 +383,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "journal_mode", "WAL").unwrap();
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();
-        conn.execute_batch(schema::CREATE_TABLES).unwrap();
+        conn.execute_batch(&schema::create_tables_sql(schema::DEFAULT_DIMENSIONS)).unwrap();
         conn
     }
 

@@ -2,6 +2,10 @@ import type { ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { ResearchSidebar } from "@/components/research-sidebar";
+import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
+
+const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
+const mockRerankerConfig: RerankerConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "cohere/rerank-4-pro" };
 
 describe("ResearchSidebar", () => {
   it("renders new chat and previous search folders", () => {
@@ -19,7 +23,7 @@ describe("ResearchSidebar", () => {
           },
         ]}
         activeChatId="2026-05-22T10-00-00.000Z"
-        apiKey="test-key"
+        embeddingConfig={mockEmbeddingConfig} rerankerConfig={mockRerankerConfig}
         status="ready"
         chatsStatus="ready"
         onNewChat={vi.fn()}
@@ -48,7 +52,7 @@ describe("ResearchSidebar", () => {
         activeFolderName={null}
         chats={[]}
         activeChatId={null}
-        apiKey="test-key"
+        embeddingConfig={mockEmbeddingConfig} rerankerConfig={mockRerankerConfig}
         status="ready"
         chatsStatus="idle"
         onNewChat={vi.fn()}
@@ -108,7 +112,7 @@ describe("ResearchSidebar", () => {
           },
         ]}
         activeChatId="2026-05-22T10-00-00.000Z"
-        apiKey="test-key"
+        embeddingConfig={mockEmbeddingConfig} rerankerConfig={mockRerankerConfig}
         status="ready"
         chatsStatus="ready"
         runningFolderNames={["pricing-review"]}
@@ -137,7 +141,7 @@ function renderSidebar(props: Partial<ResearchSidebarProps> = {}) {
       activeFolderName={null}
       chats={[]}
       activeChatId={null}
-      apiKey="test-key"
+      embeddingConfig={mockEmbeddingConfig} rerankerConfig={mockRerankerConfig}
       status="ready"
       chatsStatus="idle"
       onNewChat={vi.fn()}

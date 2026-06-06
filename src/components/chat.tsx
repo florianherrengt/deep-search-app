@@ -10,6 +10,8 @@ import {
   type ResearchFolderChangeOptions,
   shouldContinueAfterToolResult,
   type SearchToolKeys,
+  type EmbeddingConfig,
+  type RerankerConfig,
 } from "@/lib/transport";
 import type { Currency } from "@/lib/settings-store";
 import {
@@ -38,6 +40,8 @@ export function Chat({
   onModelChange,
   searchKeys,
   currency,
+  embeddingConfig,
+  rerankerConfig,
 }: {
   sessionId: string;
   modelOptions: ConfiguredChatModelOption[];
@@ -60,6 +64,8 @@ export function Chat({
   onModelChange?: (model: ConfiguredChatModelOption) => void;
   searchKeys: SearchToolKeys;
   currency: Currency;
+  embeddingConfig: EmbeddingConfig;
+  rerankerConfig: RerankerConfig;
 }) {
   const enabledModels = useMemo(
     () => modelOptions.filter((option) => !option.disabled),
@@ -155,6 +161,12 @@ export function Chat({
   const researchApiKeyRef = useRef(researchApiKey);
   researchApiKeyRef.current = researchApiKey;
 
+  const embeddingConfigRef = useRef(embeddingConfig);
+  embeddingConfigRef.current = embeddingConfig;
+
+  const rerankerConfigRef = useRef(rerankerConfig);
+  rerankerConfigRef.current = rerankerConfig;
+
   const effectiveSearchKeys = useMemo(
     () => ({ ...searchKeys, currency }),
     [currency, searchKeys],
@@ -202,7 +214,8 @@ export function Chat({
   const transportRef = useRef(
     new DirectTransport(
       getSelectedChatModel,
-      () => researchApiKeyRef.current,
+      () => embeddingConfigRef.current,
+      () => rerankerConfigRef.current,
       () => searchKeysRef.current,
       researchChatId,
       researchFolder,

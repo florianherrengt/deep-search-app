@@ -1,4 +1,10 @@
-pub const CREATE_TABLES: &str = r#"
+use rusqlite::Connection;
+
+pub const DEFAULT_DIMENSIONS: usize = 1024;
+
+pub fn create_tables_sql(dimensions: usize) -> String {
+    format!(
+        r#"
 CREATE TABLE IF NOT EXISTS research_folders (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
@@ -19,7 +25,7 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunk_embeddings USING vec0(
-  embedding float[1024]
+  embedding float[{dimensions}]
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -41,7 +47,9 @@ CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
   INSERT INTO chunks_fts(chunks_fts, rowid, content) VALUES('delete', old.id, old.content);
   INSERT INTO chunks_fts(rowid, content) VALUES (new.id, new.content);
 END;
-"#;
+"#
+    )
+}
 
 pub const REBUILD_CHUNKS_FTS: &str = "INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')";
 
@@ -136,3 +144,15 @@ pub const GET_CHUNK_IDS_ABOVE_INDEX: &str =
 
 pub const DELETE_CHUNKS_ABOVE_INDEX: &str =
     "DELETE FROM chunks WHERE folder_id = ?1 AND filename = ?2 AND chunk_index >= ?3";
+
+pub fn rebuild_vector_table(conn: &Connection, dimensions: usize) -> Result<(), String> {
+    conn.execute("DROP TABLE IF EXISTS chunk_embeddings", [])
+        .map_err(|e| format!("Failed to drop chunk_embeddings: {}", e))?;
+    let sql = format!(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS chunk_embeddings USING vec0(embedding float[{}])",
+        dimensions
+    );
+    conn.execute_batch(&sql)
+        .map_err(|e| format!("Failed to create chunk_embeddings: {}", e))?;
+    Ok(())
+}

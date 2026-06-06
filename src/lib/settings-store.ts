@@ -44,6 +44,18 @@ export type Currency = (typeof CURRENCIES)[number];
 
 export const currencySchema = z.enum(CURRENCIES);
 
+export const EMBEDDING_DEFAULTS = {
+  base_url: "https://openrouter.ai/api/v1",
+  model: "qwen/qwen3-embedding-4b",
+  dimensions: 1024,
+  query_prefix: "Represent this sentence for searching relevant passages: ",
+} as const;
+
+export const RERANKER_DEFAULTS = {
+  base_url: "https://openrouter.ai/api/v1",
+  model: "cohere/rerank-4-pro",
+} as const;
+
 export const settingsSchema = z.object({
   chat_provider: chatProviderSchema,
   openrouter_api_key: z.string(),
@@ -60,6 +72,14 @@ export const settingsSchema = z.object({
   zhipu_model: z.string(),
   currency: currencySchema,
   chrome_devtools_mcp_enabled: z.boolean(),
+  embedding_api_key: z.string(),
+  embedding_base_url: z.string(),
+  embedding_model: z.string(),
+  embedding_dimensions: z.number(),
+  embedding_query_prefix: z.string(),
+  reranker_api_key: z.string(),
+  reranker_base_url: z.string(),
+  reranker_model: z.string(),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -80,6 +100,14 @@ export const settingsDefaults: Settings = {
   zhipu_model: CHAT_PROVIDER_DEFAULT_MODELS.zhipu,
   currency: "USD",
   chrome_devtools_mcp_enabled: false,
+  embedding_api_key: "",
+  embedding_base_url: EMBEDDING_DEFAULTS.base_url,
+  embedding_model: EMBEDDING_DEFAULTS.model,
+  embedding_dimensions: EMBEDDING_DEFAULTS.dimensions,
+  embedding_query_prefix: EMBEDDING_DEFAULTS.query_prefix,
+  reranker_api_key: "",
+  reranker_base_url: RERANKER_DEFAULTS.base_url,
+  reranker_model: RERANKER_DEFAULTS.model,
 };
 
 export const settingsStore = createStore(
@@ -87,3 +115,26 @@ export const settingsStore = createStore(
   settingsSchema,
   settingsDefaults,
 );
+
+export function resolveEmbeddingConfig(settings: Settings) {
+  return {
+    api_key:
+      settings.embedding_api_key
+      || settings.openrouter_api_key,
+    base_url: settings.embedding_base_url || EMBEDDING_DEFAULTS.base_url,
+    model: settings.embedding_model || EMBEDDING_DEFAULTS.model,
+    dimensions: settings.embedding_dimensions || EMBEDDING_DEFAULTS.dimensions,
+    query_prefix: settings.embedding_query_prefix || EMBEDDING_DEFAULTS.query_prefix,
+  };
+}
+
+export function resolveRerankerConfig(settings: Settings) {
+  return {
+    api_key:
+      settings.reranker_api_key
+      || settings.embedding_api_key
+      || settings.openrouter_api_key,
+    base_url: settings.reranker_base_url || RERANKER_DEFAULTS.base_url,
+    model: settings.reranker_model || RERANKER_DEFAULTS.model,
+  };
+}

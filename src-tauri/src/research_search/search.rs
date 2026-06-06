@@ -1,8 +1,8 @@
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 
-use crate::research_search::embeddings;
-use crate::research_search::reranker;
+use crate::research_search::embeddings::{self, EmbeddingConfig};
+use crate::research_search::reranker::{self, RerankerConfig};
 use crate::research_search::schema;
 use crate::research_search::{serialize_f32_vec, AdjacentChunk, Database, SearchResult};
 
@@ -32,7 +32,8 @@ struct ChunkInfo {
 
 pub fn search_multi(
     db: &Database,
-    api_key: &str,
+    embedding_config: &EmbeddingConfig,
+    reranker_config: &RerankerConfig,
     queries: &[String],
     folder: Option<&str>,
     limit: Option<u32>,
@@ -43,7 +44,7 @@ pub fn search_multi(
     let mut seen_chunk_ids: HashSet<i64> = HashSet::new();
 
     for query in queries {
-        let results = search(db, api_key, query, folder, Some(limit as u32))?;
+        let results = search(db, embedding_config, reranker_config, query, folder, Some(limit as u32))?;
         for result in results {
             if seen_chunk_ids.insert(result.chunk_id) {
                 all_results.push(result);
@@ -63,14 +64,15 @@ pub fn search_multi(
 
 pub fn search(
     db: &Database,
-    api_key: &str,
+    embedding_config: &EmbeddingConfig,
+    reranker_config: &RerankerConfig,
     query: &str,
     folder: Option<&str>,
     limit: Option<u32>,
 ) -> Result<Vec<SearchResult>, String> {
     let limit = limit.unwrap_or(8) as usize;
 
-    let query_embedding = embeddings::embed_query(api_key, query)?;
+    let query_embedding = embeddings::embed_query(embedding_config, query)?;
     let query_bytes = serialize_f32_vec(&query_embedding);
 
     let (_fused, diverse_candidates) = {
@@ -100,7 +102,7 @@ pub fn search(
     if !diverse_candidates.is_empty() {
         let (ids, docs): (Vec<i64>, Vec<String>) = diverse_candidates.into_iter().unzip();
 
-        let reranked = reranker::rerank(api_key, query, &docs)?;
+        let reranked = reranker::rerank(reranker_config, query, &docs)?;
 
         let conn = db.conn.lock().map_err(|e| e.to_string())?;
         let scored: Vec<(i64, f64)> = reranked

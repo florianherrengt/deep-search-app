@@ -80,6 +80,8 @@ type ToolInputSchema = z.ZodObject<Record<string, z.ZodTypeAny>>;
 export interface ToolExecuteConfig {
   researchFolder: string | null;
   apiKey: string;
+  embeddingConfig?: import("@/lib/research-search").EmbeddingConfig;
+  rerankerConfig?: import("@/lib/research-search").RerankerConfig;
   getChatModel?: () => ChatModelConfig | null;
   braveApiKey?: string | null;
   exaApiKey?: string | null;
@@ -100,7 +102,8 @@ export function getAvailableTools(
   config?: ToolExecuteConfig,
 ): ToolDescriptor[] {
   const researchFolder = config?.researchFolder;
-  const apiKey = config?.apiKey;
+  const embeddingConfig = config?.embeddingConfig;
+  const rerankerConfig = config?.rerankerConfig;
   const getChatModel = config?.getChatModel;
   const braveApiKey = config?.braveApiKey;
   const exaApiKey = config?.exaApiKey;
@@ -125,18 +128,18 @@ export function getAvailableTools(
   const extractTool = model && getResearchFolder
     ? createExtractPageContentTool(model, getResearchFolder)
     : undefined;
-  const searchResearchTool = apiKey && model ? createSearchResearchTool(apiKey, model) : undefined;
+  const searchResearchTool = embeddingConfig && rerankerConfig && model ? createSearchResearchTool(embeddingConfig, rerankerConfig, model) : undefined;
   const createTool = getResearchFolder
-    ? createCreateFileTool(getResearchFolder, apiKey)
+    ? createCreateFileTool(getResearchFolder, embeddingConfig)
     : undefined;
   const readTool = getResearchFolder
     ? createReadFileTool(getResearchFolder)
     : undefined;
   const updateTool = getResearchFolder
-    ? createUpdateFileTool(getResearchFolder, apiKey)
+    ? createUpdateFileTool(getResearchFolder, embeddingConfig)
     : undefined;
   const moveTool = getResearchFolder
-    ? createMoveFileTool(getResearchFolder, apiKey)
+    ? createMoveFileTool(getResearchFolder, embeddingConfig)
     : undefined;
   const deleteTool = getResearchFolder
     ? createDeleteFileTool(getResearchFolder)
@@ -238,11 +241,11 @@ export function getAvailableTools(
 
     describeOptionalTool(
       "rename_research_folder",
-      getResearchFolder
+      getResearchFolder && embeddingConfig
         ? createRenameResearchFolderTool({
             getResearchFolder,
             onFolderRenamed: async () => {},
-            apiKey: apiKey ?? "",
+            embeddingConfig,
           })
         : undefined,
       renameResearchFolderInputSchema,

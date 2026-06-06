@@ -8,6 +8,7 @@ import { isAbortError, throwIfAborted } from "@/lib/abort";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import { createGuardedStream, getResearchFolderContext } from "./guarded-stream";
 import type { SearchToolKeys } from "./tool-registry";
+import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import {
   createProvisionalResearchFolder,
   moveResearchChatToFolder,
@@ -18,6 +19,7 @@ import { evaluateResearchRelevance } from "@/lib/research-relevance-evaluator";
 
 export { createGuardedStream } from "./guarded-stream";
 export type { SearchToolKeys } from "./tool-registry";
+export type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 
 export interface ResearchFolderChangeOptions {
   isProvisional: boolean;
@@ -30,7 +32,8 @@ export class DirectTransport implements ChatTransport<UIMessage> {
 
   constructor(
     private getChatModel: () => ChatModelConfig | null,
-    private getResearchApiKey: () => string,
+    private getEmbeddingConfig: () => EmbeddingConfig,
+    private getRerankerConfig: () => RerankerConfig,
     private getSearchKeys: () => SearchToolKeys,
     private researchChatId: string,
     researchFolder?: string | null,
@@ -79,7 +82,8 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     }
 
     const model = createChatLanguageModel(chatModel);
-    const apiKey = this.getResearchApiKey();
+    const embeddingConfig = this.getEmbeddingConfig();
+    const rerankerConfig = this.getRerankerConfig();
     const firstMessage = getFirstUserMessage(messages);
 
     let upfrontSearchResults: SearchResult[] | undefined;
@@ -96,7 +100,8 @@ export class DirectTransport implements ChatTransport<UIMessage> {
         });
 
         upfrontSearchResults = await searchResearch(
-          apiKey,
+          embeddingConfig,
+          rerankerConfig,
           firstMessage,
           { limit: 5, abortSignal },
         ).catch((error) => {
@@ -145,7 +150,8 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     return createGuardedStream({
       model,
       researchFolder: this.researchFolder,
-      apiKey,
+      embeddingConfig,
+      rerankerConfig,
       messages,
       abortSignal,
       searchKeys: this.getSearchKeys(),

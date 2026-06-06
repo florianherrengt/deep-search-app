@@ -488,14 +488,14 @@ fn delete_research_file_index(
 #[tauri::command]
 async fn index_research_file(
     app: AppHandle,
-    api_key: String,
+    embedding_config: research_search::embeddings::EmbeddingConfig,
     folder: String,
     filename: String,
     content: String,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let db = app.state::<Database>();
-        research_search::indexing::index_file(&db, &api_key, &folder, &filename, &content)
+        research_search::indexing::index_file(&db, &embedding_config, &folder, &filename, &content)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -504,7 +504,8 @@ async fn index_research_file(
 #[tauri::command]
 async fn search_research(
     app: AppHandle,
-    api_key: String,
+    embedding_config: research_search::embeddings::EmbeddingConfig,
+    reranker_config: research_search::reranker::RerankerConfig,
     queries: Vec<String>,
     folder: Option<String>,
     limit: Option<u32>,
@@ -517,7 +518,7 @@ async fn search_research(
             let conn = db.conn.lock().map_err(|e| e.to_string())?;
             research_search::indexing::sync_folders_from_dir(&conn, &search_results_dir)?;
         }
-        research_search::search::search_multi(&db, &api_key, &queries, folder.as_deref(), limit)
+        research_search::search::search_multi(&db, &embedding_config, &reranker_config, &queries, folder.as_deref(), limit)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -531,11 +532,20 @@ fn list_research_folders_db(app: AppHandle) -> Result<Vec<ResearchFolder>, Strin
 }
 
 #[tauri::command]
-async fn backfill_index(app: AppHandle, api_key: String) -> Result<(), String> {
+async fn backfill_index(
+    app: AppHandle,
+    embedding_config: research_search::embeddings::EmbeddingConfig,
+    dimensions: Option<usize>,
+) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let db = app.state::<Database>();
         let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let search_results_dir = app_data.join("search-results");
+
+        if let Some(dims) = dimensions {
+            let conn = db.conn.lock().map_err(|e| e.to_string())?;
+            research_search::schema::rebuild_vector_table(&conn, dims)?;
+        }
 
         if !search_results_dir.exists() {
             return Ok(());
@@ -587,7 +597,7 @@ async fn backfill_index(app: AppHandle, api_key: String) -> Result<(), String> {
 
                 let _ = research_search::indexing::index_file(
                     &db,
-                    &api_key,
+                    &embedding_config,
                     &folder_name,
                     &filename,
                     &content,

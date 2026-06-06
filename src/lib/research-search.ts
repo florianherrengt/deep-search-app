@@ -1,14 +1,29 @@
 import { invoke } from "@tauri-apps/api/core";
 import { abortablePromise } from "@/lib/abort";
 
+export interface EmbeddingConfig {
+  api_key: string;
+  base_url: string;
+  model: string;
+  dimensions: number;
+  query_prefix: string;
+}
+
+export interface RerankerConfig {
+  api_key: string;
+  base_url: string;
+  model: string;
+}
+
 interface ResearchSearchMock {
   searchResearch?: (
-    apiKey: string,
+    embeddingConfig: EmbeddingConfig,
+    rerankerConfig: RerankerConfig,
     query: string | string[],
     options?: { folder?: string; limit?: number; abortSignal?: AbortSignal },
   ) => Promise<SearchResult[]>;
   indexResearchFile?: (
-    apiKey: string,
+    embeddingConfig: EmbeddingConfig,
     folder: string,
     filename: string,
     content: string,
@@ -55,7 +70,8 @@ export interface ResearchFolderInfo {
 }
 
 export async function searchResearch(
-  apiKey: string,
+  embeddingConfig: EmbeddingConfig,
+  rerankerConfig: RerankerConfig,
   query: string | string[],
   options?: { folder?: string; limit?: number; abortSignal?: AbortSignal },
 ): Promise<SearchResult[]> {
@@ -63,7 +79,7 @@ export async function searchResearch(
   const mock = getDevResearchSearchMock();
   if (mock?.searchResearch) {
     return abortablePromise(
-      mock.searchResearch(apiKey, query, options),
+      mock.searchResearch(embeddingConfig, rerankerConfig, query, options),
       abortSignal,
     );
   }
@@ -71,7 +87,8 @@ export async function searchResearch(
   const queries = Array.isArray(query) ? query : [query];
   return abortablePromise(
     invoke<SearchResult[]>("search_research", {
-      apiKey,
+      embeddingConfig,
+      rerankerConfig,
       queries,
       folder: options?.folder ?? null,
       limit: options?.limit ?? 8,
@@ -81,17 +98,17 @@ export async function searchResearch(
 }
 
 export async function indexResearchFile(
-  apiKey: string,
+  embeddingConfig: EmbeddingConfig,
   folder: string,
   filename: string,
   content: string,
 ): Promise<void> {
   const mock = getDevResearchSearchMock();
   if (mock?.indexResearchFile) {
-    return mock.indexResearchFile(apiKey, folder, filename, content);
+    return mock.indexResearchFile(embeddingConfig, folder, filename, content);
   }
 
-  return invoke("index_research_file", { apiKey, folder, filename, content });
+  return invoke("index_research_file", { embeddingConfig, folder, filename, content });
 }
 
 export async function registerResearchFolder(
@@ -143,8 +160,11 @@ export async function listResearchFoldersDb(): Promise<ResearchFolderInfo[]> {
   return invoke<ResearchFolderInfo[]>("list_research_folders_db");
 }
 
-export async function backfillIndex(apiKey: string): Promise<void> {
-  return invoke("backfill_index", { apiKey });
+export async function backfillIndex(
+  embeddingConfig: EmbeddingConfig,
+  dimensions?: number,
+): Promise<void> {
+  return invoke("backfill_index", { embeddingConfig, dimensions: dimensions ?? null });
 }
 
 function getDevResearchSearchMock(): ResearchSearchMock | null {

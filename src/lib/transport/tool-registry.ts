@@ -20,6 +20,7 @@ import { createVerifiedResearchIsGoodTool } from "@/tools/verified-research-tool
 import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
 import { isValidServiceUrl } from "@/lib/url-validation";
 import type { Currency } from "@/lib/settings-store";
+import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { createChromeDevToolsMcpTools } from "@/lib/mcp/chrome-devtools-tools";
 
 export interface SearchToolKeys {
@@ -37,14 +38,16 @@ export async function createTools({
   getResearchFolder,
   switchResearchFolder,
   onFolderRenamed,
-  apiKey,
+  embeddingConfig,
+  rerankerConfig,
   searchKeys,
 }: {
   model: LanguageModel;
   getResearchFolder: () => Promise<string>;
   switchResearchFolder: (folderName: string) => void | Promise<void>;
   onFolderRenamed: (newName: string) => void | Promise<void>;
-  apiKey: string;
+  embeddingConfig: EmbeddingConfig;
+  rerankerConfig: RerankerConfig;
   searchKeys?: SearchToolKeys;
 }) {
   const chromeDevToolsTools = await createChromeDevToolsMcpTools({
@@ -59,21 +62,21 @@ export async function createTools({
     ...(searchKeys?.tavilyApiKey ? { tavily_search: createTavilySearchTool(searchKeys.tavilyApiKey) } : {}),
     ...(searchKeys?.searxngBaseUrl && isValidServiceUrl(searchKeys.searxngBaseUrl) ? { searxng_search: createSearXNGSearchTool(searchKeys.searxngBaseUrl) } : {}),
     extract_page_content: createExtractPageContentTool(model, getResearchFolder),
-    create_file: createCreateFileTool(getResearchFolder, apiKey),
+    create_file: createCreateFileTool(getResearchFolder, embeddingConfig),
     read_file: createReadFileTool(getResearchFolder),
-    update_file: createUpdateFileTool(getResearchFolder, apiKey),
-    move_file: createMoveFileTool(getResearchFolder, apiKey),
+    update_file: createUpdateFileTool(getResearchFolder, embeddingConfig),
+    move_file: createMoveFileTool(getResearchFolder, embeddingConfig),
     delete_file: createDeleteFileTool(getResearchFolder),
     list_files: createListFilesTool(getResearchFolder),
     research_checkpoint: createResearchCheckpointTool(model),
     sequential_thinking: createSequentialThinkingTool(),
     load_skill: createLoadSkillTool(),
-    search_research: createSearchResearchTool(apiKey, model),
+    search_research: createSearchResearchTool(embeddingConfig, rerankerConfig, model),
     switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
     rename_research_folder: createRenameResearchFolderTool({
       getResearchFolder,
       onFolderRenamed,
-      apiKey,
+      embeddingConfig,
     }),
     create_research_plan: createResearchPlanTool(model),
     verified_research_is_good: createVerifiedResearchIsGoodTool(model, searchKeys),

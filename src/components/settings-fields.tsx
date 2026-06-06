@@ -22,8 +22,102 @@ import {
 } from "@/lib/chat-provider-settings";
 import { getChatProviderLabel, type ChatProvider } from "@/lib/chat-providers";
 import { cn } from "@/lib/utils";
-import { CURRENCIES } from "@/lib/settings-store";
+import {
+  CURRENCIES,
+  EMBEDDING_DEFAULTS,
+  RERANKER_DEFAULTS,
+  resolveEmbeddingConfig,
+} from "@/lib/settings-store";
+import { backfillIndex } from "@/lib/research-search";
 import type { Settings } from "@/hooks/use-settings";
+
+const RESEARCH_INDEX_FIELDS: readonly SettingsFieldDefinition[] = [
+  {
+    key: "embedding_base_url",
+    label: "Embedding Base URL",
+    type: "text",
+    placeholder: EMBEDDING_DEFAULTS.base_url,
+  },
+  {
+    key: "embedding_api_key",
+    label: "Embedding API Key",
+    type: "password",
+    placeholder: "Falls back to OpenRouter key",
+  },
+  {
+    key: "embedding_model",
+    label: "Embedding Model",
+    type: "text",
+    placeholder: EMBEDDING_DEFAULTS.model,
+  },
+  {
+    key: "embedding_dimensions",
+    label: "Dimensions",
+    type: "text",
+    placeholder: String(EMBEDDING_DEFAULTS.dimensions),
+  },
+  {
+    key: "embedding_query_prefix",
+    label: "Query Prefix",
+    type: "text",
+    placeholder: EMBEDDING_DEFAULTS.query_prefix,
+  },
+];
+
+const RERANKER_FIELDS: readonly SettingsFieldDefinition[] = [
+  {
+    key: "reranker_base_url",
+    label: "Reranker Base URL",
+    type: "text",
+    placeholder: RERANKER_DEFAULTS.base_url,
+  },
+  {
+    key: "reranker_api_key",
+    label: "Reranker API Key",
+    type: "password",
+    placeholder: "Falls back to embedding key",
+  },
+  {
+    key: "reranker_model",
+    label: "Reranker Model",
+    type: "text",
+    placeholder: RERANKER_DEFAULTS.model,
+  },
+];
+
+function ReindexButton({ settings }: { settings: Settings }) {
+  const [reindexing, setReindexing] = useState(false);
+
+  async function handleReindex() {
+    setReindexing(true);
+    try {
+      const embeddingConfig = resolveEmbeddingConfig(settings);
+      const dimensions = settings.embedding_dimensions || EMBEDDING_DEFAULTS.dimensions;
+      await backfillIndex(embeddingConfig, dimensions);
+    } catch (err) {
+      console.error("[settings] Re-index failed:", err);
+    } finally {
+      setReindexing(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={reindexing || !resolveEmbeddingConfig(settings).api_key}
+        onClick={() => { void handleReindex(); }}
+      >
+        {reindexing ? "Re-indexing..." : "Re-index All"}
+      </Button>
+      <span className="text-xs text-muted-foreground">
+        Drop and recreate the vector index with current settings.
+      </span>
+    </div>
+  );
+}
 
 interface SettingsFieldsProps {
   settings: Settings;
@@ -209,6 +303,38 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             onCommit={handleCommit}
           />
         ))}
+      </section>
+
+      <section className="space-y-3">
+        <p className="text-sm font-medium">Research Index</p>
+        <div className="space-y-2 rounded-md border p-3">
+          <p className="text-xs text-muted-foreground">
+            Configure the embedding and reranker endpoints for research search.
+            Any OpenAI-compatible <code>/v1/embeddings</code> endpoint works.
+          </p>
+          {RESEARCH_INDEX_FIELDS.map((field) => (
+            <SettingInput
+              key={field.key}
+              field={field}
+              inputId={`${fieldIdPrefix}-${field.key}`}
+              value={String(settings[field.key] ?? "")}
+              onCommit={handleCommit}
+            />
+          ))}
+        </div>
+        <div className="space-y-2 rounded-md border p-3">
+          <p className="text-xs font-medium text-muted-foreground">Reranker</p>
+          {RERANKER_FIELDS.map((field) => (
+            <SettingInput
+              key={field.key}
+              field={field}
+              inputId={`${fieldIdPrefix}-${field.key}`}
+              value={String(settings[field.key] ?? "")}
+              onCommit={handleCommit}
+            />
+          ))}
+        </div>
+        <ReindexButton settings={settings} />
       </section>
 
       <section className="space-y-2">

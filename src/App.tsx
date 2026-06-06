@@ -32,6 +32,7 @@ import {
   type ResearchFolder,
 } from "@/lib/research-history";
 import type { ResearchFolderChangeOptions } from "@/lib/transport";
+import { resolveEmbeddingConfig, resolveRerankerConfig } from "@/lib/settings-store";
 
 declare global {
   interface Window {
@@ -332,6 +333,9 @@ function AppInner() {
 
   if (loading) return null;
 
+  const embeddingConfig = resolveEmbeddingConfig(settings);
+  const rerankerConfig = resolveRerankerConfig(settings);
+
   const searchKeys = {
     braveApiKey: settings.brave_api_key || null,
     exaApiKey: settings.exa_api_key || null,
@@ -558,7 +562,8 @@ function AppInner() {
             activeFolderName={activeResearchFolder}
             chats={researchChats}
             activeChatId={activeResearchChatId}
-            apiKey={settings.openrouter_api_key}
+            embeddingConfig={embeddingConfig}
+            rerankerConfig={rerankerConfig}
             status={researchFoldersStatus}
             chatsStatus={researchChatsStatus}
             runningFolderNames={runningFolderNames}
@@ -599,6 +604,8 @@ function AppInner() {
                   onSelectedModelIdChange={handleSelectedModelChange}
                   searchKeys={searchKeys}
                   currency={settings.currency}
+                  embeddingConfig={embeddingConfig}
+                  rerankerConfig={rerankerConfig}
                   onResearchChatSaved={(folderName) => {
                     if (folderName === activeResearchFolderRef.current) {
                       void refreshResearchChats(folderName);
@@ -618,6 +625,8 @@ function AppInner() {
           config={{
             researchFolder: activeResearchFolder,
             apiKey: settings.openrouter_api_key,
+            embeddingConfig,
+            rerankerConfig,
             getChatModel: getSelectedToolChatModel,
             ...searchKeys,
           }}

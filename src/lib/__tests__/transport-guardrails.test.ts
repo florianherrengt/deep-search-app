@@ -9,6 +9,10 @@ import type {
   LanguageModelV3StreamPart,
   LanguageModelV3StreamResult,
 } from "@ai-sdk/provider";
+import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
+
+const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
+const mockRerankerConfig: RerankerConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "cohere/rerank-4-pro" };
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -79,7 +83,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Research the market")],
         abortSignal: undefined,
       }),
@@ -143,7 +147,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Pick a color")],
         abortSignal: undefined,
       }),
@@ -186,7 +190,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Find the latest pricing for Acme Search")],
         abortSignal: undefined,
       }),
@@ -242,7 +246,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Hello")],
         abortSignal: undefined,
       }),
@@ -271,7 +275,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Pick a color")],
         abortSignal: undefined,
       }),
@@ -362,7 +366,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Find the latest pricing for Acme Search")],
         abortSignal: undefined,
       }),
@@ -429,7 +433,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Find the latest pricing for Acme Search")],
         abortSignal: undefined,
       }),
@@ -461,7 +465,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Hello")],
         abortSignal: abortController.signal,
       }),
@@ -493,7 +497,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Hello")],
         abortSignal: abortController.signal,
       }),
@@ -514,7 +518,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Hello")],
         abortSignal: undefined,
       }),
@@ -540,7 +544,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Hello")],
         abortSignal: undefined,
       }),
@@ -565,7 +569,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Hello")],
         abortSignal: undefined,
       }),
@@ -599,7 +603,7 @@ describe("createGuardedStream", () => {
       createGuardedStream({
         model,
         researchFolder: "test-folder",
-        apiKey: "test-key",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
         messages: [userMessage("Find pricing")],
         abortSignal: undefined,
       }),
@@ -635,7 +639,7 @@ describe("createGuardedStream", () => {
         createGuardedStream({
           model,
           researchFolder: "test-folder",
-          apiKey: "test-key",
+          embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
           messages: scenario.messages,
           abortSignal: undefined,
         }),

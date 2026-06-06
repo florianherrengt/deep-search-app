@@ -42,6 +42,13 @@ pub struct ResearchFolder {
 }
 
 pub fn init_database(app_data_dir: &std::path::Path) -> Result<Database, String> {
+    init_database_with_dimensions(app_data_dir, schema::DEFAULT_DIMENSIONS)
+}
+
+pub fn init_database_with_dimensions(
+    app_data_dir: &std::path::Path,
+    dimensions: usize,
+) -> Result<Database, String> {
     register_sqlite_vec_extension();
 
     let db_path = app_data_dir.join("research.db");
@@ -52,7 +59,7 @@ pub fn init_database(app_data_dir: &std::path::Path) -> Result<Database, String>
     conn.pragma_update(None, "foreign_keys", "ON")
         .map_err(|e| e.to_string())?;
 
-    conn.execute_batch(schema::CREATE_TABLES)
+    conn.execute_batch(&schema::create_tables_sql(dimensions))
         .map_err(|e| e.to_string())?;
     conn.execute(schema::REBUILD_CHUNKS_FTS, [])
         .map_err(|e| e.to_string())?;

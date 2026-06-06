@@ -9,7 +9,7 @@ import {
   renameAppFile,
   writeAppFile,
 } from "@/lib/app-file-storage";
-import { indexResearchFile, deleteResearchFileIndex } from "@/lib/research-search";
+import { indexResearchFile, deleteResearchFileIndex, type EmbeddingConfig } from "@/lib/research-search";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 
 const FilenameField = SafePathSegmentSchema.describe(
@@ -47,7 +47,7 @@ export const deleteFileInputSchema = z.object({
 
 export function createCreateFileTool(
   getResearchFolder: () => Promise<string>,
-  apiKey?: string,
+  embeddingConfig?: EmbeddingConfig,
 ) {
   return tool({
     description:
@@ -66,9 +66,9 @@ export function createCreateFileTool(
 
       await writeAppFile({ subfolder, filename, content });
 
-      if (apiKey) {
+      if (embeddingConfig) {
         await abortablePromise(
-          indexResearchFile(apiKey, folder, filename, content),
+          indexResearchFile(embeddingConfig, folder, filename, content),
           options?.abortSignal,
         ).catch(() => {});
       }
@@ -103,7 +103,7 @@ export function createReadFileTool(
 
 export function createUpdateFileTool(
   getResearchFolder: () => Promise<string>,
-  apiKey?: string,
+  embeddingConfig?: EmbeddingConfig,
 ) {
   return tool({
     description:
@@ -142,9 +142,9 @@ export function createUpdateFileTool(
 
       await writeAppFile({ subfolder, filename, content: newContent });
 
-      if (apiKey) {
+      if (embeddingConfig) {
         await abortablePromise(
-          indexResearchFile(apiKey, folder, filename, newContent),
+          indexResearchFile(embeddingConfig, folder, filename, newContent),
           options?.abortSignal,
         ).catch(() => {});
       }
@@ -156,7 +156,7 @@ export function createUpdateFileTool(
 
 export function createMoveFileTool(
   getResearchFolder: () => Promise<string>,
-  apiKey?: string,
+  embeddingConfig?: EmbeddingConfig,
 ) {
   return tool({
     description:
@@ -179,11 +179,11 @@ export function createMoveFileTool(
 
       await renameAppFile({ subfolder, oldFilename: source, newFilename: destination });
 
-      if (apiKey) {
+      if (embeddingConfig) {
         const content = await readAppFile({ subfolder, filename: destination });
         if (content) {
           await abortablePromise(
-            indexResearchFile(apiKey, folder, destination, content),
+            indexResearchFile(embeddingConfig, folder, destination, content),
             options?.abortSignal,
           ).catch(() => {});
         }

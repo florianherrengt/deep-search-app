@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "prepare:sidecars": "node scripts/prepare-node-sidecar.mjs",
     "preview": "vite preview",
+    "release:set-version": "node scripts/set-release-version.mjs",
     "tauri": "npm run prepare:sidecars && tauri",
     "test": "vitest run",
     "test:watch": "vitest",

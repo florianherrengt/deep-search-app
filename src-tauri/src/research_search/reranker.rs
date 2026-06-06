@@ -1,10 +1,37 @@
 use serde::Deserialize;
 use std::time::Duration;
 
-const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
-const RERANK_MODEL: &str = "cohere/rerank-4-pro";
+const DEFAULT_BASE_URL: &str = "https://openrouter.ai/api/v1";
+const DEFAULT_MODEL: &str = "cohere/rerank-4-pro";
 const MAX_RERANK_CANDIDATES: usize = 15;
 const REQUEST_TIMEOUT_SECS: u64 = 30;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RerankerConfig {
+    pub api_key: String,
+    #[serde(default = "default_base_url")]
+    pub base_url: String,
+    #[serde(default = "default_model")]
+    pub model: String,
+}
+
+fn default_base_url() -> String {
+    DEFAULT_BASE_URL.to_string()
+}
+
+fn default_model() -> String {
+    DEFAULT_MODEL.to_string()
+}
+
+impl Default for RerankerConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            base_url: default_base_url(),
+            model: default_model(),
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct RerankResponse {
@@ -23,7 +50,7 @@ pub struct RerankedItem {
 }
 
 pub fn rerank(
-    api_key: &str,
+    config: &RerankerConfig,
     query: &str,
     documents: &[String],
 ) -> Result<Vec<RerankedItem>, String> {
@@ -42,16 +69,17 @@ pub fn rerank(
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     let body = serde_json::json!({
-        "model": RERANK_MODEL,
+        "model": config.model,
         "query": query,
         "documents": docs,
         "top_n": docs.len(),
     });
 
-    let url = format!("{}/rerank", OPENROUTER_BASE_URL);
+    let base_url = config.base_url.trim_end_matches('/');
+    let url = format!("{}/rerank", base_url);
     let response = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Authorization", format!("Bearer {}", config.api_key))
         .header("Content-Type", "application/json")
         .json(&body)
         .send()

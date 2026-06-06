@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
+
+const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
+const mockRerankerConfig: RerankerConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "cohere/rerank-4-pro" };
 
 const tauriMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -31,7 +35,8 @@ describe("createSearchResearchTool", () => {
 
   it("returns deduped folder names without chunk content", async () => {
     const tool = createSearchResearchTool(
-      "test-key",
+      mockEmbeddingConfig,
+      mockRerankerConfig,
       mockModel(),
     ) as unknown as ExecutableSearchTool;
     tauriMocks.invoke.mockResolvedValueOnce([
@@ -63,7 +68,8 @@ describe("createSearchResearchTool", () => {
 
   it("passes queries array and search options to the backend command", async () => {
     const tool = createSearchResearchTool(
-      "test-key",
+      mockEmbeddingConfig,
+      mockRerankerConfig,
       mockModel(),
     ) as unknown as ExecutableSearchTool;
     tauriMocks.invoke.mockResolvedValueOnce([]);
@@ -75,7 +81,8 @@ describe("createSearchResearchTool", () => {
     });
 
     expect(tauriMocks.invoke).toHaveBeenCalledWith("search_research", {
-      apiKey: "test-key",
+      embeddingConfig: mockEmbeddingConfig,
+      rerankerConfig: mockRerankerConfig,
       queries: ["market size"],
       folder: "market-map",
       limit: 3,
@@ -85,7 +92,8 @@ describe("createSearchResearchTool", () => {
   it("returns empty and logs when the backend search command fails", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const tool = createSearchResearchTool(
-      "test-key",
+      mockEmbeddingConfig,
+      mockRerankerConfig,
       mockModel(),
     ) as unknown as ExecutableSearchTool;
     tauriMocks.invoke.mockRejectedValueOnce(

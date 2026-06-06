@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   indexResearchFile,
   registerResearchFolder,
+  type EmbeddingConfig,
 } from "@/lib/research-search";
 import { writeAppFile } from "@/lib/app-file-storage";
 import { renameResearchFolder } from "@/lib/research-history";
@@ -19,11 +20,11 @@ export const renameResearchFolderInputSchema = z.object({
 export function createRenameResearchFolderTool({
   getResearchFolder,
   onFolderRenamed,
-  apiKey,
+  embeddingConfig,
 }: {
   getResearchFolder: () => Promise<string>;
   onFolderRenamed: (newName: string) => void | Promise<void>;
-  apiKey: string;
+  embeddingConfig: EmbeddingConfig;
 }) {
   return tool({
     description:
@@ -52,7 +53,7 @@ export function createRenameResearchFolderTool({
       });
 
       await registerResearchFolder(folderName, folderName).catch(() => {});
-      await indexResearchFile(apiKey, folderName, "README.md", readmeContent).catch(() => {});
+      await indexResearchFile(embeddingConfig, folderName, "README.md", readmeContent).catch(() => {});
 
       await onFolderRenamed(folderName);
 

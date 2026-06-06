@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { EmbeddingConfig } from "@/lib/research-search";
+
+const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
 
 const fsMocks = vi.hoisted(() => ({
   mkdir: vi.fn(),
@@ -58,7 +61,7 @@ beforeEach(() => {
 
 describe("create_file", () => {
   it("creates a new file and indexes it", async () => {
-    const tool = createCreateFileTool(getFolder, "api-key") as unknown as {
+    const tool = createCreateFileTool(getFolder, mockEmbeddingConfig) as unknown as {
       execute: (i: { filename: string; content: string }) => Promise<string>;
     };
 
@@ -74,7 +77,7 @@ describe("create_file", () => {
       { baseDir: "AppData" },
     );
     expect(researchSearchMocks.indexResearchFile).toHaveBeenCalledWith(
-      "api-key",
+      mockEmbeddingConfig,
       "test-folder",
       "notes.md",
       "hello",
@@ -140,7 +143,7 @@ describe("read_file", () => {
 
 describe("update_file", () => {
   it("replaces a unique string in the file", async () => {
-    const tool = createUpdateFileTool(getFolder, "api-key") as unknown as {
+    const tool = createUpdateFileTool(getFolder, mockEmbeddingConfig) as unknown as {
       execute: (i: {
         filename: string;
         old_string: string;
@@ -166,7 +169,7 @@ describe("update_file", () => {
       { baseDir: "AppData" },
     );
     expect(researchSearchMocks.indexResearchFile).toHaveBeenCalledWith(
-      "api-key",
+      mockEmbeddingConfig,
       "test-folder",
       "notes.md",
       "hello universe",
@@ -268,7 +271,7 @@ describe("update_file", () => {
 
 describe("move_file", () => {
   it("renames a file, deletes old index, and re-indexes under new name", async () => {
-    const tool = createMoveFileTool(getFolder, "api-key") as unknown as {
+    const tool = createMoveFileTool(getFolder, mockEmbeddingConfig) as unknown as {
       execute: (i: { source: string; destination: string }) => Promise<string>;
     };
 
@@ -293,7 +296,7 @@ describe("move_file", () => {
       },
     );
     expect(researchSearchMocks.indexResearchFile).toHaveBeenCalledWith(
-      "api-key",
+      mockEmbeddingConfig,
       "test-folder",
       "new.md",
       "file content",

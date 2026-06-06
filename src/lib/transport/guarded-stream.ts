@@ -22,7 +22,7 @@ import {
 import { getActiveToolNamesForMessages } from "@/lib/tool-call-requirements";
 import systemPrompt from "../system-prompt.md?raw";
 import { createTools, type AppToolSet, type SearchToolKeys } from "./tool-registry";
-import type { SearchResult } from "@/lib/research-search";
+import type { EmbeddingConfig, RerankerConfig, SearchResult } from "@/lib/research-search";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import { skillsStore } from "@/lib/skills-store";
@@ -64,7 +64,8 @@ type AttemptFinish = {
 export function createGuardedStream({
   model,
   researchFolder,
-  apiKey,
+  embeddingConfig,
+  rerankerConfig,
   messages,
   abortSignal,
   onResearchFolderChange,
@@ -75,7 +76,8 @@ export function createGuardedStream({
 }: {
   model: LanguageModel;
   researchFolder: string | null;
-  apiKey: string;
+  embeddingConfig: EmbeddingConfig;
+  rerankerConfig: RerankerConfig;
   messages: UIMessage[];
   abortSignal: AbortSignal | undefined;
   onResearchFolderChange?: (folderName: string) => void | Promise<void>;
@@ -114,7 +116,8 @@ export function createGuardedStream({
             activeResearchFolder = newName;
             await onProvisionalFolderRenamed?.(newName);
           },
-          apiKey,
+          embeddingConfig,
+          rerankerConfig,
           searchKeys,
         });
 

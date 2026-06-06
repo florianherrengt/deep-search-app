@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { EmbeddingConfig } from "@/lib/research-search";
+
+const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
 
 const fsMocks = vi.hoisted(() => ({
   mkdir: vi.fn(),
@@ -49,7 +52,7 @@ describe("createRenameResearchFolderTool", () => {
     const tool = createRenameResearchFolderTool({
       getResearchFolder: async () => "2026-05-22_10-11-12",
       onFolderRenamed,
-      apiKey: "test-key",
+      embeddingConfig: mockEmbeddingConfig,
     }) as unknown as ExecutableRenameTool;
 
     const result = await tool.execute({ name: "acme-market-map" });
@@ -72,7 +75,7 @@ describe("createRenameResearchFolderTool", () => {
     const tool = createRenameResearchFolderTool({
       getResearchFolder: async () => "2026-05-22_10-11-12",
       onFolderRenamed: async () => {},
-      apiKey: "test-key",
+      embeddingConfig: mockEmbeddingConfig,
     }) as unknown as ExecutableRenameTool;
 
     const result = await tool.execute({ name: "How Do LLMs Work?!" });
@@ -94,7 +97,7 @@ describe("createRenameResearchFolderTool", () => {
     const tool = createRenameResearchFolderTool({
       getResearchFolder: async () => "2026-05-22_10-11-12",
       onFolderRenamed: async () => {},
-      apiKey: "test-key",
+      embeddingConfig: mockEmbeddingConfig,
     }) as unknown as ExecutableRenameTool;
 
     const result = await tool.execute({ name: "acme-market-map" });
@@ -107,7 +110,7 @@ describe("createRenameResearchFolderTool", () => {
     const tool = createRenameResearchFolderTool({
       getResearchFolder: async () => "acme-market-map",
       onFolderRenamed: async () => {},
-      apiKey: "test-key",
+      embeddingConfig: mockEmbeddingConfig,
     }) as unknown as ExecutableRenameTool;
 
     await tool.execute({ name: "acme-market-map" });
@@ -121,7 +124,7 @@ describe("createRenameResearchFolderTool", () => {
     const tool = createRenameResearchFolderTool({
       getResearchFolder: async () => "2026-05-22_10-11-12",
       onFolderRenamed,
-      apiKey: "test-key",
+      embeddingConfig: mockEmbeddingConfig,
     }) as unknown as ExecutableRenameTool;
 
     await tool.execute({ name: "my-research" });

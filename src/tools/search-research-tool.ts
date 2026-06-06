@@ -1,7 +1,7 @@
 import { tool, zodSchema, type LanguageModel } from "ai";
 import { z } from "zod";
 import { isAbortError } from "@/lib/abort";
-import { searchResearch } from "@/lib/research-search";
+import { searchResearch, type EmbeddingConfig, type RerankerConfig } from "@/lib/research-search";
 import { evaluateResearchRelevance } from "@/lib/research-relevance-evaluator";
 
 const ResearchFolderMatchSchema = z.object({
@@ -23,7 +23,8 @@ export const searchResearchInputSchema = z.object({
 });
 
 export function createSearchResearchTool(
-  apiKey: string,
+  embeddingConfig: EmbeddingConfig,
+  rerankerConfig: RerankerConfig,
   model: LanguageModel,
 ) {
   return tool({
@@ -33,7 +34,7 @@ export function createSearchResearchTool(
     inputSchema: zodSchema(searchResearchInputSchema),
     outputSchema: zodSchema(z.array(ResearchFolderMatchSchema)),
     execute: async ({ query, folder, limit }, options) => {
-      let results = await searchResearch(apiKey, query, {
+      let results = await searchResearch(embeddingConfig, rerankerConfig, query, {
         folder,
         limit,
         abortSignal: options?.abortSignal,

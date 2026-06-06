@@ -46,6 +46,8 @@ import type {
 import {
   searchResearch,
   type SearchResult,
+  type EmbeddingConfig,
+  type RerankerConfig,
 } from "@/lib/research-search";
 
 interface ResearchSidebarProps {
@@ -53,7 +55,8 @@ interface ResearchSidebarProps {
   activeFolderName: string | null;
   chats: ResearchChatSummary[];
   activeChatId: string | null;
-  apiKey: string;
+  embeddingConfig: EmbeddingConfig;
+  rerankerConfig: RerankerConfig;
   status: "loading" | "ready" | "error";
   chatsStatus: "idle" | "loading" | "ready" | "error";
   runningFolderNames?: string[];
@@ -71,7 +74,8 @@ export function ResearchSidebar({
   activeFolderName,
   chats,
   activeChatId,
-  apiKey,
+  embeddingConfig,
+  rerankerConfig,
   status,
   chatsStatus,
   runningFolderNames = [],
@@ -170,7 +174,7 @@ export function ResearchSidebar({
       setSearchLoading(true);
       setSearchResults(null);
       try {
-        const results = await searchResearch(apiKey, q, { limit: 10 });
+        const results = await searchResearch(embeddingConfig, rerankerConfig, q, { limit: 10 });
         setSearchResults(results);
       } catch {
         setSearchResults([]);
@@ -178,7 +182,7 @@ export function ResearchSidebar({
         setSearchLoading(false);
       }
     },
-    [apiKey, searchQuery],
+    [embeddingConfig, rerankerConfig, searchQuery],
   );
 
   function clearSearch() {
