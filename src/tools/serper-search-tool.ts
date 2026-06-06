@@ -1,12 +1,7 @@
-import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
-import { rateLimit } from "@/lib/rate-limit";
-import {
-  searchQueryInputSchema,
-  formatSearchResults,
-  type SearchResult,
-} from "./search-result";
+import { createSearchTool } from "./create-search-tool";
+import { searchQueryInputSchema } from "./search-result";
 
 const API_BASE_URL = "https://google.serper.dev";
 
@@ -29,11 +24,18 @@ export const serperSearchOutputSchema = z.string();
 export function createSerperSearchTool(apiKey: string) {
   const normalizedApiKey = apiKey.trim();
 
-  async function search(
-    query: string,
-    abortSignal?: AbortSignal,
-  ): Promise<SearchResult[]> {
-    return rateLimit(async () => {
+  return createSearchTool({
+    providerName: "Serper",
+    description: "Search the web with Serper (Google Search API)",
+    responseSchema: SerperWebResponseSchema,
+    throwOnParseError: true,
+    mapResults: (r) =>
+      (r.organic ?? []).map((r) => ({
+        title: r.title,
+        url: r.link,
+        description: r.snippet ?? "",
+      })),
+    execute: async (query, abortSignal) => {
       const response = await fetch(`${API_BASE_URL}/search`, {
         method: "POST",
         headers: {
@@ -48,38 +50,9 @@ export function createSerperSearchTool(apiKey: string) {
         throw new Error(await formatSerperHttpError(response));
       }
 
-      const raw = await parseJsonResponse(response);
-      const parsed = SerperWebResponseSchema.safeParse(raw);
-      if (!parsed.success) {
-        throw new Error(
-          "Serper search response did not match the expected format.",
-        );
-      }
-
-      return (parsed.data.organic ?? []).map((r) => ({
-        title: r.title,
-        url: r.link,
-        description: r.snippet ?? "",
-      }));
-    }, abortSignal);
-  }
-
-  return tool({
-    description: "Search the web with Serper (Google Search API)",
-    strict: true,
-    inputSchema: zodSchema(serperSearchInputSchema),
-    execute: async ({ query }, options) => {
-      return formatSearchResults(await search(query, options?.abortSignal));
+      return await response.text();
     },
   });
-}
-
-async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    throw new Error("Serper search response was not valid JSON.");
-  }
 }
 
 async function formatSerperHttpError(response: Response): Promise<string> {

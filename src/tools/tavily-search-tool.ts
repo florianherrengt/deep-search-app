@@ -1,12 +1,7 @@
-import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
-import { rateLimit } from "@/lib/rate-limit";
-import {
-  searchQueryInputSchema,
-  formatSearchResults,
-  type SearchResult,
-} from "./search-result";
+import { createSearchTool } from "./create-search-tool";
+import { searchQueryInputSchema } from "./search-result";
 
 const API_BASE_URL = "https://api.tavily.com";
 
@@ -27,11 +22,18 @@ export const tavilySearchOutputSchema = z.string();
 export function createTavilySearchTool(apiKey: string) {
   const normalizedApiKey = apiKey.trim();
 
-  async function search(
-    query: string,
-    abortSignal?: AbortSignal,
-  ): Promise<SearchResult[]> {
-    return rateLimit(async () => {
+  return createSearchTool({
+    providerName: "Tavily",
+    description: "Search the web with Tavily Search",
+    responseSchema: TavilyWebResponseSchema,
+    throwOnParseError: true,
+    mapResults: (r) =>
+      r.results.map((r) => ({
+        title: r.title,
+        url: r.url,
+        description: r.content,
+      })),
+    execute: async (query, abortSignal) => {
       const response = await fetch(`${API_BASE_URL}/search`, {
         method: "POST",
         headers: {
@@ -50,38 +52,9 @@ export function createTavilySearchTool(apiKey: string) {
         throw new Error(await formatTavilyHttpError(response));
       }
 
-      const raw = await parseJsonResponse(response);
-      const parsed = TavilyWebResponseSchema.safeParse(raw);
-      if (!parsed.success) {
-        throw new Error(
-          "Tavily search response did not match the expected format.",
-        );
-      }
-
-      return parsed.data.results.map((r) => ({
-        title: r.title,
-        url: r.url,
-        description: r.content,
-      }));
-    }, abortSignal);
-  }
-
-  return tool({
-    description: "Search the web with Tavily Search",
-    strict: true,
-    inputSchema: zodSchema(tavilySearchInputSchema),
-    execute: async ({ query }, options) => {
-      return formatSearchResults(await search(query, options?.abortSignal));
+      return await response.text();
     },
   });
-}
-
-async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    throw new Error("Tavily search response was not valid JSON.");
-  }
 }
 
 async function formatTavilyHttpError(response: Response): Promise<string> {

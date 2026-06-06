@@ -29,7 +29,7 @@ describe("createSerperSearchTool", () => {
     tauriMocks.fetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({
+      text: async () => JSON.stringify({
         organic: [
           {
             title: "Coastal camping review",
@@ -89,7 +89,7 @@ describe("createSerperSearchTool", () => {
     tauriMocks.fetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({ organic: "not an array" }),
+      text: async () => JSON.stringify({ organic: "not an array" }),
     });
 
     await expect(tool.execute({ query: "coastal camping" })).rejects.toThrow(

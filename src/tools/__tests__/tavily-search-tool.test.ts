@@ -29,7 +29,7 @@ describe("createTavilySearchTool", () => {
     tauriMocks.fetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({
+      text: async () => JSON.stringify({
         query: "standing desk",
         results: [
           {
@@ -83,7 +83,7 @@ describe("createTavilySearchTool", () => {
     tauriMocks.fetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({
+      text: async () => JSON.stringify({
         query: "standing desk",
         results: [{ title: "Desk review", url: "https://example.com/desk" }],
       }),

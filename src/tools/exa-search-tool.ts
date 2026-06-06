@@ -1,12 +1,7 @@
-import { tool, zodSchema } from "ai";
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
-import { rateLimit } from "@/lib/rate-limit";
-import {
-  searchQueryInputSchema,
-  formatSearchResults,
-  type SearchResult,
-} from "./search-result";
+import { createSearchTool } from "./create-search-tool";
+import { searchQueryInputSchema } from "./search-result";
 
 const API_BASE_URL = "https://api.exa.ai";
 
@@ -25,11 +20,17 @@ export const exaSearchInputSchema = searchQueryInputSchema;
 export const exaSearchOutputSchema = z.string();
 
 export function createExaSearchTool(apiKey: string) {
-  async function search(
-    query: string,
-    abortSignal?: AbortSignal,
-  ): Promise<SearchResult[]> {
-    return rateLimit(async () => {
+  return createSearchTool({
+    providerName: "Exa",
+    description: "Search the web with Exa",
+    responseSchema: ExaWebResponseSchema,
+    mapResults: (r) =>
+      r.results.map((r) => ({
+        title: r.title,
+        url: r.url,
+        description: r.text,
+      })),
+    execute: async (query, abortSignal) => {
       const response = await fetch(`${API_BASE_URL}/search`, {
         method: "POST",
         headers: {
@@ -45,25 +46,8 @@ export function createExaSearchTool(apiKey: string) {
         signal: abortSignal,
       });
 
-      if (!response.ok) return [];
-
-      const parsed = ExaWebResponseSchema.safeParse(await response.json());
-      if (!parsed.success) return [];
-
-      return parsed.data.results.map((r) => ({
-        title: r.title,
-        url: r.url,
-        description: r.text,
-      }));
-    }, abortSignal);
-  }
-
-  return tool({
-    description: "Search the web with Exa",
-    strict: true,
-    inputSchema: zodSchema(exaSearchInputSchema),
-    execute: async ({ query }, options) => {
-      return formatSearchResults(await search(query, options?.abortSignal));
+      if (!response.ok) return "";
+      return await response.text();
     },
   });
 }
