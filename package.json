@@ -9,10 +9,17 @@
     "prepare:sidecars": "node scripts/prepare-node-sidecar.mjs",
     "preview": "vite preview",
     "release:set-version": "node scripts/set-release-version.mjs",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
+    "storybook:screenshots": "npm run build-storybook && node scripts/storybook-screenshots.mjs",
+    "storybook:screenshots:dev": "node scripts/storybook-screenshots.mjs --url http://127.0.0.1:6006",
     "tauri": "npm run prepare:sidecars && tauri",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npm test --prefix e2e-tests"
+    "test:e2e": "npm test --prefix e2e-tests",
+    "test:visual": "npm run build-storybook && node scripts/visual-snapshot-test.mjs",
+    "test:visual:update": "npm run build-storybook && node scripts/visual-snapshot-test.mjs -- --update",
+    "test:visual:dev": "node scripts/visual-snapshot-test.mjs -- --url http://127.0.0.1:6006"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.79",
@@ -49,13 +56,24 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@storybook/addon-a11y": "^10.4.2",
+    "@storybook/addon-docs": "^10.4.2",
+    "@storybook/addon-vitest": "^10.4.2",
+    "@storybook/react-vite": "^10.4.2",
     "@tauri-apps/cli": "^2",
     "@types/node": "^25.9.0",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
     "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/browser": "^4.1.8",
+    "@vitest/browser-playwright": "^4.1.8",
     "node": "^25.9.0",
+    "pixelmatch": "^7.2.0",
+    "playwright": "^1.60.0",
+    "pngjs": "^7.0.0",
+    "storybook": "^10.4.2",
+    "storybook-addon-vis": "^4.2.3",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "vitest": "^4.1.7"

@@ -22,7 +22,7 @@ export function ToolFallback({
   const [opened, setOpened] = useState(false);
 
   return (
-    <Box my={8} style={{ borderRadius: 8, border: "1px solid var(--mantine-color-default-border)", backgroundColor: "var(--mantine-color-gray-0)" }}>
+    <Box my={8} className="md-surface" style={{ borderRadius: 8, border: "1px solid" }}>
       <UnstyledButton
         onClick={() => setOpened(!opened)}
         aria-label={`${opened ? "Collapse" : "Expand"} ${toolName} details`}
@@ -39,7 +39,7 @@ export function ToolFallback({
         <WrenchIcon style={{ width: 14, height: 14, color: "var(--mantine-color-dimmed)" }} />
         <Text size="sm" fw={500} style={{ color: "var(--mantine-color-gray-7)" }}>{toolName}</Text>
         {status === "running" && (
-          <span style={{ marginLeft: "auto", width: 12, height: 12, borderRadius: "50%", border: "2px solid var(--mantine-color-gray-3)", borderTopColor: "var(--mantine-color-blue-6)", animation: "spin 1s linear infinite" }} />
+          <span style={{ marginLeft: "auto", width: 12, height: 12, borderRadius: "50%", border: "2px solid var(--mantine-color-default-border)", borderTopColor: "var(--mantine-color-blue-6)", animation: "spin 1s linear infinite" }} />
         )}
         {status === "complete" && (
           <Text size="xs" c="teal" ml="auto">done</Text>
@@ -62,7 +62,7 @@ export function ToolFallback({
           {formatValue(args) && (
             <Box mb="xs">
               <Text size="xs" fw={500} c="dimmed" mb={4}>Input</Text>
-              <pre style={{ overflowX: "auto", borderRadius: 4, backgroundColor: "var(--mantine-color-gray-1)", padding: 8, fontSize: 12, whiteSpace: "pre-wrap", margin: 0 }}>
+              <pre className="md-code-bg" style={{ overflowX: "auto", borderRadius: 4, padding: 8, fontSize: 12, whiteSpace: "pre-wrap", margin: 0 }}>
                 {formatValue(args)}
               </pre>
             </Box>
@@ -70,7 +70,7 @@ export function ToolFallback({
           {formatValue(result) && (
             <Box>
               <Text size="xs" fw={500} c="dimmed" mb={4}>Result</Text>
-              <pre style={{ overflowX: "auto", borderRadius: 4, backgroundColor: "var(--mantine-color-gray-1)", padding: 8, fontSize: 12, whiteSpace: "pre-wrap", margin: 0 }}>
+              <pre className="md-code-bg" style={{ overflowX: "auto", borderRadius: 4, padding: 8, fontSize: 12, whiteSpace: "pre-wrap", margin: 0 }}>
                 {formatValue(result)}
               </pre>
             </Box>

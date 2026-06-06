@@ -19,12 +19,11 @@ function AgentDiagnosticCardContent({
   return (
     <Box
       my="sm"
+      className="md-surface"
       style={{
         maxWidth: 576,
         borderRadius: 8,
-        border: "1px solid var(--mantine-color-gray-3)",
-        backgroundColor: "var(--mantine-color-gray-0)",
-        color: "var(--mantine-color-gray-8)",
+        border: "1px solid",
         padding: "8px 12px",
         fontSize: 14,
       }}

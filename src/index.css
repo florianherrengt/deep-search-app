@@ -27,3 +27,29 @@ body,
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
+
+.md-code-bg {
+  background-color: var(--mantine-color-gray-1);
+}
+
+[data-mantine-color-scheme="dark"] .md-code-bg {
+  background-color: var(--mantine-color-dark-7);
+}
+
+.md-surface {
+  background-color: var(--mantine-color-gray-0);
+  border-color: var(--mantine-color-gray-3);
+}
+
+[data-mantine-color-scheme="dark"] .md-surface {
+  background-color: var(--mantine-color-dark-6);
+  border-color: var(--mantine-color-dark-4);
+}
+
+.md-hover-bg:hover {
+  background-color: var(--mantine-color-gray-1);
+}
+
+[data-mantine-color-scheme="dark"] .md-hover-bg:hover {
+  background-color: var(--mantine-color-dark-7);
+}

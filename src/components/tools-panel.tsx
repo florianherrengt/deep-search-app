@@ -292,7 +292,7 @@ function ResultCard({ entry }: { entry: ToolResult }) {
           <Stack gap="sm">
             <Box>
               <Text size="xs" fw={500} c="dimmed" mb={4}>Input</Text>
-              <Paper bg="var(--mantine-color-gray-0)" p="xs" style={{ overflow: "auto", maxHeight: 160 }}>
+              <Paper className="md-code-bg" p="xs" style={{ overflow: "auto", maxHeight: 160 }}>
                 <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(entry.params, null, 2)}</pre>
               </Paper>
             </Box>
@@ -306,7 +306,7 @@ function ResultCard({ entry }: { entry: ToolResult }) {
             ) : (
               <Box>
                 <Text size="xs" fw={500} c="dimmed" mb={4}>Output</Text>
-                <Paper bg="var(--mantine-color-gray-0)" p="xs" style={{ overflow: "auto", maxHeight: 320 }}>
+                <Paper className="md-code-bg" p="xs" style={{ overflow: "auto", maxHeight: 320 }}>
                   <pre style={{ margin: 0, fontSize: 12 }}>
                     {typeof entry.result === "string"
                       ? entry.result

@@ -107,9 +107,13 @@ const ModelSelectorImpl = ({
                 backgroundColor: "transparent",
                 border: "none",
                 fontWeight: 500,
-                ":hover": { backgroundColor: "var(--mantine-color-gray-1)" },
               },
             }
+          : undefined
+      }
+      classNames={
+        variant === "ghost"
+          ? { input: "md-hover-bg" }
           : undefined
       }
     />

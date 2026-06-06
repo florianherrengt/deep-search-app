@@ -76,7 +76,7 @@ function PendingView({
     Object.keys(customAnswers).length > 0;
 
   return (
-    <Box my="sm" p="md" style={{ borderRadius: 8, border: "1px solid var(--mantine-color-gray-3)", backgroundColor: "var(--mantine-color-gray-0)" }}>
+    <Box my="sm" p="md" className="md-surface" style={{ borderRadius: 8, border: "1px solid" }}>
       {questions.map((q: QuestionArgs["questions"][number], qi: number) => (
         <Box key={qi} mb="md">
           <Text size="sm" fw={500} mb="xs">{q.question}</Text>

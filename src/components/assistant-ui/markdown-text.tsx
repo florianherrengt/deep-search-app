@@ -34,7 +34,7 @@ const CodeHeader: FC<{
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderRadius: "8px 8px 0 0", backgroundColor: "var(--mantine-color-gray-1)", padding: "8px 16px", fontSize: 12 }}>
+    <div className="md-code-bg" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderRadius: "8px 8px 0 0", padding: "8px 16px", fontSize: 12 }}>
       <span style={{ color: "var(--mantine-color-dimmed)" }}>{language}</span>
       <button
         onClick={onCopy}
@@ -67,10 +67,10 @@ const defaultComponents = memoizeMarkdownComponents({
   ),
   pre: ({ style, ...props }) => (
     <pre
+      className="md-code-bg"
       style={{
         overflowX: "auto",
         borderRadius: 8,
-        backgroundColor: "var(--mantine-color-gray-1)",
         padding: 16,
         ...style,
       }}
@@ -81,11 +81,11 @@ const defaultComponents = memoizeMarkdownComponents({
     const isCodeBlock = useIsMarkdownCodeBlock();
     return (
       <code
+        className={!isCodeBlock ? "md-code-bg" : undefined}
         style={
           !isCodeBlock
             ? {
                 borderRadius: 4,
-                backgroundColor: "var(--mantine-color-gray-1)",
                 padding: "2px 6px",
                 fontSize: 14,
                 ...style,

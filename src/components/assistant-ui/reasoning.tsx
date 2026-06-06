@@ -45,13 +45,20 @@ function ReasoningRoot({
   const variantStyles: Record<string, React.CSSProperties> = {
     outline: { borderRadius: 8, border: "1px solid var(--mantine-color-default-border)", padding: "8px 12px" },
     ghost: {},
-    muted: { borderRadius: 8, backgroundColor: "var(--mantine-color-gray-1)", padding: "8px 12px" },
+    muted: { borderRadius: 8, padding: "8px 12px" },
+  };
+
+  const variantClassNames: Record<string, string> = {
+    outline: "",
+    ghost: "",
+    muted: "md-code-bg",
   };
 
   return (
     <Box
       ref={collapsibleRef}
       mb="md"
+      className={variantClassNames[variant]}
       style={{ width: "100%", ...variantStyles[variant] }}
     >
       {typeof children === "function"

@@ -217,6 +217,7 @@ export function ResearchSidebar({
     <>
       <Box
         component="aside"
+        data-testid="research-sidebar"
         style={{
           height: "100%",
           width: 256,
@@ -338,8 +339,9 @@ export function ResearchSidebar({
                         fullWidth
                         styles={{
                           inner: { justifyContent: "flex-start" },
-                          root: { minHeight: 36, height: "auto", backgroundColor: active ? "var(--mantine-color-gray-1)" : undefined },
+                          root: { minHeight: 30, height: "auto" },
                         }}
+                        classNames={{ root: active ? "md-code-bg" : undefined }}
                         aria-current={active ? "page" : undefined}
                         onClick={() => onSelectFolder(folder.name)}
                         onContextMenu={(e: ReactMouseEvent) => {
@@ -489,7 +491,7 @@ function ResearchChatList({
         New chat
       </Button>
 
-      <Text size="11" fw={500} tt="uppercase" c="dimmed" px={8} pt={4}>
+      <Text size="xs" fz={11} lh={1.4} fw={500} tt="uppercase" c="dimmed" px={8} pt={4} pb={1}>
         Previous Chats
       </Text>
 
@@ -521,7 +523,7 @@ function ResearchChatList({
               fullWidth
               styles={{
                 inner: { justifyContent: "flex-start", alignItems: "flex-start" },
-                root: { minHeight: 40, height: "auto", padding: "6px 8px" },
+                root: { minHeight: 28, height: "auto", padding: "3px 8px" },
               }}
               aria-current={active ? "page" : undefined}
               onClick={() => onSelectChat(folderName, chat.id)}
@@ -538,9 +540,9 @@ function ResearchChatList({
                 ) : null
               }
             >
-              <Box style={{ minWidth: 0, flex: 1 }}>
-                <Text size="xs" truncate>{chat.title}</Text>
-                <Text size="11" c="dimmed">
+              <Box style={{ minWidth: 0, flex: 1, lineHeight: 1.4 }}>
+                <Text size="xs" truncate lh={1.4}>{chat.title}</Text>
+                <Text size="xs" fz={11} c="dimmed" lh={1.4} mt={1}>
                   {formatChatTimestamp(chat.updatedAt ?? chat.createdAt)}
                 </Text>
               </Box>

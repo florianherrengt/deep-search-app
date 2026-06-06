@@ -8,6 +8,10 @@ Deep Search — a Tauri v2 desktop app for AI-powered research. React/TypeScript
 
 - `npm run dev` — Vite dev server only (port 1420). To run the full desktop app: `npm run tauri dev`
 - `npm run build` — runs `tsc && vite build` (typecheck is baked in, no separate typecheck script)
+- `npm run storybook` — browser-only Storybook dev server for frontend UI review (does not use Tauri)
+- `npm run build-storybook` — static Storybook build
+- `npm run storybook:screenshots` — build Storybook and capture one image per story into `storybook-screenshots/`
+- `npm run storybook:screenshots:dev` — capture screenshots from an already-running Storybook server at `http://127.0.0.1:6006`
 - `npm test` / `npm run test:watch` — Vitest unit tests
 - `npm run test:e2e` — WebdriverIO e2e tests in `e2e-tests/` (requires cargo build + running Tauri binary)
 - Rust tests: `cargo test` in `src-tauri/`
@@ -51,6 +55,22 @@ When adding a new external API endpoint, update **both** files:
 - Unit test files are co-located in `__tests__/` directories within each module
 - Rust tests are inline (`#[cfg(test)]` modules) in `src-tauri/src/lib.rs`
 - E2E tests build and launch the actual Tauri app (expensive, not part of normal dev flow)
+
+## Storybook UI Testing
+
+- Use Storybook for normal browser-based visual development and component review; do not launch the Tauri shell just to inspect frontend UI states.
+- Stories are colocated as `ComponentName.stories.tsx`. Add or update stories when changing reusable components, panels, empty states, loading states, errors, or responsive layout behavior.
+- `storybook-static/` and `storybook-screenshots/` are generated outputs and are ignored by git.
+- To exclude a story from screenshot generation, add the Storybook tag `skip-screenshot` to that story or meta export.
+
+### UI skills
+
+These skills provide structured workflows for visual work. Load them when the task matches:
+
+- **`storybook-snapshots`** — Bulk screenshot capture (all stories or filtered, light/dark, desktop/mobile). Use for before/after comparisons and regression sweeps.
+- **`review-ui`** — Post-change visual QA pass. Captures screenshots, runs the vision agent with a structured checklist, verifies both color schemes. Run before considering UI work done.
+- **`debug-visual-spacing`** — Diagnosing specific spacing/layout/alignment bugs. Inspects computed CSS first, then targeted vision agent analysis.
+- **`ui-toolkit`** — Shared reference for Storybook iframe inspection, Mantine gotchas, cropped screenshots, and vision agent prompting rules. Loaded by the other UI skills.
 
 ## Conventions
 
