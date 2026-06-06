@@ -5,7 +5,7 @@ import {
   type DownloadEvent,
   type Update,
 } from "@tauri-apps/plugin-updater";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 const CHECK_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
@@ -26,15 +26,65 @@ export type AppUpdateState =
   | { status: "restarting"; update: AppUpdateInfo }
   | { status: "error"; update: AppUpdateInfo; error: string };
 
+type AppUpdateAction =
+  | { type: "check_started" }
+  | { type: "check_completed"; update: AppUpdateInfo | null }
+  | { type: "download_started"; update: AppUpdateInfo }
+  | { type: "download_progress"; update: AppUpdateInfo; progress: number | null }
+  | { type: "install_started"; update: AppUpdateInfo; progress: number | null }
+  | { type: "relaunch_started"; update: AppUpdateInfo }
+  | { type: "install_failed"; update: AppUpdateInfo; error: string }
+  | { type: "dismissed" };
+
+export function appUpdateReducer(
+  _state: AppUpdateState,
+  action: AppUpdateAction,
+): AppUpdateState {
+  switch (action.type) {
+    case "check_started":
+      return { status: "checking" };
+    case "check_completed":
+      return action.update === null
+        ? { status: "hidden" }
+        : { status: "available", update: action.update };
+    case "download_started":
+      return { status: "downloading", update: action.update, progress: null };
+    case "download_progress":
+      return {
+        status: "downloading",
+        update: action.update,
+        progress: action.progress,
+      };
+    case "install_started":
+      return {
+        status: "installing",
+        update: action.update,
+        progress: action.progress,
+      };
+    case "relaunch_started":
+      return { status: "restarting", update: action.update };
+    case "install_failed":
+      return {
+        status: "error",
+        update: action.update,
+        error: action.error,
+      };
+    case "dismissed":
+      return { status: "hidden" };
+  }
+}
+
 export function useAppUpdate() {
   const updateRef = useRef<Update | null>(null);
-  const [state, setState] = useState<AppUpdateState>({ status: "hidden" });
+  const [state, dispatch] = useReducer(appUpdateReducer, {
+    status: "hidden",
+  });
 
   useEffect(() => {
     if (!isTauri()) return;
 
     let cancelled = false;
-    setState({ status: "checking" });
+    dispatch({ type: "check_started" });
 
     void check({ timeout: CHECK_TIMEOUT_MS })
       .then((update) => {
@@ -44,16 +94,19 @@ export function useAppUpdate() {
         }
 
         if (!update) {
-          setState({ status: "hidden" });
+          dispatch({ type: "check_completed", update: null });
           return;
         }
 
         updateRef.current = update;
-        setState({ status: "available", update: toUpdateInfo(update) });
+        dispatch({
+          type: "check_completed",
+          update: toUpdateInfo(update),
+        });
       })
       .catch(() => {
         if (!cancelled) {
-          setState({ status: "hidden" });
+          dispatch({ type: "check_completed", update: null });
         }
       });
 
@@ -74,10 +127,9 @@ export function useAppUpdate() {
     let downloaded = 0;
 
     try {
-      setState({
-        status: "downloading",
+      dispatch({
+        type: "download_started",
         update: updateInfo,
-        progress: null,
       });
 
       await update.downloadAndInstall(
@@ -91,16 +143,16 @@ export function useAppUpdate() {
           downloaded = progress.downloaded;
 
           if (event.event === "Finished") {
-            setState({
-              status: "installing",
+            dispatch({
+              type: "install_started",
               update: updateInfo,
               progress: progress.percent,
             });
             return;
           }
 
-          setState({
-            status: "downloading",
+          dispatch({
+            type: "download_progress",
             update: updateInfo,
             progress: progress.percent,
           });
@@ -108,11 +160,11 @@ export function useAppUpdate() {
         { timeout: DOWNLOAD_TIMEOUT_MS },
       );
 
-      setState({ status: "restarting", update: updateInfo });
+      dispatch({ type: "relaunch_started", update: updateInfo });
       await relaunch();
     } catch (error) {
-      setState({
-        status: "error",
+      dispatch({
+        type: "install_failed",
         update: updateInfo,
         error: getErrorMessage(error),
       });
@@ -123,7 +175,7 @@ export function useAppUpdate() {
     const update = updateRef.current;
     updateRef.current = null;
     void update?.close().catch(() => undefined);
-    setState({ status: "hidden" });
+    dispatch({ type: "dismissed" });
   }, []);
 
   return {
