@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Button } from "@/components/ui/button";
+import { XIcon } from "lucide-react";
+import { Button, Group, Box } from "@mantine/core";
 import type { BrowserTab } from "@/hooks/use-browser-tabs";
 
 const TAB_BAR_HEIGHT = 40;
@@ -30,106 +31,94 @@ export function TabPanel({
   onCloseTab,
 }: TabPanelProps) {
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
-      <div
-        className="shrink-0 flex items-center gap-1 border-b bg-background px-2"
-        style={{ height: TAB_BAR_HEIGHT }}
+    <Box style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Group
+        gap={4}
+        style={{
+          height: TAB_BAR_HEIGHT,
+          flexShrink: 0,
+          paddingLeft: 8,
+          paddingRight: 8,
+          borderBottom: "1px solid var(--mantine-color-default-border)",
+          backgroundColor: "var(--mantine-color-body)",
+        }}
+        wrap="nowrap"
       >
-        <Button
-          variant={activeTabId === "main" ? "secondary" : "ghost"}
-          size="sm"
-          className="h-7 px-3 text-xs"
-          data-testid="app-tab"
-          data-tab-id="main"
-          onClick={() => onSwitchTab("main")}
-        >
-          Chat
-        </Button>
-        <Button
-          variant={activeTabId === "settings" ? "secondary" : "ghost"}
-          size="sm"
-          className="h-7 px-3 text-xs"
-          data-testid="app-tab"
-          data-tab-id="settings"
-          onClick={() => onSwitchTab("settings")}
-        >
-          Settings
-        </Button>
-        <Button
-          variant={activeTabId === "prompts" ? "secondary" : "ghost"}
-          size="sm"
-          className="h-7 px-3 text-xs"
-          data-testid="app-tab"
-          data-tab-id="prompts"
-          onClick={() => onSwitchTab("prompts")}
-        >
-          Prompts
-        </Button>
-        <Button
-          variant={activeTabId === "skills" ? "secondary" : "ghost"}
-          size="sm"
-          className="h-7 px-3 text-xs"
-          data-testid="app-tab"
-          data-tab-id="skills"
-          onClick={() => onSwitchTab("skills")}
-        >
-          Skills
-        </Button>
-        <Button
-          variant={activeTabId === "tools" ? "secondary" : "ghost"}
-          size="sm"
-          className="h-7 px-3 text-xs"
-          data-testid="app-tab"
-          data-tab-id="tools"
-          onClick={() => onSwitchTab("tools")}
-        >
-          Tools
-        </Button>
+        {(["main", "settings", "prompts", "skills", "tools"] as const).map(
+          (tabId) => {
+            const label =
+              tabId === "main"
+                ? "Chat"
+                : tabId.charAt(0).toUpperCase() + tabId.slice(1);
+            return (
+              <Button
+                key={tabId}
+                variant={activeTabId === tabId ? "light" : "subtle"}
+                size="compact-sm"
+                data-testid="app-tab"
+                data-tab-id={tabId}
+                onClick={() => onSwitchTab(tabId)}
+              >
+                {label}
+              </Button>
+            );
+          },
+        )}
         {tabs.map((tab) => (
-          <div key={tab.id} className="flex items-center">
+          <Group key={tab.id} gap={0} wrap="nowrap">
             <Button
-              variant={activeTabId === tab.id ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 px-3 text-xs gap-1"
+              variant={activeTabId === tab.id ? "light" : "subtle"}
+              size="compact-sm"
               data-testid="browser-tab"
               data-tab-id={tab.id}
               data-tab-url={tab.url}
               onClick={() => onSwitchTab(tab.id)}
+              styles={{
+                root: { maxWidth: 160 },
+                inner: { justifyContent: "flex-start" },
+                label: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+              }}
             >
-              <span className="max-w-[120px] truncate">{tab.title}</span>
-              <span
-                className="ml-1 text-muted-foreground hover:text-foreground"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCloseTab(tab.id);
-                }}
-              >
-                ✕
-              </span>
+              {tab.title}
             </Button>
-          </div>
+            <Button
+              variant="subtle"
+              size="compact-sm"
+              color="gray"
+              aria-label={`Close ${tab.title} tab`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCloseTab(tab.id);
+              }}
+              styles={{ root: { padding: "0 4px", minWidth: 0, width: "auto" } }}
+            >
+              <XIcon size={12} />
+            </Button>
+          </Group>
         ))}
-        {toolbarEnd ? (
-          <div className="ml-auto flex shrink-0 items-center">{toolbarEnd}</div>
-        ) : null}
-      </div>
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <div className="h-full" hidden={activeTabId !== "main"}>
+        {toolbarEnd && (
+          <Box style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "center" }}>
+            {toolbarEnd}
+          </Box>
+        )}
+      </Group>
+      <Box style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+        <Box style={{ height: "100%" }} hidden={activeTabId !== "main"}>
           {chatPanel}
-        </div>
-        <div className="h-full" hidden={activeTabId !== "settings"}>
+        </Box>
+        <Box style={{ height: "100%" }} hidden={activeTabId !== "settings"}>
           {settingsPanel}
-        </div>
-        <div className="h-full" hidden={activeTabId !== "prompts"}>
+        </Box>
+        <Box style={{ height: "100%" }} hidden={activeTabId !== "prompts"}>
           {promptsPanel}
-        </div>
-        <div className="h-full" hidden={activeTabId !== "skills"}>
+        </Box>
+        <Box style={{ height: "100%" }} hidden={activeTabId !== "skills"}>
           {skillsPanel}
-        </div>
-        <div className="h-full" hidden={activeTabId !== "tools"}>
+        </Box>
+        <Box style={{ height: "100%" }} hidden={activeTabId !== "tools"}>
           {toolsPanel}
-        </div>
-      </div>
-    </div>
+        </Box>
+      </Box>
+    </Box>
   );
 }

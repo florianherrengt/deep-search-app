@@ -374,11 +374,11 @@ function AppInner() {
   if (!hasConfiguredChatProvider) {
     return (
       <>
-        <main className="flex flex-col items-center justify-center pt-[10vh] text-center">
-          <h1 className="text-2xl font-bold">Deep Search</h1>
-          <p className="mt-2 text-sm text-zinc-500">
+        <main style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", paddingTop: "10vh", textAlign: "center" }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700 }}>Deep Search</h1>
+          <p style={{ marginTop: 8, fontSize: 14, color: "var(--mantine-color-dimmed)" }}>
             Press{" "}
-            <kbd className="rounded border px-1.5 py-0.5 text-xs">
+            <kbd style={{ borderRadius: 4, border: "1px solid var(--mantine-color-gray-4)", padding: "2px 6px", fontSize: 12 }}>
               Cmd+,
             </kbd>{" "}
             to open settings and add at least one chat provider API key.
@@ -556,7 +556,7 @@ function AppInner() {
   return (
     <TabPanel
       chatPanel={
-        <div className="flex h-full overflow-hidden bg-background text-foreground">
+        <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
           <ResearchSidebar
             folders={researchFolders}
             activeFolderName={activeResearchFolder}
@@ -579,11 +579,11 @@ function AppInner() {
             onRenameFolder={handleRenameResearchFolder}
             onDeleteFolder={handleDeleteResearchFolder}
           />
-          <div className="min-w-0 flex-1">
+          <div style={{ minWidth: 0, flex: 1 }}>
             {visibleChatSessions.map((session) => (
               <div
                 key={session.sessionId}
-                className="h-full"
+                style={{ height: "100%" }}
                 hidden={session.sessionId !== activeSessionId}
               >
                 <Chat

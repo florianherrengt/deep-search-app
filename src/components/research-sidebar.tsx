@@ -1,4 +1,4 @@
-import { useState, useCallback, type FormEvent } from "react";
+import { useState, useCallback, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
 import {
   FolderIcon,
   FolderOpenIcon,
@@ -13,32 +13,30 @@ import {
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
+  Box,
+  Button,
+  TextInput,
+  Modal,
+  Text,
+  Group,
+  Menu,
+  ScrollArea,
+  ActionIcon,
+  Loader,
+  Stack,
+} from "@mantine/core";
+
+const srOnly: React.CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0,0,0,0)",
+  whiteSpace: "nowrap",
+  borderWidth: 0,
+};
 import type {
   ResearchChatSummary,
   ResearchFolder,
@@ -92,6 +90,7 @@ export function ResearchSidebar({
   const [deleteTarget, setDeleteTarget] = useState<ResearchFolder | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
@@ -216,191 +215,152 @@ export function ResearchSidebar({
 
   return (
     <>
-      <aside className="flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <div className="border-b border-sidebar-border p-3">
+      <Box
+        component="aside"
+        style={{
+          height: "100%",
+          width: 256,
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          borderRight: "1px solid var(--mantine-color-default-border)",
+        }}
+      >
+        <Box p="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
           <Button
-            type="button"
-            className="w-full justify-start"
-            variant={activeFolderName ? "outline" : "secondary"}
+            fullWidth
+            variant={activeFolderName ? "outline" : "light"}
+            styles={{ inner: { justifyContent: "flex-start" } }}
+            leftSection={<PlusIcon size={16} />}
             onClick={onNewChat}
           >
-            <PlusIcon />
             New Chat
           </Button>
-        </div>
+        </Box>
 
-        <div className="border-b border-sidebar-border p-3 pb-2">
-          <form onSubmit={handleSearch} className="relative">
-            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
+        <Box p="sm" pb="xs" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+          <form onSubmit={handleSearch} style={{ position: "relative" }}>
+            <TextInput
               value={searchQuery}
               onChange={(e) => handleSearchInputChange(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") clearSearch();
               }}
               placeholder="Search research... ↵"
-              className="h-8 pl-8 pr-7 text-xs"
+              size="xs"
+              leftSection={<SearchIcon size={14} />}
+              rightSection={
+                searchQuery ? (
+                  <ActionIcon size="xs" variant="subtle" color="gray" onClick={clearSearch}>
+                    <XIcon size={14} />
+                  </ActionIcon>
+                ) : null
+              }
+              styles={{ input: { height: 32, fontSize: 12 } }}
             />
-            {searchQuery && (
-              <button
-                type="button"
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={clearSearch}
-              >
-                <XIcon className="size-3.5" />
-              </button>
-            )}
           </form>
-        </div>
+        </Box>
 
         {showSearchResults ? (
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <ScrollArea style={{ flex: 1, minHeight: 0 }} p="xs">
             {searchLoading ? (
-              <div className="flex items-center justify-center py-4">
-                <LoaderIcon className="size-4 animate-spin text-muted-foreground" />
-              </div>
+              <Group justify="center" py="md">
+                <Loader size="sm" type="dots" />
+              </Group>
             ) : matchedFolders.length > 0 ? (
               <>
-                <div className="px-2 pb-2 text-xs font-medium uppercase text-muted-foreground">
+                <Text size="xs" fw={500} tt="uppercase" c="dimmed" px="xs" pb="xs">
                   {matchedFolders.length} folder{matchedFolders.length === 1 ? "" : "s"} matched
-                </div>
-                <div className="space-y-1">
+                </Text>
+                <Stack gap={4}>
                   {matchedFolders.map((name) => (
-                    <button
+                    <Button
                       key={name}
-                      type="button"
-                      className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      variant="subtle"
+                      fullWidth
+                      color="gray"
+                      styles={{
+                        inner: { justifyContent: "flex-start" },
+                        root: { minHeight: 36, height: "auto" },
+                      }}
                       onClick={() => onSelectFolder(name)}
-                    >
-                      <FolderIcon className="size-4 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">{name}</span>
-                      {runningFolderSet.has(name) && (
-                        <span
-                          className="shrink-0 text-muted-foreground"
-                          title="Research running"
-                        >
-                          <LoaderIcon
-                            className="size-3 animate-spin"
-                            aria-hidden="true"
-                          />
-                          <span className="sr-only">
-                            Research running in {name}
+                      leftSection={<FolderIcon size={16} />}
+                      rightSection={
+                        runningFolderSet.has(name) ? (
+                          <span title="Research running">
+                            <LoaderIcon size={12} style={{ animation: "spin 1s linear infinite" }} />
+                            <span style={srOnly}>
+                              Research running in {name}
+                            </span>
                           </span>
-                        </span>
-                      )}
-                    </button>
+                        ) : null
+                      }
+                    >
+                      {name}
+                    </Button>
                   ))}
-                </div>
+                </Stack>
               </>
             ) : (
-              <div className="px-2 py-2 text-sm text-muted-foreground">
+              <Text size="sm" c="dimmed" px="xs" py="xs">
                 No results found
-              </div>
+              </Text>
             )}
-          </div>
+          </ScrollArea>
         ) : (
-          <nav
-            aria-label="Previous searches"
-            className="min-h-0 flex-1 overflow-y-auto p-2"
-          >
-            <div className="px-2 pb-2 text-xs font-medium uppercase text-muted-foreground">
+          <ScrollArea style={{ flex: 1, minHeight: 0 }} p="xs">
+            <Text size="xs" fw={500} tt="uppercase" c="dimmed" px="xs" pb="xs">
               Previous Searches
-            </div>
+            </Text>
 
             {status === "loading" && folders.length === 0 && (
-              <div className="px-2 py-2 text-sm text-muted-foreground">
-                Loading...
-              </div>
+              <Text size="sm" c="dimmed" px="xs" py="xs">Loading...</Text>
             )}
 
             {status === "error" && folders.length === 0 && (
-              <div className="px-2 py-2 text-sm text-destructive">
-                Could not load searches.
-              </div>
+              <Text size="sm" c="red" px="xs" py="xs">Could not load searches.</Text>
             )}
 
             {status === "ready" && folders.length === 0 && (
-              <div className="px-2 py-2 text-sm text-muted-foreground">
-                No searches yet
-              </div>
+              <Text size="sm" c="dimmed" px="xs" py="xs">No searches yet</Text>
             )}
 
             {folders.length > 0 && (
-              <div className="space-y-1">
+              <Stack gap={4}>
                 {folders.map((folder) => {
                   const active = folder.name === activeFolderName;
                   const folderRunning = runningFolderSet.has(folder.name);
                   return (
-                    <div key={folder.name}>
-                      <ContextMenu>
-                        <ContextMenuTrigger asChild>
-                          <div
-                            className={cn(
-                              "group flex min-h-9 items-center gap-1 rounded-md px-1 transition-colors",
-                              "hover:bg-accent hover:text-accent-foreground",
-                              active
-                                ? "bg-secondary text-secondary-foreground"
-                                : "text-sidebar-foreground",
-                            )}
-                          >
-                            <button
-                              type="button"
-                              aria-current={active ? "page" : undefined}
-                              className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              onClick={() => onSelectFolder(folder.name)}
-                              title={folder.name}
-                            >
-                              <FolderIcon className="size-4 shrink-0" />
-                              <span className="min-w-0 flex-1 truncate">
-                                {folder.name}
+                    <Box key={folder.name}>
+                      <Button
+                        variant="subtle"
+                        color="gray"
+                        fullWidth
+                        styles={{
+                          inner: { justifyContent: "flex-start" },
+                          root: { minHeight: 36, height: "auto", backgroundColor: active ? "var(--mantine-color-gray-1)" : undefined },
+                        }}
+                        aria-current={active ? "page" : undefined}
+                        onClick={() => onSelectFolder(folder.name)}
+                        onContextMenu={(e: ReactMouseEvent) => {
+                          e.preventDefault();
+                          setContextMenu({ folder, x: e.clientX, y: e.clientY });
+                        }}
+                        title={folder.name}
+                        leftSection={<FolderIcon size={16} />}
+                        rightSection={
+                          folderRunning ? (
+                            <span title="Research running">
+                              <LoaderIcon size={12} style={{ animation: "spin 1s linear infinite" }} />
+                              <span style={srOnly}>
+                                Research running in {folder.name}
                               </span>
-                              {folderRunning && (
-                                <span
-                                  className="shrink-0 text-muted-foreground"
-                                  title="Research running"
-                                >
-                                  <LoaderIcon
-                                    className="size-3 animate-spin"
-                                    aria-hidden="true"
-                                  />
-                                  <span className="sr-only">
-                                    Research running in {folder.name}
-                                  </span>
-                                </span>
-                              )}
-                            </button>
-                          </div>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent>
-                          <ContextMenuItem
-                            disabled={folderRunning}
-                            onSelect={() => openRenameDialog(folder)}
-                          >
-                            <PencilIcon className="size-4" />
-                            Rename
-                          </ContextMenuItem>
-                          <ContextMenuItem
-                            disabled={folderRunning}
-                            className="text-destructive focus:text-destructive"
-                            onSelect={() => {
-                              setActionError(null);
-                              setDeleteTarget(folder);
-                            }}
-                          >
-                            <Trash2Icon className="size-4" />
-                            Delete
-                          </ContextMenuItem>
-                          <ContextMenuSeparator />
-                          <ContextMenuItem
-                            onSelect={() =>
-                              void handleRevealInFinder(folder.name)
-                            }
-                          >
-                            <FolderOpenIcon className="size-4" />
-                            Open in Finder
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
+                            </span>
+                          ) : null
+                        }
+                      >
+                        {folder.name}
+                      </Button>
                       {active && (
                         <ResearchChatList
                           folderName={folder.name}
@@ -412,94 +372,83 @@ export function ResearchSidebar({
                           onSelectChat={onSelectChat}
                         />
                       )}
-                    </div>
+                    </Box>
                   );
                 })}
-              </div>
+              </Stack>
             )}
-          </nav>
+          </ScrollArea>
         )}
-      </aside>
+      </Box>
 
-      <Dialog
-        open={!!renameTarget}
-        onOpenChange={(open) => {
-          if (!open) setRenameTarget(null);
-        }}
+      <Modal
+        opened={!!renameTarget}
+        onClose={() => setRenameTarget(null)}
+        title="Rename Search"
+        size="sm"
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename Search</DialogTitle>
-            <DialogDescription>
-              Update the folder name used for this saved search.
-            </DialogDescription>
-          </DialogHeader>
-          <form className="space-y-4" onSubmit={handleRename}>
-            <div className="space-y-2">
-              <Label htmlFor="research-folder-name">Folder Name</Label>
-              <Input
-                id="research-folder-name"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.currentTarget.value)}
-                autoFocus
-              />
-            </div>
-            {actionError && (
-              <p className="text-sm text-destructive">{actionError}</p>
-            )}
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setRenameTarget(null)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={pendingAction}>
-                Rename
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogTitle>Delete Search</AlertDialogTitle>
-          <AlertDialogDescription>
-            Delete {deleteTarget?.name ?? "this search"} and all files in its
-            research folder. This cannot be undone.
-          </AlertDialogDescription>
+        <form onSubmit={handleRename}>
+          <TextInput
+            label="Folder Name"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.currentTarget.value)}
+            autoFocus
+          />
           {actionError && (
-            <p className="text-sm text-destructive">{actionError}</p>
+            <Text size="sm" c="red" mt="xs">{actionError}</Text>
           )}
-          <div className="flex justify-end gap-2">
-            <AlertDialogCancel asChild>
-              <Button variant="outline" size="sm">
-                Cancel
-              </Button>
-            </AlertDialogCancel>
-            <AlertDialogAction asChild>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={pendingAction}
-                onClick={(e) => {
-                  e.preventDefault();
-                  void handleDelete();
-                }}
-              >
-                Delete
-              </Button>
-            </AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
+          <Group justify="flex-end" mt="md">
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={pendingAction}>
+              Rename
+            </Button>
+          </Group>
+        </form>
+      </Modal>
+
+      <Modal
+        opened={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Search"
+        size="sm"
+      >
+        <Text size="sm">
+          Delete {deleteTarget?.name ?? "this search"} and all files in its
+          research folder. This cannot be undone.
+        </Text>
+        {actionError && (
+          <Text size="sm" c="red" mt="xs">{actionError}</Text>
+        )}
+        <Group justify="flex-end" mt="md">
+          <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            color="red"
+            size="sm"
+            disabled={pendingAction}
+            onClick={() => void handleDelete()}
+          >
+            Delete
+          </Button>
+        </Group>
+      </Modal>
+
+      {contextMenu && (
+        <FolderContextMenu
+          state={contextMenu}
+          onClose={() => setContextMenu(null)}
+          folderRunning={runningFolderSet.has(contextMenu.folder.name)}
+          onRename={() => openRenameDialog(contextMenu.folder)}
+          onDelete={() => {
+            setActionError(null);
+            setDeleteTarget(contextMenu.folder);
+          }}
+          onRevealInFinder={() => void handleRevealInFinder(contextMenu.folder.name)}
+        />
+      )}
     </>
   );
 }
@@ -524,37 +473,39 @@ function ResearchChatList({
   onSelectChat,
 }: ResearchChatListProps) {
   return (
-    <div className="ml-6 mt-1 space-y-1 pb-2">
-      <button
-        type="button"
-        className="flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    <Box ml={24} mt={4} pb="xs">
+      <Button
+        variant="subtle"
+        color="gray"
+        fullWidth
+        size="xs"
+        styles={{
+          inner: { justifyContent: "flex-start" },
+          root: { minHeight: 32, height: "auto" },
+        }}
         onClick={() => onNewChat(folderName)}
+        leftSection={<PlusIcon size={14} />}
       >
-        <PlusIcon className="size-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate">New chat</span>
-      </button>
+        New chat
+      </Button>
 
-      <div className="px-2 pt-1 text-[11px] font-medium uppercase text-muted-foreground">
+      <Text size="11" fw={500} tt="uppercase" c="dimmed" px={8} pt={4}>
         Previous Chats
-      </div>
+      </Text>
 
       {status === "loading" && chats.length === 0 && (
-        <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
-          <LoaderIcon className="size-3.5 animate-spin" />
-          Loading chats...
-        </div>
+        <Group gap="xs" px={8} py={6}>
+          <LoaderIcon size={14} style={{ animation: "spin 1s linear infinite" }} />
+          <Text size="xs" c="dimmed">Loading chats...</Text>
+        </Group>
       )}
 
       {status === "error" && chats.length === 0 && (
-        <div className="px-2 py-1.5 text-xs text-destructive">
-          Could not load chats.
-        </div>
+        <Text size="xs" c="red" px={8} py={6}>Could not load chats.</Text>
       )}
 
       {chats.length === 0 && (status === "ready" || status === "idle") && (
-        <div className="px-2 py-1.5 text-xs text-muted-foreground">
-          No saved chats
-        </div>
+        <Text size="xs" c="dimmed" px={8} py={6}>No saved chats</Text>
       )}
 
       {chats.length > 0 &&
@@ -563,44 +514,40 @@ function ResearchChatList({
           const chatRunning = runningChatIds.has(chat.id);
 
           return (
-            <button
+            <Button
               key={chat.id}
-              type="button"
+              variant={active ? "light" : "subtle"}
+              color="gray"
+              fullWidth
+              styles={{
+                inner: { justifyContent: "flex-start", alignItems: "flex-start" },
+                root: { minHeight: 40, height: "auto", padding: "6px 8px" },
+              }}
               aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex min-h-10 w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                active
-                  ? "bg-accent text-accent-foreground"
-                  : "text-sidebar-foreground hover:bg-accent hover:text-accent-foreground",
-              )}
               onClick={() => onSelectChat(folderName, chat.id)}
               title={chat.title}
-            >
-              <MessageSquareIcon className="mt-0.5 size-3.5 shrink-0" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs">{chat.title}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {formatChatTimestamp(chat.updatedAt ?? chat.createdAt)}
-                </span>
-              </span>
-              {chatRunning && (
-                <span
-                  className="mt-0.5 shrink-0 text-muted-foreground"
-                  title="Research running"
-                >
-                  <LoaderIcon
-                    className="size-3 animate-spin"
-                    aria-hidden="true"
-                  />
-                  <span className="sr-only">
-                    Research running in {chat.title}
+              leftSection={<MessageSquareIcon size={14} style={{ marginTop: 2 }} />}
+              rightSection={
+                chatRunning ? (
+                  <span title="Research running">
+                    <LoaderIcon size={12} style={{ marginTop: 2, animation: "spin 1s linear infinite" }} />
+                    <span style={srOnly}>
+                      Research running in {chat.title}
+                    </span>
                   </span>
-                </span>
-              )}
-            </button>
+                ) : null
+              }
+            >
+              <Box style={{ minWidth: 0, flex: 1 }}>
+                <Text size="xs" truncate>{chat.title}</Text>
+                <Text size="11" c="dimmed">
+                  {formatChatTimestamp(chat.updatedAt ?? chat.createdAt)}
+                </Text>
+              </Box>
+            </Button>
           );
         })}
-    </div>
+    </Box>
   );
 }
 
@@ -620,4 +567,72 @@ function formatChatTimestamp(value: string | null) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+type ContextMenuState = {
+  folder: ResearchFolder;
+  x: number;
+  y: number;
+} | null;
+
+function FolderContextMenu({
+  state,
+  onClose,
+  folderRunning,
+  onRename,
+  onDelete,
+  onRevealInFinder,
+}: {
+  state: NonNullable<ContextMenuState>;
+  onClose: () => void;
+  folderRunning: boolean;
+  onRename: () => void;
+  onDelete: () => void;
+  onRevealInFinder: () => void;
+}) {
+  return (
+    <Menu
+      opened
+      onChange={(o) => { if (!o) onClose(); }}
+      position="bottom-start"
+      shadow="md"
+    >
+      <Menu.Target>
+        <div
+          style={{
+            position: "fixed",
+            left: state.x,
+            top: state.y,
+            width: 0,
+            height: 0,
+            pointerEvents: "none",
+          }}
+        />
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Item
+          disabled={folderRunning}
+          leftSection={<PencilIcon size={16} />}
+          onClick={() => { onRename(); onClose(); }}
+        >
+          Rename
+        </Menu.Item>
+        <Menu.Item
+          disabled={folderRunning}
+          color="red"
+          leftSection={<Trash2Icon size={16} />}
+          onClick={() => { onDelete(); onClose(); }}
+        >
+          Delete
+        </Menu.Item>
+        <Menu.Divider />
+        <Menu.Item
+          leftSection={<FolderOpenIcon size={16} />}
+          onClick={() => { onRevealInFinder(); onClose(); }}
+        >
+          Open in Finder
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
 }

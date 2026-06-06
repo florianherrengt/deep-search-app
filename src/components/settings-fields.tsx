@@ -1,15 +1,6 @@
 import { useEffect, useId, useState, type KeyboardEvent } from "react";
 import { XIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  SelectContent,
-  SelectItem,
-  SelectRoot,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/assistant-ui/select";
+import { Button, TextInput, Select, Box, Stack, Text, Group, Checkbox, Paper, ActionIcon } from "@mantine/core";
 import {
   CHAT_PROVIDER_SETTINGS,
   DEFAULT_CHAT_PROVIDER,
@@ -21,7 +12,6 @@ import {
   type SettingsFieldDefinition,
 } from "@/lib/chat-provider-settings";
 import { getChatProviderLabel, type ChatProvider } from "@/lib/chat-providers";
-import { cn } from "@/lib/utils";
 import {
   CURRENCIES,
   EMBEDDING_DEFAULTS,
@@ -102,9 +92,8 @@ function ReindexButton({ settings }: { settings: Settings }) {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <Group gap="xs">
       <Button
-        type="button"
         variant="outline"
         size="sm"
         disabled={reindexing || !resolveEmbeddingConfig(settings).api_key}
@@ -112,10 +101,10 @@ function ReindexButton({ settings }: { settings: Settings }) {
       >
         {reindexing ? "Re-indexing..." : "Re-index All"}
       </Button>
-      <span className="text-xs text-muted-foreground">
+      <Text size="xs" c="dimmed">
         Drop and recreate the vector index with current settings.
-      </span>
-    </div>
+      </Text>
+    </Group>
   );
 }
 
@@ -197,37 +186,22 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
   }
 
   return (
-    <div className="space-y-5">
-      <section className="space-y-3">
-        <div className="space-y-2">
-          <Label htmlFor={`${fieldIdPrefix}-provider`}>Provider</Label>
-          <SelectRoot
-            value={selectedProvider}
-            onValueChange={(value) => setSelectedProvider(value as ChatProvider)}
-          >
-            <SelectTrigger
-              id={`${fieldIdPrefix}-provider`}
-              className="w-full"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CHAT_PROVIDER_SETTINGS.map((definition) => (
-                <SelectItem
-                  key={definition.provider}
-                  value={definition.provider}
-                >
-                  {getChatProviderLabel(definition.provider)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </SelectRoot>
-        </div>
+    <Stack gap="md">
+      <Stack gap="sm">
+        <Select
+          label="Provider"
+          value={selectedProvider}
+          onChange={(value) => setSelectedProvider(value as ChatProvider)}
+          data={CHAT_PROVIDER_SETTINGS.map((definition) => ({
+            value: definition.provider,
+            label: getChatProviderLabel(definition.provider),
+          }))}
+        />
 
-        <div className="space-y-3 rounded-md border p-3">
-          <p className="text-sm font-medium">
+        <Paper withBorder p="sm">
+          <Text size="sm" fw={500}>
             {getChatProviderLabel(selectedDefinition.provider)}
-          </p>
+          </Text>
           {selectedDefinition.fields.map((field) => (
             <SettingInput
               key={`${selectedDefinition.provider}-${field.key}`}
@@ -237,63 +211,57 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
               onCommit={handleCommit}
             />
           ))}
-        </div>
-      </section>
+        </Paper>
+      </Stack>
 
-      <section className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium">Ready to Use</p>
-          <span className="text-xs text-muted-foreground">
-            {readyProviders.length}
-          </span>
-        </div>
+      <Stack gap="xs">
+        <Group justify="space-between">
+          <Text size="sm" fw={500}>Ready to Use</Text>
+          <Text size="xs" c="dimmed">{readyProviders.length}</Text>
+        </Group>
 
         {readyProviders.length > 0 ? (
-          <div className="overflow-hidden rounded-md border">
+          <Paper withBorder>
             {readyProviders.map((definition, index) => {
               const providerLabel = getChatProviderLabel(definition.provider);
 
               return (
-                <div
+                <Group
                   key={definition.provider}
-                  className={cn(
-                    "flex items-center justify-between gap-3 px-3 py-2",
-                    index > 0 && "border-t",
-                  )}
+                  justify="space-between"
+                  px="sm"
+                  py="xs"
+                  style={index > 0 ? { borderTop: "1px solid var(--mantine-color-default-border)" } : undefined}
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {providerLabel}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
+                  <Box style={{ minWidth: 0 }}>
+                    <Text size="sm" fw={500} truncate>{providerLabel}</Text>
+                    <Text size="xs" c="dimmed" truncate>
                       {getProviderModel(settings, definition)}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
+                    </Text>
+                  </Box>
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    color="gray"
                     aria-label={`Remove ${providerLabel}`}
                     title={`Remove ${providerLabel}`}
-                    onClick={() => {
-                      void handleRemoveProvider(definition);
-                    }}
+                    onClick={() => void handleRemoveProvider(definition)}
                   >
-                    <XIcon />
-                  </Button>
-                </div>
+                    <XIcon size={14} />
+                  </ActionIcon>
+                </Group>
               );
             })}
-          </div>
+          </Paper>
         ) : (
-          <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
-            No providers configured.
-          </p>
+          <Paper withBorder p="sm" style={{ borderStyle: "dashed" }}>
+            <Text size="sm" c="dimmed">No providers configured.</Text>
+          </Paper>
         )}
-      </section>
+      </Stack>
 
-      <section className="space-y-3">
-        <p className="text-sm font-medium">Search Services</p>
+      <Stack gap="sm">
+        <Text size="sm" fw={500}>Search Services</Text>
         {SERVICE_FIELDS.map((field) => (
           <SettingInput
             key={field.key}
@@ -303,15 +271,15 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             onCommit={handleCommit}
           />
         ))}
-      </section>
+      </Stack>
 
-      <section className="space-y-3">
-        <p className="text-sm font-medium">Research Index</p>
-        <div className="space-y-2 rounded-md border p-3">
-          <p className="text-xs text-muted-foreground">
+      <Stack gap="sm">
+        <Text size="sm" fw={500}>Research Index</Text>
+        <Paper withBorder p="sm">
+          <Text size="xs" c="dimmed">
             Configure the embedding and reranker endpoints for research search.
             Any OpenAI-compatible <code>/v1/embeddings</code> endpoint works.
-          </p>
+          </Text>
           {RESEARCH_INDEX_FIELDS.map((field) => (
             <SettingInput
               key={field.key}
@@ -321,9 +289,9 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
               onCommit={handleCommit}
             />
           ))}
-        </div>
-        <div className="space-y-2 rounded-md border p-3">
-          <p className="text-xs font-medium text-muted-foreground">Reranker</p>
+        </Paper>
+        <Paper withBorder p="sm">
+          <Text size="xs" fw={500} c="dimmed">Reranker</Text>
           {RERANKER_FIELDS.map((field) => (
             <SettingInput
               key={field.key}
@@ -333,62 +301,40 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
               onCommit={handleCommit}
             />
           ))}
-        </div>
+        </Paper>
         <ReindexButton settings={settings} />
-      </section>
+      </Stack>
 
-      <section className="space-y-2">
-        <Label htmlFor={`${fieldIdPrefix}-currency`}>Currency</Label>
-        <SelectRoot
-          value={settings.currency}
-          onValueChange={(value) => {
-            void updateSetting("currency", value as Settings["currency"]);
+      <Select
+        label="Currency"
+        value={settings.currency}
+        onChange={(value) => {
+          void updateSetting("currency", value as Settings["currency"]);
+        }}
+        data={CURRENCIES.map((code) => ({ value: code, label: code }))}
+      />
+
+      <Paper withBorder p="sm">
+        <Checkbox
+          id={`${fieldIdPrefix}-chrome-devtools-mcp`}
+          label={
+            <Box>
+              <Text size="sm" fw={500}>Chrome DevTools MCP</Text>
+              <Text size="xs" c="dimmed">
+                Allow last-resort control of a local Chrome session when normal extraction is not enough.
+              </Text>
+            </Box>
+          }
+          checked={settings.chrome_devtools_mcp_enabled}
+          onChange={(event) => {
+            void updateSetting(
+              "chrome_devtools_mcp_enabled",
+              event.currentTarget.checked,
+            );
           }}
-        >
-          <SelectTrigger
-            id={`${fieldIdPrefix}-currency`}
-            className="w-full"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {CURRENCIES.map((code) => (
-              <SelectItem key={code} value={code}>
-                {code}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </SelectRoot>
-      </section>
-
-      <section className="space-y-2 rounded-md border p-3">
-        <label
-          htmlFor={`${fieldIdPrefix}-chrome-devtools-mcp`}
-          className="flex items-start gap-3"
-        >
-          <input
-            id={`${fieldIdPrefix}-chrome-devtools-mcp`}
-            type="checkbox"
-            className="mt-1 h-4 w-4 rounded border-input"
-            checked={settings.chrome_devtools_mcp_enabled}
-            onChange={(event) => {
-              void updateSetting(
-                "chrome_devtools_mcp_enabled",
-                event.currentTarget.checked,
-              );
-            }}
-          />
-          <span className="min-w-0">
-            <span className="block text-sm font-medium">
-              Chrome DevTools MCP
-            </span>
-            <span className="block text-xs text-muted-foreground">
-              Allow last-resort control of a local Chrome session when normal extraction is not enough.
-            </span>
-          </span>
-        </label>
-      </section>
-    </div>
+        />
+      </Paper>
+    </Stack>
   );
 }
 
@@ -417,19 +363,17 @@ function SettingInput({
   }
 
   return (
-    <div className="space-y-2">
-      <Label htmlFor={inputId}>{field.label}</Label>
-      <Input
-        id={inputId}
-        type={field.type}
-        placeholder={field.placeholder}
-        value={draft}
-        onChange={(event) => setDraft(event.currentTarget.value)}
-        onBlur={() => {
-          void onCommit(field.key, draft);
-        }}
-        onKeyDown={handleKeyDown}
-      />
-    </div>
+    <TextInput
+      id={inputId}
+      type={field.type}
+      label={field.label}
+      placeholder={field.placeholder}
+      value={draft}
+      onChange={(event) => setDraft(event.currentTarget.value)}
+      onBlur={() => {
+        void onCommit(field.key, draft);
+      }}
+      onKeyDown={handleKeyDown}
+    />
   );
 }

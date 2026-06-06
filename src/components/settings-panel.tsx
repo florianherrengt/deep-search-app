@@ -1,13 +1,5 @@
 import { useState } from "react";
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Modal, Button, Text, Group, Box, ScrollArea, Stack } from "@mantine/core";
 import { SettingsFields } from "@/components/settings-fields";
 import { useSettings } from "@/hooks/use-settings";
 
@@ -21,53 +13,46 @@ export function SettingsPanel() {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-lg px-4 py-8">
-        <h2 className="text-lg font-semibold">Settings</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+    <ScrollArea style={{ height: "100%" }}>
+      <Box maw={512} mx="auto" p="md" py={32}>
+        <Text size="lg" fw={600}>Settings</Text>
+        <Text size="sm" c="dimmed" mt={4}>
           Configure API keys and preferences. Changes are saved automatically.
-        </p>
+        </Text>
 
-        <div className="mt-6 space-y-4">
+        <Stack gap="md" mt="md">
           <SettingsFields settings={settings} updateSetting={updateSetting} />
-        </div>
+        </Stack>
 
-        <div className="mt-6 border-t pt-4">
+        <Box mt="md" style={{ borderTop: "1px solid var(--mantine-color-default-border)", paddingTop: 16 }}>
           <Button
-            variant="destructive"
+            color="red"
             size="sm"
             onClick={() => setConfirmOpen(true)}
           >
             Reset All Settings
           </Button>
-        </div>
+        </Box>
 
-        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-          <AlertDialogContent>
-            <AlertDialogTitle>Reset All Settings</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will clear all API keys and preferences. This action cannot be
-              undone.
-            </AlertDialogDescription>
-            <div className="flex justify-end gap-2">
-              <AlertDialogCancel asChild>
-                <Button variant="outline" size="sm">
-                  Cancel
-                </Button>
-              </AlertDialogCancel>
-              <AlertDialogAction asChild>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleConfirmReset}
-                >
-                  Confirm Reset
-                </Button>
-              </AlertDialogAction>
-            </div>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
-    </div>
+        <Modal
+          opened={confirmOpen}
+          onClose={() => setConfirmOpen(false)}
+          title="Reset All Settings"
+          size="sm"
+        >
+          <Text size="sm">
+            This will clear all API keys and preferences. This action cannot be undone.
+          </Text>
+          <Group justify="flex-end" mt="md">
+            <Button variant="outline" size="sm" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button color="red" size="sm" onClick={handleConfirmReset}>
+              Confirm Reset
+            </Button>
+          </Group>
+        </Modal>
+      </Box>
+    </ScrollArea>
   );
 }

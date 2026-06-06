@@ -1,10 +1,6 @@
 import { ChevronDownIcon, WrenchIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapse, Box, Text, UnstyledButton } from "@mantine/core";
+import { useState } from "react";
 
 function formatValue(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -23,60 +19,64 @@ export function ToolFallback({
   result?: unknown;
   status: "running" | "complete" | "error";
 }) {
+  const [opened, setOpened] = useState(false);
+
   return (
-    <Collapsible className="my-2 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50">
-      <CollapsibleTrigger
-        className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
-          "hover:bg-zinc-100 dark:hover:bg-zinc-800",
-        )}
+    <Box my={8} style={{ borderRadius: 8, border: "1px solid var(--mantine-color-default-border)", backgroundColor: "var(--mantine-color-gray-0)" }}>
+      <UnstyledButton
+        onClick={() => setOpened(!opened)}
+        aria-label={`${opened ? "Collapse" : "Expand"} ${toolName} details`}
+        style={{
+          display: "flex",
+          width: "100%",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 12px",
+          fontSize: 14,
+          textAlign: "left",
+        }}
       >
-        <WrenchIcon className="h-3.5 w-3.5 text-zinc-400" />
-        <span className="font-medium text-zinc-700 dark:text-zinc-200">
-          {toolName}
-        </span>
+        <WrenchIcon style={{ width: 14, height: 14, color: "var(--mantine-color-dimmed)" }} />
+        <Text size="sm" fw={500} style={{ color: "var(--mantine-color-gray-7)" }}>{toolName}</Text>
         {status === "running" && (
-          <span className="ml-auto h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-blue-500" />
+          <span style={{ marginLeft: "auto", width: 12, height: 12, borderRadius: "50%", border: "2px solid var(--mantine-color-gray-3)", borderTopColor: "var(--mantine-color-blue-6)", animation: "spin 1s linear infinite" }} />
         )}
         {status === "complete" && (
-          <span className="ml-auto text-xs text-green-600 dark:text-green-400">
-            done
-          </span>
+          <Text size="xs" c="teal" ml="auto">done</Text>
         )}
         {status === "error" && (
-          <span className="ml-auto text-xs text-red-500">error</span>
+          <Text size="xs" c="red" ml="auto">error</Text>
         )}
         <ChevronDownIcon
-          className={cn(
-            "h-3.5 w-3.5 text-zinc-400 transition-transform duration-200",
-            "group-data-[state=open]:rotate-180",
-          )}
+          style={{
+            width: 14,
+            height: 14,
+            color: "var(--mantine-color-dimmed)",
+            transition: "transform 0.2s",
+            transform: opened ? "rotate(180deg)" : "rotate(0deg)",
+          }}
         />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-zinc-200 dark:border-zinc-700">
-        <div className="px-3 py-2">
+      </UnstyledButton>
+      <Collapse in={opened}>
+        <Box style={{ borderTop: "1px solid var(--mantine-color-default-border)", padding: "8px 12px" }}>
           {formatValue(args) && (
-            <div className="mb-2">
-              <div className="mb-1 text-xs font-medium text-zinc-500">
-                Input
-              </div>
-              <pre className="overflow-x-auto rounded bg-zinc-100 p-2 text-xs whitespace-pre-wrap dark:bg-zinc-900">
+            <Box mb="xs">
+              <Text size="xs" fw={500} c="dimmed" mb={4}>Input</Text>
+              <pre style={{ overflowX: "auto", borderRadius: 4, backgroundColor: "var(--mantine-color-gray-1)", padding: 8, fontSize: 12, whiteSpace: "pre-wrap", margin: 0 }}>
                 {formatValue(args)}
               </pre>
-            </div>
+            </Box>
           )}
           {formatValue(result) && (
-            <div>
-              <div className="mb-1 text-xs font-medium text-zinc-500">
-                Result
-              </div>
-              <pre className="overflow-x-auto rounded bg-zinc-100 p-2 text-xs whitespace-pre-wrap dark:bg-zinc-900">
+            <Box>
+              <Text size="xs" fw={500} c="dimmed" mb={4}>Result</Text>
+              <pre style={{ overflowX: "auto", borderRadius: 4, backgroundColor: "var(--mantine-color-gray-1)", padding: 8, fontSize: 12, whiteSpace: "pre-wrap", margin: 0 }}>
                 {formatValue(result)}
               </pre>
-            </div>
+            </Box>
           )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+        </Box>
+      </Collapse>
+    </Box>
   );
 }

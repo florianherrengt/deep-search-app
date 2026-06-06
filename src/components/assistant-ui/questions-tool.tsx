@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { makeAssistantToolUI } from "@assistant-ui/react";
 import { CheckCircleIcon } from "lucide-react";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Button, Text, Box, TextInput } from "@mantine/core";
 import { z } from "zod";
 import { questionsInputSchema } from "@/tools/questions-tool";
 
@@ -76,65 +76,60 @@ function PendingView({
     Object.keys(customAnswers).length > 0;
 
   return (
-    <div className="my-2 space-y-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+    <Box my="sm" p="md" style={{ borderRadius: 8, border: "1px solid var(--mantine-color-gray-3)", backgroundColor: "var(--mantine-color-gray-0)" }}>
       {questions.map((q: QuestionArgs["questions"][number], qi: number) => (
-        <div key={qi} className="space-y-2">
-          <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-            {q.question}
-          </div>
-          <ToggleGroup
-            type="single"
-            value={selections[qi] ?? ""}
-            onValueChange={(v) => handleSelect(qi, v)}
-            className="flex flex-wrap gap-2"
-          >
+        <Box key={qi} mb="md">
+          <Text size="sm" fw={500} mb="xs">{q.question}</Text>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {q.candidates.map((c: { label: string; value: string }) => (
-              <ToggleGroupItem
+              <Button
                 key={c.value}
-                value={c.value}
-                className="rounded-lg border px-3 py-1.5 text-sm data-[state=on]:border-blue-500 data-[state=on]:bg-blue-50 data-[state=on]:text-blue-700 dark:data-[state=on]:border-blue-400 dark:data-[state=on]:bg-blue-900/30 dark:data-[state=on]:text-blue-300"
+                size="xs"
+                variant={selections[qi] === c.value ? "filled" : "outline"}
+                onClick={() => handleSelect(qi, c.value)}
+                radius="md"
               >
                 {c.label}
-              </ToggleGroupItem>
+              </Button>
             ))}
-          </ToggleGroup>
-          <input
-            type="text"
+          </div>
+          <TextInput
             placeholder="Or type your own..."
             value={customAnswers[qi] ?? ""}
-            onChange={(e) => setCustom(qi, e.target.value)}
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none placeholder:text-zinc-400 focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+            onChange={(e) => setCustom(qi, e.currentTarget.value)}
+            size="sm"
+            mt="xs"
           />
-        </div>
+        </Box>
       ))}
-      <button
+      <Button
         onClick={handleSubmit}
         disabled={!hasAny}
-        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:hover:bg-blue-600"
+        size="sm"
       >
         Submit Answers
-      </button>
-    </div>
+      </Button>
+    </Box>
   );
 }
 
 function CompletedView({ result }: { result: QuestionResult }) {
   return (
-    <div className="my-2 space-y-1 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-900/20">
-      <div className="mb-2 flex items-center gap-1.5 text-sm font-medium text-green-700 dark:text-green-400">
-        <CheckCircleIcon className="h-4 w-4" />
-        Answers submitted
+    <Box my="sm" p="sm" style={{ borderRadius: 8, border: "1px solid var(--mantine-color-teal-3)", backgroundColor: "var(--mantine-color-teal-0)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+        <CheckCircleIcon style={{ width: 16, height: 16, color: "var(--mantine-color-teal-6)" }} />
+        <Text size="sm" fw={500} c="teal.7">Answers submitted</Text>
       </div>
       {result.answers.map((a, i) => (
-        <div key={i} className="text-sm text-zinc-700 dark:text-zinc-300">
-          <span className="font-medium">{a.question}</span>
-          <span className="mx-1">&rarr;</span>
-          <span className={a.custom ? "italic" : ""}>{a.answer}</span>
+        <Text key={i} size="sm" c="gray.7">
+          <span style={{ fontWeight: 500 }}>{a.question}</span>
+          <span style={{ margin: "0 4px" }}>&rarr;</span>
+          <span style={a.custom ? { fontStyle: "italic" } : undefined}>{a.answer}</span>
           {a.custom && (
-            <span className="ml-1 text-xs text-zinc-400">(custom)</span>
+            <Text component="span" size="xs" c="dimmed" ml={4}>(custom)</Text>
           )}
-        </div>
+        </Text>
       ))}
-    </div>
+    </Box>
   );
 }

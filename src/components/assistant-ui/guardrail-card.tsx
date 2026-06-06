@@ -7,7 +7,7 @@ import {
   guardrailEventSchema,
   type GuardrailEvent,
 } from "@/lib/agent-guards";
-import { cn } from "@/lib/utils";
+import { Box } from "@mantine/core";
 
 export function GuardrailCard({ event }: { event: unknown }) {
   const parsed = guardrailEventSchema.safeParse(event);
@@ -24,27 +24,27 @@ function GuardrailCardContent({ event }: { event: GuardrailEvent }) {
       ? CheckCircleIcon
       : ShieldCheckIcon;
 
+  const colorStyles: React.CSSProperties = warning
+    ? { borderColor: "var(--mantine-color-yellow-3)", backgroundColor: "var(--mantine-color-yellow-0)", color: "var(--mantine-color-yellow-8)" }
+    : passed
+      ? { borderColor: "var(--mantine-color-green-3)", backgroundColor: "var(--mantine-color-green-0)", color: "var(--mantine-color-green-8)" }
+      : { borderColor: "var(--mantine-color-blue-3)", backgroundColor: "var(--mantine-color-blue-0)", color: "var(--mantine-color-blue-8)" };
+
   return (
-    <div
-      className={cn(
-        "my-2 max-w-xl rounded-lg border px-3 py-2 text-sm",
-        warning
-          ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
-          : passed
-            ? "border-green-200 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950/30 dark:text-green-200"
-            : "border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200",
-      )}
+    <Box
+      my="sm"
+      style={{ maxWidth: 576, borderRadius: 8, border: "1px solid", padding: "8px 12px", fontSize: 14, ...colorStyles }}
     >
-      <div className="flex items-start gap-2">
-        <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-        <div className="min-w-0">
-          <div className="font-medium">{event.title}</div>
-          <div className="mt-0.5 text-xs opacity-80">
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <Icon style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 500 }}>{event.title}</div>
+          <div style={{ marginTop: 2, fontSize: 12, opacity: 0.8 }}>
             {event.message}
             {event.attempt ? ` Attempt ${event.attempt}.` : ""}
           </div>
         </div>
       </div>
-    </div>
+    </Box>
   );
 }

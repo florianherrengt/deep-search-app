@@ -1,11 +1,7 @@
 import { useState, useCallback } from "react";
 import { PencilIcon, TrashIcon, PlusIcon, XIcon, CheckIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button, TextInput, Textarea, Box, Text, Group, Paper, Stack, ScrollArea, ActionIcon } from "@mantine/core";
 import { usePromptTemplates } from "@/hooks/use-prompt-templates";
-import type { Template } from "@/lib/prompt-templates-store";
-import { cn } from "@/lib/utils";
 
 type EditingState =
   | { mode: "idle" }
@@ -32,7 +28,7 @@ export function PromptTemplatesSection() {
     setError(null);
   }, []);
 
-  const startEdit = useCallback((template: Template) => {
+  const startEdit = useCallback((template: { name: string; text: string }) => {
     setEditing({ mode: "edit", originalName: template.name });
     setDraftName(template.name);
     setDraftText(template.text);
@@ -85,129 +81,128 @@ export function PromptTemplatesSection() {
   );
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      <div className="mx-auto w-full max-w-2xl px-4 py-8 shrink-0">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold">Prompt Templates</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+    <Box style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Box maw={640} mx="auto" w="100%" px="md" py={32} style={{ flexShrink: 0 }}>
+        <Group justify="space-between">
+          <Box>
+            <Text size="lg" fw={600}>Prompt Templates</Text>
+            <Text size="sm" c="dimmed" mt={4}>
               Create reusable prompts for quick access from the chat.
-            </p>
-          </div>
+            </Text>
+          </Box>
           <Button
             variant="outline"
             size="sm"
             onClick={startAdd}
             disabled={editing.mode !== "idle"}
+            leftSection={<PlusIcon size={14} />}
           >
-            <PlusIcon className="size-3.5" />
             Add
           </Button>
-        </div>
-      </div>
+        </Group>
+      </Box>
 
-      <div className="mx-auto w-full max-w-2xl px-4 flex-1 min-h-0 overflow-y-auto pb-8">
-        {editing.mode !== "idle" ? (
-          <div className="flex flex-col gap-3 rounded-md border p-4 h-full">
-            <div className="space-y-1.5 shrink-0">
-              <Label>Name</Label>
-              <Input
-                value={draftName}
-                onChange={(e) => {
-                  setDraftName(e.currentTarget.value);
-                  setError(null);
-                }}
-                placeholder="Template name"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void handleSave();
-                  } else if (e.key === "Escape") {
-                    cancelEdit();
-                  }
-                }}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5 flex-1 min-h-0">
-              <Label className="shrink-0">Prompt</Label>
-              <textarea
-                value={draftText}
-                onChange={(e) => {
-                  setDraftText(e.currentTarget.value);
-                  setError(null);
-                }}
-                placeholder="Enter prompt text..."
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring resize-none flex-1 min-h-0"
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") cancelEdit();
-                }}
-              />
-            </div>
-            {error && (
-              <p className="text-sm text-destructive shrink-0">{error}</p>
-            )}
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                size="sm"
-                onClick={() => void handleSave()}
-              >
-                <CheckIcon className="size-3.5" />
-                Save
-              </Button>
-              <Button variant="outline" size="sm" onClick={cancelEdit}>
-                <XIcon className="size-3.5" />
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : templates.length > 0 ? (
-          <div className="overflow-hidden rounded-md border">
-            {templates.map((template, index) => (
-              <div
-                key={template.name}
-                className={cn(
-                  "flex items-start justify-between gap-3 px-4 py-3",
-                  index > 0 && "border-t",
+      <ScrollArea style={{ flex: 1, minHeight: 0 }} pb={32}>
+        <Box maw={640} mx="auto" w="100%" px="md">
+          {editing.mode !== "idle" ? (
+            <Paper withBorder p="md" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+              <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
+                <TextInput
+                  label="Name"
+                  value={draftName}
+                  onChange={(e) => {
+                    setDraftName(e.currentTarget.value);
+                    setError(null);
+                  }}
+                  placeholder="Template name"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void handleSave();
+                    } else if (e.key === "Escape") {
+                      cancelEdit();
+                    }
+                  }}
+                />
+                <Box style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                  <Text size="sm" fw={500} mb={4}>Prompt</Text>
+                  <Textarea
+                    value={draftText}
+                    onChange={(e) => {
+                      setDraftText(e.currentTarget.value);
+                      setError(null);
+                    }}
+                    placeholder="Enter prompt text..."
+                    autosize
+                    minRows={6}
+                    style={{ flex: 1 }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") cancelEdit();
+                    }}
+                  />
+                </Box>
+                {error && (
+                  <Text size="sm" c="red">{error}</Text>
                 )}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
-                    {template.name}
-                  </p>
-                  <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground whitespace-pre-wrap">
-                    {template.text}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`Edit ${template.name}`}
-                    title="Edit"
-                    onClick={() => startEdit(template)}
-                  >
-                    <PencilIcon />
+                <Group gap="xs">
+                  <Button size="sm" onClick={() => void handleSave()} leftSection={<CheckIcon size={14} />}>
+                    Save
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`Delete ${template.name}`}
-                    title="Delete"
-                    onClick={() => void handleDelete(template.name)}
-                  >
-                    <TrashIcon />
+                  <Button variant="outline" size="sm" onClick={cancelEdit} leftSection={<XIcon size={14} />}>
+                    Cancel
                   </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="rounded-md border border-dashed px-4 py-3 text-sm text-muted-foreground">
-            No templates yet. Click Add to create one.
-          </p>
-        )}
-      </div>
-    </div>
+                </Group>
+              </Stack>
+            </Paper>
+          ) : templates.length > 0 ? (
+            <Paper withBorder>
+              {templates.map((template, index) => (
+                <Group
+                  key={template.name}
+                  justify="space-between"
+                  px="md"
+                  py="sm"
+                  style={index > 0 ? { borderTop: "1px solid var(--mantine-color-default-border)" } : undefined}
+                >
+                  <Box style={{ minWidth: 0, flex: 1 }}>
+                    <Text size="sm" fw={500} truncate>{template.name}</Text>
+                    <Text size="xs" c="dimmed" lineClamp={2} mt={2} style={{ whiteSpace: "pre-wrap" }}>
+                      {template.text}
+                    </Text>
+                  </Box>
+                  <Group gap={2}>
+                    <ActionIcon
+                      size="sm"
+                      variant="subtle"
+                      color="gray"
+                      aria-label={`Edit ${template.name}`}
+                      title="Edit"
+                      onClick={() => startEdit(template)}
+                    >
+                      <PencilIcon size={14} />
+                    </ActionIcon>
+                    <ActionIcon
+                      size="sm"
+                      variant="subtle"
+                      color="gray"
+                      aria-label={`Delete ${template.name}`}
+                      title="Delete"
+                      onClick={() => void handleDelete(template.name)}
+                    >
+                      <TrashIcon size={14} />
+                    </ActionIcon>
+                  </Group>
+                </Group>
+              ))}
+            </Paper>
+          ) : (
+            <Paper withBorder p="sm" style={{ borderStyle: "dashed" }}>
+              <Text size="sm" c="dimmed">No templates yet. Click Add to create one.</Text>
+            </Paper>
+          )}
+        </Box>
+      </ScrollArea>
+    </Box>
   );
 }

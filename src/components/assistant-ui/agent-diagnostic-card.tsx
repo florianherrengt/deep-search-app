@@ -3,7 +3,7 @@ import {
   agentDiagnosticEventSchema,
   type AgentDiagnosticEvent,
 } from "@/lib/agent-diagnostics";
-import { cn } from "@/lib/utils";
+import { Box } from "@mantine/core";
 
 export function AgentDiagnosticCard({ event }: { event: unknown }) {
   const parsed = agentDiagnosticEventSchema.safeParse(event);
@@ -17,22 +17,28 @@ function AgentDiagnosticCardContent({
   event: AgentDiagnosticEvent;
 }) {
   return (
-    <div
-      className={cn(
-        "my-2 max-w-xl rounded-lg border px-3 py-2 text-sm",
-        "border-zinc-200 bg-zinc-50 text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900/70 dark:text-zinc-200",
-      )}
+    <Box
+      my="sm"
+      style={{
+        maxWidth: 576,
+        borderRadius: 8,
+        border: "1px solid var(--mantine-color-gray-3)",
+        backgroundColor: "var(--mantine-color-gray-0)",
+        color: "var(--mantine-color-gray-8)",
+        padding: "8px 12px",
+        fontSize: 14,
+      }}
     >
-      <div className="flex items-start gap-2">
-        <InfoIcon className="mt-0.5 h-4 w-4 shrink-0" />
-        <div className="min-w-0">
-          <div className="font-medium">{event.title}</div>
-          <div className="mt-0.5 text-xs opacity-80">{event.message}</div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <InfoIcon style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 500 }}>{event.title}</div>
+          <div style={{ marginTop: 2, fontSize: 12, opacity: 0.8 }}>{event.message}</div>
           {event.reason && (
-            <div className="mt-1 text-xs opacity-70">{event.reason}</div>
+            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>{event.reason}</div>
           )}
         </div>
       </div>
-    </div>
+    </Box>
   );
 }

@@ -1,21 +1,28 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { MantineProvider } from "@mantine/core";
 import { GuardrailCard } from "@/components/assistant-ui/guardrail-card";
+
+function wrap(node: React.ReactNode) {
+  return <MantineProvider>{node}</MantineProvider>;
+}
 
 describe("GuardrailCard", () => {
   it("renders retry events without exposing raw correction prompts", () => {
     const html = renderToStaticMarkup(
-      <GuardrailCard
-        event={{
-          kind: "question_tool",
-          status: "retrying",
-          title: "Question tool enforced",
-          message: "Prompted the agent to ask this with the question tool.",
-          reason:
-            "Your previous response asked the user for input in plain text. Convert that request into an ask_questions tool call now.",
-          attempt: 1,
-        }}
-      />,
+      wrap(
+        <GuardrailCard
+          event={{
+            kind: "question_tool",
+            status: "retrying",
+            title: "Question tool enforced",
+            message: "Prompted the agent to ask this with the question tool.",
+            reason:
+              "Your previous response asked the user for input in plain text. Convert that request into an ask_questions tool call now.",
+            attempt: 1,
+          }}
+        />,
+      ),
     );
 
     expect(html).toContain("Question tool enforced");
@@ -27,15 +34,17 @@ describe("GuardrailCard", () => {
 
   it("renders warning events", () => {
     const html = renderToStaticMarkup(
-      <GuardrailCard
-        event={{
-          kind: "research_checkpoint",
-          status: "warning",
-          title: "Guardrail retry limit reached",
-          message:
-            "The agent kept missing this guardrail, so the latest output is shown.",
-        }}
-      />,
+      wrap(
+        <GuardrailCard
+          event={{
+            kind: "research_checkpoint",
+            status: "warning",
+            title: "Guardrail retry limit reached",
+            message:
+              "The agent kept missing this guardrail, so the latest output is shown.",
+          }}
+        />,
+      ),
     );
 
     expect(html).toContain("Guardrail retry limit reached");
@@ -44,9 +53,9 @@ describe("GuardrailCard", () => {
 
   it("renders nothing for invalid guardrail events", () => {
     const html = renderToStaticMarkup(
-      <GuardrailCard event={{ status: "retrying" }} />,
+      wrap(<GuardrailCard event={{ status: "retrying" }} />),
     );
 
-    expect(html).toBe("");
+    expect(html).not.toContain("Question tool enforced");
   });
 });

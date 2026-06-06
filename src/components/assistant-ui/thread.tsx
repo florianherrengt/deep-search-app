@@ -13,7 +13,8 @@ import {
   ModelSelector,
   type ModelOption,
 } from "@/components/assistant-ui/model-selector";
-import { formatTokenCount } from "@/lib/context-window";import { MarkdownText } from "@/components/assistant-ui/markdown-text";
+import { formatTokenCount } from "@/lib/context-window";
+import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { GuardrailCard } from "@/components/assistant-ui/guardrail-card";
 import { AgentDiagnosticCard } from "@/components/assistant-ui/agent-diagnostic-card";
@@ -24,8 +25,6 @@ import {
   ReasoningText,
 } from "@/components/assistant-ui/reasoning";
 import { PromptTemplateButton } from "@/components/assistant-ui/prompt-template-button";
-
-const SCROLL_THRESHOLD = 200;
 
 const groupBy = (
   part: PartState,
@@ -52,12 +51,15 @@ export function Thread({
   const selectedModel = models.find((model) => model.id === selectedModelId);
 
   return (
-    <ThreadPrimitive.Root className="relative flex h-full flex-col">
-      <ThreadPrimitive.Viewport className="flex flex-1 flex-col gap-3 overflow-y-auto px-6 py-4" scrollToBottomOnRunStart={false}>
+    <ThreadPrimitive.Root style={{ position: "relative", display: "flex", height: "100%", flexDirection: "column" }}>
+      <ThreadPrimitive.Viewport
+        scrollToBottomOnRunStart={false}
+        style={{ display: "flex", flex: 1, flexDirection: "column", gap: 12, overflowY: "auto", padding: "16px 24px" }}
+      >
         <AuiIf condition={(s) => s.thread.isEmpty}>
-          <div className="flex h-[60vh] flex-col items-center justify-center text-center opacity-60">
-            <h1 className="mb-1 text-2xl font-bold">Deep Search</h1>
-            <p className="text-lg">Ask something...</p>
+          <div style={{ display: "flex", height: "60vh", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", opacity: 0.6 }}>
+            <h1 style={{ marginBottom: 4, fontSize: 24, fontWeight: 700 }}>Deep Search</h1>
+            <p style={{ fontSize: 18 }}>Ask something...</p>
           </div>
         </AuiIf>
         <ThreadPrimitive.Messages>
@@ -65,43 +67,65 @@ export function Thread({
         </ThreadPrimitive.Messages>
       </ThreadPrimitive.Viewport>
 
-      <ThreadPrimitive.ViewportFooter className="relative border-t border-zinc-200 px-6 py-3 dark:border-zinc-700">
+      <ThreadPrimitive.ViewportFooter style={{ position: "relative", borderTop: "1px solid var(--mantine-color-default-border)", padding: "12px 24px" }}>
         <ThreadPrimitive.ScrollToBottom
-          className="absolute -top-10 left-1/2 -translate-x-1/2 rounded-full border bg-background p-2 shadow-md hover:bg-accent disabled:invisible"
-          style={{ "--aui-scroll-to-bottom-threshold": `${SCROLL_THRESHOLD}px` } as React.CSSProperties}
+          style={{
+            position: "absolute",
+            top: -44,
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 32,
+            height: 32,
+            borderRadius: "50%",
+            border: "1px solid var(--mantine-color-default-border)",
+            background: "var(--mantine-color-body)",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+            cursor: "pointer",
+          }}
         >
-          <ArrowDownIcon className="h-4 w-4" />
+          <ArrowDownIcon style={{ width: 16, height: 16 }} />
         </ThreadPrimitive.ScrollToBottom>
-        <ComposerPrimitive.Root className="space-y-2">
+        <ComposerPrimitive.Root style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <ComposerPrimitive.Input
             placeholder="Ask something..."
-            className="w-full resize-none rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
             rows={1}
             autoFocus
+            style={{
+              width: "100%",
+              resize: "none",
+              borderRadius: 12,
+              border: "1px solid var(--mantine-color-default-border)",
+              background: "var(--mantine-color-body)",
+              padding: "12px 16px",
+              fontSize: 14,
+              outline: "none",
+            }}
           />
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", minWidth: 0, alignItems: "center", gap: 8 }}>
               <ModelSelector
                 models={models}
                 value={selectedModelId}
                 onValueChange={onSelectedModelIdChange}
                 size="sm"
                 variant="ghost"
-                contentClassName="w-[min(24rem,calc(100vw-3rem))]"
               />
               <ContextWindowBadge model={selectedModel} tokenCount={tokenCount} />
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div style={{ display: "flex", flexShrink: 0, alignItems: "center", gap: 8 }}>
               <AuiIf condition={(s) => !s.thread.isRunning}>
                 <PromptTemplateButton />
               </AuiIf>
               <AuiIf condition={(s) => !s.thread.isRunning}>
-                <ComposerPrimitive.Send className="rounded-xl bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
+                <ComposerPrimitive.Send aria-label="Send message" style={{ borderRadius: 12, backgroundColor: "var(--mantine-color-blue-filled)", padding: "8px 16px", fontSize: 14, color: "var(--mantine-color-white)", border: "none", cursor: "pointer" }}>
                   Send
                 </ComposerPrimitive.Send>
               </AuiIf>
               <AuiIf condition={(s) => s.thread.isRunning}>
-                <ComposerPrimitive.Cancel className="rounded-xl bg-red-500 px-4 py-2 text-sm text-white hover:bg-red-600">
+                <ComposerPrimitive.Cancel aria-label="Stop generation" style={{ borderRadius: 12, backgroundColor: "var(--mantine-color-red-filled)", padding: "8px 16px", fontSize: 14, color: "var(--mantine-color-white)", border: "none", cursor: "pointer" }}>
                   Stop
                 </ComposerPrimitive.Cancel>
               </AuiIf>
@@ -134,7 +158,15 @@ function ContextWindowBadge({
 
   return (
     <span
-      className="hidden shrink-0 rounded-md border border-zinc-200 px-2 py-1 text-xs text-muted-foreground sm:inline-flex dark:border-zinc-700"
+      style={{
+        display: "none",
+        flexShrink: 0,
+        borderRadius: 6,
+        border: "1px solid var(--mantine-color-default-border)",
+        padding: "4px 8px",
+        fontSize: 12,
+        color: "var(--mantine-color-dimmed)",
+      }}
       title={
         contextWindowLabel
           ? `${contextWindowLabel} token context window`
@@ -150,23 +182,24 @@ function MessageActionBar() {
   const role = useAuiState((s) => s.message.role);
   return (
     <ActionBarPrimitive.Root
-      className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100"
       hideWhenRunning
+      style={{ display: "flex", alignItems: "center", gap: 4, opacity: 0, transition: "opacity 0.15s" }}
     >
       <ActionBarPrimitive.Copy
-        className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
         copiedDuration={2000}
+        aria-label="Copy message"
+        style={{ borderRadius: 4, padding: 4, color: "var(--mantine-color-dimmed)", background: "none", border: "none", cursor: "pointer" }}
       >
         <AuiIf condition={({ message }) => message.isCopied}>
-          <CheckIcon className="h-3.5 w-3.5 text-green-500" />
+          <CheckIcon style={{ width: 14, height: 14, color: "var(--mantine-color-green-6)" }} />
         </AuiIf>
         <AuiIf condition={({ message }) => !message.isCopied}>
-          <CopyIcon className="h-3.5 w-3.5" />
+          <CopyIcon style={{ width: 14, height: 14 }} />
         </AuiIf>
       </ActionBarPrimitive.Copy>
       {role === "assistant" && (
-        <ActionBarPrimitive.Reload className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300">
-          <RefreshCwIcon className="h-3.5 w-3.5" />
+        <ActionBarPrimitive.Reload aria-label="Regenerate response" style={{ borderRadius: 4, padding: 4, color: "var(--mantine-color-dimmed)", background: "none", border: "none", cursor: "pointer" }}>
+          <RefreshCwIcon style={{ width: 14, height: 14 }} />
         </ActionBarPrimitive.Reload>
       )}
     </ActionBarPrimitive.Root>
@@ -177,14 +210,14 @@ function ThreadMessage() {
   const role = useAuiState((s) => s.message.role);
   return (
     <MessagePrimitive.Root
-      className={
+      style={
         role === "user"
-          ? "group mb-4 flex justify-end"
-          : "group mb-4 max-w-[80%] space-y-2"
+          ? { marginBottom: 16, display: "flex", justifyContent: "flex-end" }
+          : { marginBottom: 16, maxWidth: "80%" }
       }
     >
       {role === "user" ? (
-        <div className="max-w-[70%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-blue-600 px-4 py-2 text-white">
+        <div style={{ maxWidth: "70%", whiteSpace: "pre-wrap", borderRadius: 16, borderBottomRightRadius: 4, backgroundColor: "var(--mantine-color-blue-filled)", padding: "8px 16px", color: "var(--mantine-color-white)" }}>
           <MessagePrimitive.Parts />
         </div>
       ) : (
@@ -210,7 +243,7 @@ function ThreadMessage() {
                   return <ReasoningText />;
                 case "text": {
                   return (
-                    <div className="prose prose-sm dark:prose-invert max-w-none overflow-x-auto">
+                    <div style={{ overflowX: "auto" }}>
                       <MarkdownText />
                     </div>
                   );
@@ -258,7 +291,7 @@ function ThreadMessage() {
           </MessagePrimitive.GroupedParts>
           <MessageActionBar />
           <MessagePrimitive.Error>
-            <ErrorPrimitive.Root className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+            <ErrorPrimitive.Root style={{ borderRadius: 8, border: "1px solid var(--mantine-color-red-3)", backgroundColor: "var(--mantine-color-red-0)", padding: "8px 12px", fontSize: 14, color: "var(--mantine-color-red-8)" }}>
               <ErrorPrimitive.Message />
             </ErrorPrimitive.Root>
           </MessagePrimitive.Error>

@@ -1,48 +1,26 @@
 import { useCallback, useRef, useState } from "react";
-import { cva, type VariantProps } from "class-variance-authority";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
 import { useScrollLock } from "@assistant-ui/react";
+import { UnstyledButton, Box } from "@mantine/core";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
 
 const ANIMATION_DURATION = 200;
 
-const reasoningVariants = cva("aui-reasoning-root mb-4 w-full", {
-  variants: {
-    variant: {
-      outline: "rounded-lg border px-3 py-2",
-      ghost: "",
-      muted: "rounded-lg bg-muted/50 px-3 py-2",
-    },
-  },
-  defaultVariants: {
-    variant: "outline",
-  },
-});
-
-export type ReasoningRootProps = Omit<
-  React.ComponentProps<typeof Collapsible>,
-  "open" | "onOpenChange"
-> &
-  VariantProps<typeof reasoningVariants> & {
-    open?: boolean;
-    onOpenChange?: (open: boolean) => void;
-    defaultOpen?: boolean;
-  };
+export type ReasoningRootProps = {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  defaultOpen?: boolean;
+  variant?: "outline" | "ghost" | "muted";
+  className?: string;
+  children?: React.ReactNode;
+};
 
 function ReasoningRoot({
-  className,
-  variant,
+  variant = "outline",
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
   defaultOpen = false,
   children,
-  ...props
 }: ReasoningRootProps) {
   const collapsibleRef = useRef<HTMLDivElement>(null);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
@@ -64,80 +42,62 @@ function ReasoningRoot({
     [lockScroll, isControlled, controlledOnOpenChange],
   );
 
-  return (
-    <Collapsible
-      ref={collapsibleRef}
-      open={isOpen}
-      onOpenChange={handleOpenChange}
-      className={cn(reasoningVariants({ variant }), className)}
-      {...props}
-    >
-      {children}
-    </Collapsible>
-  );
-}
+  const variantStyles: Record<string, React.CSSProperties> = {
+    outline: { borderRadius: 8, border: "1px solid var(--mantine-color-default-border)", padding: "8px 12px" },
+    ghost: {},
+    muted: { borderRadius: 8, backgroundColor: "var(--mantine-color-gray-1)", padding: "8px 12px" },
+  };
 
-function ReasoningFade({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div
-      className={cn(
-        "pointer-events-none absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-white to-transparent dark:from-zinc-900",
-        className,
-      )}
-      {...props}
-    />
+    <Box
+      ref={collapsibleRef}
+      mb="md"
+      style={{ width: "100%", ...variantStyles[variant] }}
+    >
+      {typeof children === "function"
+        ? (children as (props: { open: boolean; onToggle: () => void }) => React.ReactNode)({ open: isOpen, onToggle: () => handleOpenChange(!isOpen) })
+        : children}
+    </Box>
   );
 }
 
 function ReasoningTrigger({
   active,
   duration,
-  className,
-  ...props
-}: React.ComponentProps<typeof CollapsibleTrigger> & {
+  onClick,
+}: {
   active?: boolean;
   duration?: number;
+  className?: string;
+  onClick?: () => void;
 }) {
   const durationText = duration ? ` (${duration}s)` : "";
   return (
-    <CollapsibleTrigger
-      className={cn(
-        "flex w-full items-center gap-1.5 text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
-        className,
-      )}
-      {...props}
-    >
-      <BrainIcon className="h-4 w-4" />
-      <ChevronDownIcon className="h-3 w-3 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+    <UnstyledButton onClick={onClick} aria-label="Thinking process" style={{ display: "flex", width: "100%", alignItems: "center", gap: 6, fontSize: 14, color: "var(--mantine-color-dimmed)" }}>
+      <BrainIcon style={{ width: 16, height: 16 }} />
+      <ChevronDownIcon style={{ width: 12, height: 12, transition: "transform 0.2s" }} />
       <span>Thinking{durationText}</span>
       {active ? (
-        <span className="aui-reasoning-shimmer ml-1 inline-block h-3 w-3 animate-pulse rounded-full bg-blue-400" />
+        <span style={{ display: "inline-block", marginLeft: 4, width: 12, height: 12, borderRadius: "50%", backgroundColor: "var(--mantine-color-blue-5)", animation: "pulse 1.5s ease-in-out infinite" }} />
       ) : null}
-    </CollapsibleTrigger>
+    </UnstyledButton>
   );
 }
 
 function ReasoningContent({
-  className,
   children,
-  ...props
-}: React.ComponentProps<typeof CollapsibleContent>) {
+}: {
+  className?: string;
+  children?: React.ReactNode;
+}) {
   return (
-    <CollapsibleContent
-      className={cn(
-        "overflow-hidden text-sm text-zinc-600 data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down dark:text-zinc-300",
-        className,
-      )}
-      {...props}
-    >
-      <div className="mt-2">{children}</div>
-    </CollapsibleContent>
+    <Box mt="xs">{children}</Box>
   );
 }
 
 function ReasoningText({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div className={cn("aui-reasoning-text", className)} {...props}>
+    <div className={className} {...props}>
       <MarkdownText />
     </div>
   );
@@ -148,6 +108,4 @@ export {
   ReasoningTrigger,
   ReasoningContent,
   ReasoningText,
-  ReasoningFade,
-  reasoningVariants,
 };

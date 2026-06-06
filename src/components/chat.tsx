@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
+import { Box } from "@mantine/core";
 import type { UIMessage } from "ai";
 import { QuestionsToolUI } from "./assistant-ui/questions-tool";
 import { Thread } from "./assistant-ui/thread";
@@ -263,14 +264,14 @@ export function Chat({
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <QuestionsToolUI />
-      <div className="h-full">
+      <Box style={{ height: "100%" }}>
         <Thread
           models={modelsWithContextWindows}
           selectedModelId={selectedModelId}
           onSelectedModelIdChange={handleModelChange}
           tokenCount={tokenCount}
         />
-      </div>
+      </Box>
     </AssistantRuntimeProvider>
   );
 }

@@ -8,7 +8,6 @@ import remarkGfm from "remark-gfm";
 import { type AnchorHTMLAttributes, type FC, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { cn } from "@/lib/utils";
 
 const MarkdownTextImpl = () => {
   return (
@@ -35,16 +34,17 @@ const CodeHeader: FC<{
   };
 
   return (
-    <div className="flex items-center justify-between rounded-t-lg bg-zinc-100 px-4 py-2 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-      <span>{language}</span>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderRadius: "8px 8px 0 0", backgroundColor: "var(--mantine-color-gray-1)", padding: "8px 16px", fontSize: 12 }}>
+      <span style={{ color: "var(--mantine-color-dimmed)" }}>{language}</span>
       <button
         onClick={onCopy}
-        className="flex items-center gap-1 text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+        aria-label="Copy code"
+        style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--mantine-color-dimmed)", background: "none", border: "none", cursor: "pointer" }}
       >
         {isCopied ? (
-          <CheckIcon className="h-3.5 w-3.5" />
+          <CheckIcon style={{ width: 14, height: 14 }} />
         ) : (
-          <CopyIcon className="h-3.5 w-3.5" />
+          <CopyIcon style={{ width: 14, height: 14 }} />
         )}
       </button>
     </div>
@@ -59,30 +59,39 @@ const defaultComponents = memoizeMarkdownComponents({
         e.preventDefault();
         if (href) openUrl(href);
       }}
-      className="text-blue-500 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+      style={{ color: "var(--mantine-color-blue-6)", textDecoration: "underline" }}
       {...props}
     >
       {children}
     </a>
   ),
-  pre: ({ className, ...props }) => (
+  pre: ({ style, ...props }) => (
     <pre
-      className={cn(
-        "overflow-x-auto rounded-lg bg-zinc-100 p-4 dark:bg-zinc-800",
-        className,
-      )}
+      style={{
+        overflowX: "auto",
+        borderRadius: 8,
+        backgroundColor: "var(--mantine-color-gray-1)",
+        padding: 16,
+        ...style,
+      }}
       {...props}
     />
   ),
-  code: function Code({ className, ...props }) {
+  code: function Code({ style, ...props }) {
     const isCodeBlock = useIsMarkdownCodeBlock();
     return (
       <code
-        className={cn(
-          !isCodeBlock &&
-            "rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800",
-          className,
-        )}
+        style={
+          !isCodeBlock
+            ? {
+                borderRadius: 4,
+                backgroundColor: "var(--mantine-color-gray-1)",
+                padding: "2px 6px",
+                fontSize: 14,
+                ...style,
+              }
+            : style
+        }
         {...props}
       />
     );

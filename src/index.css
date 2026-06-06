@@ -1,64 +1,10 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@plugin "@tailwindcss/typography";
-
-@theme inline {
-  --color-background: var(--bg);
-  --color-foreground: var(--fg);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-fg);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-fg);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-fg);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-fg);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-fg);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-fg);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-fg);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-ring-offset-background: var(--bg);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-fg);
-  --color-sidebar-border: var(--sidebar-border);
-  --radius: 0.625rem;
-}
+@import "@mantine/core/styles.css";
 
 :root {
-  --bg: #ffffff;
-  --fg: #0f0f0f;
-  --card: #ffffff;
-  --card-fg: #0f0f0f;
-  --popover: #ffffff;
-  --popover-fg: #0f0f0f;
-  --primary: oklch(0.205 0 0);
-  --primary-fg: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-fg: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-fg: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-fg: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-fg: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-fg: oklch(0.556 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 24px;
   font-weight: 400;
-  color: var(--fg);
-  background-color: #f6f6f6;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -66,32 +12,18 @@
   -webkit-text-size-adjust: 100%;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1a1a1a;
-    --fg: #f6f6f6;
-    --card: #1a1a1a;
-    --card-fg: #f6f6f6;
-    --popover: #1a1a1a;
-    --popover-fg: #f6f6f6;
-    --primary: oklch(0.985 0 0);
-    --primary-fg: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-fg: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-fg: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-fg: oklch(0.985 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --destructive-fg: oklch(0.985 0 0);
-    --border: oklch(0.372 0 0);
-    --input: oklch(0.372 0 0);
-    --ring: oklch(0.556 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-fg: oklch(0.708 0 0);
-    --sidebar-border: oklch(0.372 0 0);
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
 
-    color: var(--fg);
-    background-color: #2f2f2f;
-  }
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }

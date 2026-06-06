@@ -1,7 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button, TextInput, ScrollArea, Box, Text, Group, Paper, Stack, Collapse, Select as MantineSelect } from "@mantine/core";
 import { getAvailableTools, type ToolDescriptor, type ToolExecuteConfig } from "@/lib/execute-tool";
 
 type ToolResult = {
@@ -100,145 +98,156 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
   const unavailableTools = tools.filter((t) => !t.available);
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6 overflow-y-auto h-full">
-      <h2 className="text-lg font-semibold">Tools</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Call tools directly with custom parameters and inspect the results.
-      </p>
+    <ScrollArea style={{ height: "100%" }}>
+      <Box maw={900} mx="auto" p="md" py={24}>
+        <Text size="lg" fw={600}>Tools</Text>
+        <Text size="sm" c="dimmed" mt={4}>
+          Call tools directly with custom parameters and inspect the results.
+        </Text>
 
-      <div className="mt-4 max-w-md space-y-1">
-        <Label htmlFor="tools-research-folder" className="text-sm">
-          Research folder
-        </Label>
-        <Input
-          id="tools-research-folder"
-          value={researchFolderValue}
-          placeholder="research-folder"
-          onChange={(event) => setResearchFolderValue(event.target.value)}
-        />
-      </div>
+        <Box mt="md" maw={400}>
+          <TextInput
+            label="Research folder"
+            value={researchFolderValue}
+            placeholder="research-folder"
+            onChange={(event) => setResearchFolderValue(event.currentTarget.value)}
+          />
+        </Box>
 
-      <div className="mt-4 flex gap-6">
-        <div className="w-64 shrink-0 space-y-1">
-          <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">Available</p>
-          {availableTools.map((tool) => (
-            <button
-              key={tool.name}
-              onClick={() => handleSelectTool(tool)}
-              className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                selectedTool?.name === tool.name
-                  ? "bg-secondary text-secondary-foreground"
-                  : "hover:bg-muted"
-              }`}
-            >
-              {tool.name}
-            </button>
-          ))}
-          {unavailableTools.length > 0 && (
-            <>
-              <p className="mb-2 mt-4 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Unavailable
-              </p>
-              {unavailableTools.map((tool) => (
-                <button
+        <Group mt="md" gap="xl" align="flex-start" wrap="nowrap">
+          <Box style={{ width: 256, flexShrink: 0 }}>
+            <Text size="xs" fw={500} tt="uppercase" c="dimmed" mb="xs">Available</Text>
+            <Stack gap={4}>
+              {availableTools.map((tool) => (
+                <Button
                   key={tool.name}
-                  disabled
-                  className="w-full rounded-md px-3 py-2 text-left text-sm text-muted-foreground opacity-50 cursor-not-allowed"
+                  variant={selectedTool?.name === tool.name ? "light" : "subtle"}
+                  color={selectedTool?.name === tool.name ? "gray" : "gray"}
+                  fullWidth
+                  styles={{ inner: { justifyContent: "flex-start" } }}
+                  onClick={() => handleSelectTool(tool)}
                 >
                   {tool.name}
-                </button>
+                </Button>
               ))}
-            </>
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0 space-y-4">
-          {selectedTool ? (
-            <div className="rounded-lg border p-4 space-y-3">
-              <div>
-                <p className="font-medium">{selectedTool.name}</p>
-                <p className="text-sm text-muted-foreground">{selectedTool.description}</p>
-              </div>
-
-              {Object.entries(selectedTool.parameters).map(([key, param]) => (
-                <div key={key} className="space-y-1">
-                  <Label className="text-sm">
-                    {key}
-                    {!param.required && (
-                      <span className="ml-1 text-muted-foreground">(optional)</span>
-                    )}
-                  </Label>
-                  {param.enum ? (
-                    <select
-                      value={paramValues[key] ?? ""}
-                      onChange={(e) =>
-                        setParamValues((prev) => ({ ...prev, [key]: e.target.value }))
-                      }
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              {unavailableTools.length > 0 && (
+                <>
+                  <Text size="xs" fw={500} tt="uppercase" c="dimmed" mt="sm" mb="xs">
+                    Unavailable
+                  </Text>
+                  {unavailableTools.map((tool) => (
+                    <Button
+                      key={tool.name}
+                      variant="subtle"
+                      color="gray"
+                      fullWidth
+                      disabled
+                      styles={{ inner: { justifyContent: "flex-start" } }}
                     >
-                      <option value="">Select...</option>
-                      {param.enum.map((v) => (
-                        <option key={v} value={v}>
-                          {v}
-                        </option>
-                      ))}
-                    </select>
-                  ) : param.type === "boolean" ? (
-                    <select
-                      value={paramValues[key] ?? ""}
-                      onChange={(e) =>
-                        setParamValues((prev) => ({ ...prev, [key]: e.target.value }))
-                      }
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    >
-                      <option value="">Select...</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  ) : (
-                    <Input
-                      type={param.type === "number" ? "number" : "text"}
-                      placeholder={param.description ?? key}
-                      value={paramValues[key] ?? ""}
-                      onChange={(e) =>
-                        setParamValues((prev) => ({ ...prev, [key]: e.target.value }))
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void handleExecute();
-                        }
-                      }}
-                    />
-                  )}
-                </div>
-              ))}
+                      {tool.name}
+                    </Button>
+                  ))}
+                </>
+              )}
+            </Stack>
+          </Box>
 
-              <Button
-                onClick={() => void handleExecute()}
-                disabled={loading}
-                size="sm"
-              >
-                {loading ? "Running..." : "Execute"}
-              </Button>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Select a tool from the sidebar to get started.
-            </div>
-          )}
+          <Box style={{ flex: 1, minWidth: 0 }}>
+            {selectedTool ? (
+              <Paper withBorder p="md">
+                <Stack gap="sm">
+                  <Box>
+                    <Text fw={500}>{selectedTool.name}</Text>
+                    <Text size="sm" c="dimmed">{selectedTool.description}</Text>
+                  </Box>
 
-          {results.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-sm font-medium">Results</p>
-              {results.map((entry, i) => (
-                <ResultCard key={entry.timestamp + "-" + i} entry={entry} />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+                  {Object.entries(selectedTool.parameters).map(([key, param]) => (
+                    <Box key={key}>
+                      {param.enum ? (
+                        <MantineSelect
+                          label={
+                            <Text size="sm">
+                              {key}
+                              {!param.required && <Text component="span" c="dimmed" ml={4}>(optional)</Text>}
+                            </Text>
+                          }
+                          placeholder="Select..."
+                          value={paramValues[key] ?? ""}
+                          onChange={(value) =>
+                            setParamValues((prev) => ({ ...prev, [key]: value ?? "" }))
+                          }
+                          data={param.enum.map((v) => ({ value: v, label: v }))}
+                        />
+                      ) : param.type === "boolean" ? (
+                        <MantineSelect
+                          label={
+                            <Text size="sm">
+                              {key}
+                              {!param.required && <Text component="span" c="dimmed" ml={4}>(optional)</Text>}
+                            </Text>
+                          }
+                          placeholder="Select..."
+                          value={paramValues[key] ?? ""}
+                          onChange={(value) =>
+                            setParamValues((prev) => ({ ...prev, [key]: value ?? "" }))
+                          }
+                          data={[
+                            { value: "true", label: "true" },
+                            { value: "false", label: "false" },
+                          ]}
+                        />
+                      ) : (
+                        <TextInput
+                          label={
+                            <Text size="sm">
+                              {key}
+                              {!param.required && <Text component="span" c="dimmed" ml={4}>(optional)</Text>}
+                            </Text>
+                          }
+                          type={param.type === "number" ? "number" : "text"}
+                          placeholder={param.description ?? key}
+                          value={paramValues[key] ?? ""}
+                          onChange={(e) =>
+                            setParamValues((prev) => ({ ...prev, [key]: e.currentTarget.value }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void handleExecute();
+                            }
+                          }}
+                        />
+                      )}
+                    </Box>
+                  ))}
+
+                  <Button
+                    onClick={() => void handleExecute()}
+                    disabled={loading}
+                    size="sm"
+                  >
+                    {loading ? "Running..." : "Execute"}
+                  </Button>
+                </Stack>
+              </Paper>
+            ) : (
+              <Paper withBorder p={32} style={{ borderStyle: "dashed", textAlign: "center" }}>
+                <Text size="sm" c="dimmed">Select a tool from the sidebar to get started.</Text>
+              </Paper>
+            )}
+
+            {results.length > 0 && (
+              <Stack gap="sm" mt="md">
+                <Text size="sm" fw={500}>Results</Text>
+                {results.map((entry, i) => (
+                  <ResultCard key={entry.timestamp + "-" + i} entry={entry} />
+                ))}
+              </Stack>
+            )}
+          </Box>
+        </Group>
+      </Box>
+    </ScrollArea>
   );
 }
 
@@ -246,52 +255,69 @@ function ResultCard({ entry }: { entry: ToolResult }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded-lg border text-sm">
-      <div
-        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-muted/50"
+    <Paper withBorder>
+      <Group
+        justify="space-between"
+        px="sm"
+        py="xs"
+        style={{ cursor: "pointer" }}
         onClick={() => setExpanded(!expanded)}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? "Collapse" : "Expand"} ${entry.tool} result`}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded(!expanded);
+          }
+        }}
       >
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{entry.tool}</span>
+        <Group gap="xs">
+          <Text size="sm" fw={500}>{entry.tool}</Text>
           {entry.error ? (
-            <span className="text-xs text-destructive">Error</span>
+            <Text size="xs" c="red">Error</Text>
           ) : (
-            <span className="text-xs text-emerald-600">OK</span>
+            <Text size="xs" c="teal">OK</Text>
           )}
-          <span className="text-xs text-muted-foreground">
+          <Text size="xs" c="dimmed">
             {new Date(entry.timestamp).toLocaleTimeString()}
-          </span>
-        </div>
-        <span className="text-muted-foreground">{expanded ? "▾" : "▸"}</span>
-      </div>
+          </Text>
+        </Group>
+        <Text c="dimmed">{expanded ? "▾" : "▸"}</Text>
+      </Group>
 
-      {expanded && (
-        <div className="border-t px-3 py-2 space-y-2">
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Input</p>
-            <pre className="rounded bg-muted p-2 text-xs overflow-auto max-h-40">
-              {JSON.stringify(entry.params, null, 2)}
-            </pre>
-          </div>
-          {entry.error ? (
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-1">Error</p>
-              <pre className="rounded bg-destructive/10 p-2 text-xs overflow-auto max-h-40 text-destructive">
-                {entry.error}
-              </pre>
-            </div>
-          ) : (
-            <div>
-              <p className="text-xs font-medium text-muted-foreground mb-1">Output</p>
-              <pre className="rounded bg-muted p-2 text-xs overflow-auto max-h-80">
-                {typeof entry.result === "string"
-                  ? entry.result
-                  : JSON.stringify(entry.result, null, 2)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+      <Collapse in={expanded}>
+        <Box style={{ borderTop: "1px solid var(--mantine-color-default-border)" }} p="sm">
+          <Stack gap="sm">
+            <Box>
+              <Text size="xs" fw={500} c="dimmed" mb={4}>Input</Text>
+              <Paper bg="var(--mantine-color-gray-0)" p="xs" style={{ overflow: "auto", maxHeight: 160 }}>
+                <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(entry.params, null, 2)}</pre>
+              </Paper>
+            </Box>
+            {entry.error ? (
+              <Box>
+                <Text size="xs" fw={500} c="dimmed" mb={4}>Error</Text>
+                <Paper bg="var(--mantine-color-red-0)" c="red" p="xs" style={{ overflow: "auto", maxHeight: 160 }}>
+                  <pre style={{ margin: 0, fontSize: 12 }}>{entry.error}</pre>
+                </Paper>
+              </Box>
+            ) : (
+              <Box>
+                <Text size="xs" fw={500} c="dimmed" mb={4}>Output</Text>
+                <Paper bg="var(--mantine-color-gray-0)" p="xs" style={{ overflow: "auto", maxHeight: 320 }}>
+                  <pre style={{ margin: 0, fontSize: 12 }}>
+                    {typeof entry.result === "string"
+                      ? entry.result
+                      : JSON.stringify(entry.result, null, 2)}
+                  </pre>
+                </Paper>
+              </Box>
+            )}
+          </Stack>
+        </Box>
+      </Collapse>
+    </Paper>
   );
 }
