@@ -1,10 +1,16 @@
+import slugify from "slugify";
 import { listAppSubfolders, SafePathSegmentSchema } from "@/lib/app-file-storage";
-import { slugifyText } from "@/lib/slug";
+
+const RESEARCH_FOLDER_SLUG_MAX_LENGTH = 100;
+const RESEARCH_FOLDER_SLUG_FALLBACK = "research";
 
 export function slugifyFolderName(text: string): string {
-  return SafePathSegmentSchema.parse(
-    slugifyText(text, { maxLength: 100, fallback: "research" }),
-  );
+  const slug = slugify(text.replace(/_/g, "-"), {
+    lower: true,
+    strict: true,
+    trim: true,
+  }).slice(0, RESEARCH_FOLDER_SLUG_MAX_LENGTH);
+  return SafePathSegmentSchema.parse(slug || RESEARCH_FOLDER_SLUG_FALLBACK);
 }
 
 export async function resolveUniqueFolderName(

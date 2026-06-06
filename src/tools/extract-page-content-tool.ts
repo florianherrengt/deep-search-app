@@ -15,7 +15,7 @@ import {
   emitBrowserTabOpened,
 } from "@/lib/browser-tab-events";
 import { tryParseJson } from "@/lib/json";
-import { slugifyText } from "@/lib/slug";
+import slugify from "slugify";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";
 import {
   registry,
@@ -101,9 +101,10 @@ function domainFromUrl(url: string): string {
 function pageSlugFromUrl(url: string): string {
   try {
     const u = new URL(url);
-    const base = slugifyText(u.pathname.replace(/\/$/, "") || "index", {
-      maxLength: 120,
-    });
+    const base = slugify(
+      (u.pathname.replace(/\/$/, "") || "index").replace(/_/g, "-"),
+      { lower: true, strict: true, trim: true },
+    ).slice(0, 120);
     return base || "page";
   } catch {
     return "page";

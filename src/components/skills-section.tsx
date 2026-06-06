@@ -3,7 +3,7 @@ import { PencilIcon, TrashIcon, PlusIcon, XIcon, CheckIcon } from "lucide-react"
 import { Button, TextInput, Textarea, Box, Text, Group, Paper, Stack, ScrollArea, ActionIcon } from "@mantine/core";
 import { useSkills } from "@/hooks/use-skills";
 import type { Skill } from "@/lib/skills-store";
-import { slugify } from "@/lib/skills-store";
+import slugify from "slugify";
 
 type EditingState =
   | { mode: "idle" }
@@ -87,7 +87,11 @@ export function SkillsSection() {
     [deleteSkill, editing, cancelEdit],
   );
 
-  const previewSlug = slugify(draftTitle);
+  const previewSlug = slugify(draftTitle.replace(/_/g, "-"), {
+    lower: true,
+    strict: true,
+    trim: true,
+  });
 
   return (
     <Box style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>

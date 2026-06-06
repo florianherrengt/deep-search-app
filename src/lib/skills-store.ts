@@ -1,4 +1,5 @@
 import { z } from "zod";
+import slugify from "slugify";
 import { createStore } from "./store";
 
 const skillSchema = z.object({
@@ -26,15 +27,12 @@ export const skillsStore = createStore(
   skillsDefaults,
 );
 
-export function slugify(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
 export function findUniqueSlug(title: string, existingSlugs: string[]): string {
-  const base = slugify(title);
+  const base = slugify(title.replace(/_/g, "-"), {
+    lower: true,
+    strict: true,
+    trim: true,
+  });
   if (!existingSlugs.includes(base)) return base;
 
   let i = 2;
