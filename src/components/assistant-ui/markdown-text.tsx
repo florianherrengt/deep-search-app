@@ -5,7 +5,8 @@ import {
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
 import remarkGfm from "remark-gfm";
-import { type AnchorHTMLAttributes, type FC, useState } from "react";
+import { type AnchorHTMLAttributes, type FC } from "react";
+import { useClipboard } from "@mantine/hooks";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -23,25 +24,17 @@ const CodeHeader: FC<{
   language?: string;
   code: string;
 }> = ({ language, code }) => {
-  const [isCopied, setIsCopied] = useState(false);
-
-  const onCopy = () => {
-    if (!code || isCopied) return;
-    navigator.clipboard.writeText(code).then(() => {
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 3000);
-    });
-  };
+  const clipboard = useClipboard({ timeout: 3000 });
 
   return (
     <div className="md-code-bg" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderRadius: "8px 8px 0 0", padding: "8px 16px", fontSize: 12 }}>
       <span style={{ color: "var(--mantine-color-dimmed)" }}>{language}</span>
       <button
-        onClick={onCopy}
+        onClick={() => code && clipboard.copy(code)}
         aria-label="Copy code"
         style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--mantine-color-dimmed)", background: "none", border: "none", cursor: "pointer" }}
       >
-        {isCopied ? (
+        {clipboard.copied ? (
           <CheckIcon style={{ width: 14, height: 14 }} />
         ) : (
           <CopyIcon style={{ width: 14, height: 14 }} />
