@@ -33,4 +33,29 @@ describe("validateUrl", () => {
     expect(isValidServiceUrl("https://search.example.com")).toBe(true);
     expect(isValidServiceUrl("file:///etc/passwd")).toBe(false);
   });
+
+  it("rejects private IPv4 ranges", () => {
+    expect(isValidUrl("https://10.0.0.1")).toBe(false);
+    expect(isValidUrl("https://172.16.0.1")).toBe(false);
+    expect(isValidUrl("https://172.31.255.255")).toBe(false);
+    expect(isValidUrl("https://192.168.0.1")).toBe(false);
+    expect(isValidUrl("https://169.254.169.254")).toBe(false);
+    expect(isValidUrl("https://100.64.0.1")).toBe(false);
+    expect(isValidUrl("https://198.18.0.1")).toBe(false);
+    expect(isValidUrl("https://224.0.0.1")).toBe(false);
+    expect(isValidUrl("https://240.0.0.1")).toBe(false);
+  });
+
+  it("rejects private IPv6 ranges", () => {
+    expect(isValidUrl("https://[fc00::1]")).toBe(false);
+    expect(isValidUrl("https://[fd00::1]")).toBe(false);
+    expect(isValidUrl("https://[fe80::1]")).toBe(false);
+    expect(isValidUrl("https://[::1]")).toBe(false);
+    expect(isValidUrl("https://[ff02::1]")).toBe(false);
+  });
+
+  it("rejects IPv4-mapped IPv6 addresses", () => {
+    expect(isValidUrl("https://[::ffff:127.0.0.1]")).toBe(false);
+    expect(isValidUrl("https://[::ffff:192.168.1.1]")).toBe(false);
+  });
 });

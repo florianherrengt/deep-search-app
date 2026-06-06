@@ -1,3 +1,5 @@
+import ipaddr from "ipaddr.js";
+
 const BLOCKED_SCHEMES = ["file:", "data:", "javascript:", "vbscript:", "tauri:", "about:", "blob:"];
 
 const PRIVATE_HOSTNAMES = new Set([
@@ -8,27 +10,24 @@ const PRIVATE_HOSTNAMES = new Set([
   "::1",
 ]);
 
-function isPrivateIpv4(hostname: string): boolean {
-  const parts = hostname.split(".");
-  if (parts.length !== 4) return false;
-  const octets = parts.map(Number);
-  if (octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) return false;
-  if (octets[0] === 10) return true;
-  if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true;
-  if (octets[0] === 192 && octets[1] === 168) return true;
-  if (octets[0] === 169 && octets[1] === 254) return true;
-  if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return true;
-  if (octets[0] === 198 && octets[1] === 18) return true;
-  return false;
-}
-
-function isPrivateIpv6(hostname: string): boolean {
+function isPrivateIp(hostname: string): boolean {
   const bare = hostname.replace(/^\[|\]$/g, "");
-  if (bare === "::1") return true;
-  if (bare.startsWith("fc") || bare.startsWith("fd")) return true;
-  if (bare.startsWith("fe80")) return true;
-  if (bare.startsWith("fc00") || bare.startsWith("fd00")) return true;
-  return false;
+
+  let addr: ipaddr.IPv4 | ipaddr.IPv6;
+  try {
+    addr = ipaddr.parse(bare);
+  } catch {
+    return false;
+  }
+
+  if (addr.kind() === "ipv6") {
+    const v6 = addr as ipaddr.IPv6;
+    if (v6.isIPv4MappedAddress()) {
+      addr = v6.toIPv4Address();
+    }
+  }
+
+  return addr.range() !== "unicast";
 }
 
 export class UrlValidationError extends Error {
@@ -73,12 +72,8 @@ export function validateUrl(raw: string): URL {
     throw new UrlValidationError(`Local hostname not allowed: ${hostname}`);
   }
 
-  if (isPrivateIpv4(hostname)) {
-    throw new UrlValidationError(`Private IPv4 address not allowed: ${hostname}`);
-  }
-
-  if (isPrivateIpv6(hostname)) {
-    throw new UrlValidationError(`Private IPv6 address not allowed: ${hostname}`);
+  if (isPrivateIp(hostname)) {
+    throw new UrlValidationError(`Private/special-use IP address not allowed: ${hostname}`);
   }
 
   return parsed;
