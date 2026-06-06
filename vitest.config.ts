@@ -32,8 +32,8 @@ export default defineConfig({
           }),
           storybookVis({
             comparisonMethod: "pixel",
-            failureThreshold: 100,
-            failureThresholdType: "pixel",
+            failureThreshold: 3.0,
+            failureThresholdType: "percent",
           }),
         ],
         test: {

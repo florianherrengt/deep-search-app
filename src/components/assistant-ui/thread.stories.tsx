@@ -153,7 +153,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Conversation: Story = {
-  tags: ["!snapshot"],
+  tags: [],
 };
 
 export const Empty: Story = {
