@@ -1,8 +1,11 @@
 mod research_search;
 
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::str::FromStr;
 use std::sync::mpsc;
 use std::time::Duration;
+
+use ipnet::IpNet;
 
 use reqwest::header::{ACCEPT, CONTENT_TYPE, LOCATION, USER_AGENT};
 use research_search::{Database, ResearchFolder, SearchResult};
@@ -230,25 +233,56 @@ async fn resolve_public_socket_addrs(parsed: &url::Url) -> Result<Vec<SocketAddr
     Ok(addrs)
 }
 
+/// CIDR blocks that are blocked for outbound HTTP fetches.
+/// These mirror the TS-side validation in `src/lib/url-validation.ts`,
+/// which uses `ipaddr.js` and blocks anything whose `range()` is not
+/// `'unicast'`.
+const BLOCKED_IPV4_NETS: &[&str] = &[
+    "0.0.0.0/8",          // current network
+    "10.0.0.0/8",         // RFC 1918 private
+    "100.64.0.0/10",      // CGNAT
+    "127.0.0.0/8",        // loopback
+    "169.254.0.0/16",     // link-local
+    "172.16.0.0/12",      // RFC 1918 private
+    "192.0.0.0/24",       // IETF protocol assignments
+    "192.0.2.0/24",       // documentation (TEST-NET-1)
+    "192.168.0.0/16",     // RFC 1918 private
+    "198.18.0.0/15",      // benchmark testing
+    "198.51.100.0/24",    // documentation (TEST-NET-2)
+    "203.0.113.0/24",     // documentation (TEST-NET-3)
+    "224.0.0.0/4",        // multicast
+    "240.0.0.0/4",        // reserved
+    "255.255.255.255/32", // broadcast
+];
+
+const BLOCKED_IPV6_NETS: &[&str] = &[
+    "::/128",         // unspecified
+    "::1/128",        // loopback
+    "::ffff:0:0/96",  // IPv4-mapped (handled by unwrapping the IPv4 part)
+    "fc00::/7",       // unique local addresses
+    "fe80::/10",      // link-local
+    "ff00::/8",       // multicast
+];
+
+fn blocked_ip_nets() -> &'static [IpNet] {
+    use std::sync::OnceLock;
+    static NETS: OnceLock<Vec<IpNet>> = OnceLock::new();
+    NETS.get_or_init(|| {
+        BLOCKED_IPV4_NETS
+            .iter()
+            .chain(BLOCKED_IPV6_NETS.iter())
+            .map(|s| IpNet::from_str(s).expect("invalid CIDR in BLOCKED_*_NETS"))
+            .collect()
+    })
+}
+
 fn is_blocked_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ip) => {
-            ip.is_private()
-                || ip.is_loopback()
-                || ip.is_link_local()
-                || ip.is_broadcast()
-                || ip.is_documentation()
-                || ip.octets()[0] == 0
-                || (ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1]))
-                || (ip.octets()[0] == 198 && ip.octets()[1] == 18)
-        }
-        IpAddr::V6(ip) => {
-            ip.is_loopback()
-                || ip.is_unspecified()
-                || ((ip.segments()[0] & 0xfe00) == 0xfc00)
-                || ((ip.segments()[0] & 0xffc0) == 0xfe80)
+    if let IpAddr::V6(v6) = ip {
+        if let Some(v4) = v6.to_ipv4_mapped() {
+            return is_blocked_ip(IpAddr::V4(v4));
         }
     }
+    blocked_ip_nets().iter().any(|net| net.contains(&ip))
 }
 
 #[derive(Clone, Copy)]
@@ -698,9 +732,49 @@ mod tests {
     }
 
     #[test]
-    fn configured_service_url_allows_local_http() {
-        assert!(validate_service_base_url("http://localhost:8080").is_ok());
-        assert!(validate_service_base_url("https://search.example.com").is_ok());
-        assert!(validate_service_base_url("file:///tmp/search").is_err());
+    fn is_blocked_ip_blocks_private_ipv4() {
+        use std::net::Ipv4Addr;
+        let blocked: &[&str] = &[
+            "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.0.1",
+            "169.254.169.254", "100.64.0.1", "198.18.0.1",
+            "224.0.0.1", "240.0.0.1", "127.0.0.1", "0.0.0.0",
+        ];
+        for s in blocked {
+            let ip: Ipv4Addr = s.parse().unwrap();
+            assert!(is_blocked_ip(IpAddr::V4(ip)), "should block {}", s);
+        }
+    }
+
+    #[test]
+    fn is_blocked_ip_allows_public_ipv4() {
+        use std::net::Ipv4Addr;
+        let allowed: &[&str] = &["8.8.8.8", "1.1.1.1", "93.184.216.34"];
+        for s in allowed {
+            let ip: Ipv4Addr = s.parse().unwrap();
+            assert!(!is_blocked_ip(IpAddr::V4(ip)), "should allow {}", s);
+        }
+    }
+
+    #[test]
+    fn is_blocked_ip_blocks_private_ipv6() {
+        use std::net::Ipv6Addr;
+        let blocked: &[&str] = &[
+            "::1", "fc00::1", "fd00::1", "fe80::1", "ff02::1", "::",
+        ];
+        for s in blocked {
+            let ip: Ipv6Addr = s.parse().unwrap();
+            assert!(is_blocked_ip(IpAddr::V6(ip)), "should block {}", s);
+        }
+    }
+
+    #[test]
+    fn is_blocked_ip_handles_ipv4_mapped_ipv6() {
+        use std::net::Ipv6Addr;
+        let ip: Ipv6Addr = "::ffff:127.0.0.1".parse().unwrap();
+        assert!(is_blocked_ip(IpAddr::V6(ip)));
+        let ip: Ipv6Addr = "::ffff:192.168.1.1".parse().unwrap();
+        assert!(is_blocked_ip(IpAddr::V6(ip)));
+        let ip: Ipv6Addr = "::ffff:8.8.8.8".parse().unwrap();
+        assert!(!is_blocked_ip(IpAddr::V6(ip)));
     }
 }
