@@ -2,10 +2,10 @@ import {
   createContext,
   memo,
   useEffect,
-  useState,
   type ReactNode,
 } from "react";
 import { Select as MantineSelect } from "@mantine/core";
+import { useUncontrolled } from "@mantine/hooks";
 import { useAui } from "@assistant-ui/react";
 import { formatContextWindowTokens } from "@/lib/context-window";
 
@@ -66,12 +66,12 @@ const ModelSelectorImpl = ({
   variant,
   size,
 }: ModelSelectorProps) => {
-  const isControlled = controlledValue !== undefined;
-  const [internalValue, setInternalValue] = useState(
-    () => defaultValue ?? models[0]?.id ?? "",
-  );
-  const value = isControlled ? controlledValue : internalValue;
-  const onValueChange = controlledOnValueChange ?? setInternalValue;
+  const [value, setValue] = useUncontrolled({
+    value: controlledValue,
+    defaultValue,
+    finalValue: models[0]?.id ?? "",
+    onChange: controlledOnValueChange,
+  });
   const api = useAui();
 
   useEffect(() => {
@@ -85,7 +85,7 @@ const ModelSelectorImpl = ({
     <MantineSelect
       value={value}
       onChange={(v) => {
-        if (v) onValueChange(v);
+        if (v) setValue(v);
       }}
       data={models.map((model) => {
         const contextWindowLabel = formatContextWindowTokens(model.contextWindowTokens);
