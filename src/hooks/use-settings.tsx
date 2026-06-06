@@ -1,11 +1,10 @@
 import {
   createContext,
   useContext,
-  useState,
-  useEffect,
   useCallback,
   type ReactNode,
 } from "react";
+import { useAsyncResource } from "./use-async-resource";
 import {
   settingsStore,
   settingsSchema,
@@ -31,43 +30,32 @@ interface SettingsContextValue {
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(settingsDefaults);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const testSettings = getDevTestSettings();
-        if (testSettings) {
-          setSettings(testSettings);
-          return;
-        }
-        setSettings(await settingsStore.get());
-      } catch {
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  const { data: settings, loading, refresh } = useAsyncResource(
+    settingsDefaults,
+    async () => {
+      const testSettings = getDevTestSettings();
+      if (testSettings) return testSettings;
+      return settingsStore.get();
+    },
+  );
 
   const updateSetting = useCallback(
     async <K extends keyof Settings>(key: K, value: Settings[K]) => {
       if (hasDevTestSettings()) {
-        setSettings((prev) => {
-          const next = settingsSchema.parse({ ...prev, [key]: value });
-          window.localStorage.setItem(
-            DEV_TEST_SETTINGS_KEY,
-            JSON.stringify(next),
-          );
-          return next;
-        });
+        const prev = getDevTestSettings() ?? settingsDefaults;
+        const next = settingsSchema.parse({ ...prev, [key]: value });
+        window.localStorage.setItem(
+          DEV_TEST_SETTINGS_KEY,
+          JSON.stringify(next),
+        );
+        await refresh();
         return;
       }
 
       await settingsStore.set(key, value);
-      setSettings((prev) => ({ ...prev, [key]: value }));
+      await refresh();
     },
-    [],
+    [refresh],
   );
 
   const resetAll = useCallback(async () => {
@@ -76,13 +64,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         DEV_TEST_SETTINGS_KEY,
         JSON.stringify(settingsDefaults),
       );
-      setSettings(settingsDefaults);
+      await refresh();
       return;
     }
 
     await settingsStore.reset();
-    setSettings(settingsDefaults);
-  }, []);
+    await refresh();
+  }, [refresh]);
 
   return (
     <SettingsContext.Provider value={{ settings, loading, updateSetting, resetAll }}>

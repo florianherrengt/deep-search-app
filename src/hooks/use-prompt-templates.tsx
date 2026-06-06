@@ -1,11 +1,10 @@
 import {
   createContext,
   useContext,
-  useState,
-  useEffect,
   useCallback,
   type ReactNode,
 } from "react";
+import { useAsyncResource } from "./use-async-resource";
 import {
   promptTemplatesStore,
   type Template,
@@ -25,29 +24,10 @@ interface PromptTemplatesContextValue {
 const PromptTemplatesContext = createContext<PromptTemplatesContextValue | null>(null);
 
 export function PromptTemplatesProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<PromptTemplatesState>({
-    templates: [],
-    lastSelectedTemplate: null,
-  });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    promptTemplatesStore.get().then((data) => {
-      if (!cancelled) {
-        setState(data);
-        setLoading(false);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const refresh = useCallback(async () => {
-    const data = await promptTemplatesStore.get();
-    setState(data);
-  }, []);
+  const { data: state, loading, refresh } = useAsyncResource(
+    { templates: [], lastSelectedTemplate: null } as PromptTemplatesState,
+    () => promptTemplatesStore.get(),
+  );
 
   const addTemplate = useCallback(
     async (template: Template) => {

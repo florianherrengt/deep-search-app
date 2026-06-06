@@ -1,11 +1,10 @@
 import {
   createContext,
   useContext,
-  useState,
-  useEffect,
   useCallback,
   type ReactNode,
 } from "react";
+import { useAsyncResource } from "./use-async-resource";
 import {
   skillsStore,
   findUniqueSlug,
@@ -24,26 +23,10 @@ interface SkillsContextValue {
 const SkillsContext = createContext<SkillsContextValue | null>(null);
 
 export function SkillsProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<SkillsState>({ skills: [] });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    skillsStore.get().then((data) => {
-      if (!cancelled) {
-        setState(data);
-        setLoading(false);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const refresh = useCallback(async () => {
-    const data = await skillsStore.get();
-    setState(data);
-  }, []);
+  const { data: state, loading, refresh } = useAsyncResource(
+    { skills: [] } as SkillsState,
+    () => skillsStore.get(),
+  );
 
   const addSkill = useCallback(
     async (input: { title: string; whenToUse: string; content: string }) => {
