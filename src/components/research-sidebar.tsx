@@ -24,19 +24,9 @@ import {
   ActionIcon,
   Loader,
   Stack,
+  VisuallyHidden,
 } from "@mantine/core";
 
-const srOnly: React.CSSProperties = {
-  position: "absolute",
-  width: 1,
-  height: 1,
-  padding: 0,
-  margin: -1,
-  overflow: "hidden",
-  clip: "rect(0,0,0,0)",
-  whiteSpace: "nowrap",
-  borderWidth: 0,
-};
 import type {
   ResearchChatSummary,
   ResearchFolder,
@@ -290,9 +280,9 @@ export function ResearchSidebar({
                         runningFolderSet.has(name) ? (
                           <span title="Research running">
                             <LoaderIcon size={12} style={{ animation: "spin 1s linear infinite" }} />
-                            <span style={srOnly}>
+                            <VisuallyHidden>
                               Research running in {name}
-                            </span>
+                            </VisuallyHidden>
                           </span>
                         ) : null
                       }
@@ -354,9 +344,9 @@ export function ResearchSidebar({
                           folderRunning ? (
                             <span title="Research running">
                               <LoaderIcon size={12} style={{ animation: "spin 1s linear infinite" }} />
-                              <span style={srOnly}>
+                              <VisuallyHidden>
                                 Research running in {folder.name}
-                              </span>
+                              </VisuallyHidden>
                             </span>
                           ) : null
                         }
@@ -533,9 +523,9 @@ function ResearchChatList({
                 chatRunning ? (
                   <span title="Research running">
                     <LoaderIcon size={12} style={{ marginTop: 2, animation: "spin 1s linear infinite" }} />
-                    <span style={srOnly}>
+                    <VisuallyHidden>
                       Research running in {chat.title}
-                    </span>
+                    </VisuallyHidden>
                   </span>
                 ) : null
               }
