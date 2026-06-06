@@ -16,54 +16,47 @@ export interface ToolDescriptor {
   execute: (params: Record<string, unknown>) => Promise<unknown>;
 }
 
-function resolveParameterSchema(rawField: z.ZodTypeAny) {
-  const isOptional = rawField instanceof z.ZodOptional;
-  const inner = isOptional ? rawField.unwrap() : rawField;
-  const defaultSchema = inner instanceof z.ZodDefault ? inner : null;
+type JsonSchemaObject = {
+  type?: string;
+  description?: string;
+  default?: unknown;
+  enum?: unknown[];
+};
 
-  return {
-    resolved: (defaultSchema ? defaultSchema.unwrap() : inner) as z.ZodTypeAny,
-    required: !isOptional && !defaultSchema,
-    defaultValue: defaultSchema ? defaultSchema.parse(undefined) : undefined,
+function jsonSchemaPropToToolParam(
+  prop: JsonSchemaObject,
+  required: boolean,
+): ToolParameter {
+  const result: ToolParameter = {
+    type:
+      prop.type === "integer" || prop.type === "number"
+        ? "number"
+        : prop.type === "boolean"
+          ? "boolean"
+          : "string",
+    required,
   };
-}
-
-function describeParameterType(
-  resolved: z.ZodTypeAny,
-): Pick<ToolParameter, "type" | "enum"> {
-  if (resolved instanceof z.ZodNumber) {
-    return { type: "number" };
+  if (prop.description) result.description = prop.description;
+  if (prop.default !== undefined) result.default = prop.default;
+  if (Array.isArray(prop.enum)) {
+    result.enum = prop.enum.map((v) => String(v));
   }
-
-  if (resolved instanceof z.ZodBoolean) {
-    return { type: "boolean" };
-  }
-
-  if (resolved instanceof z.ZodEnum) {
-    return { type: "string", enum: resolved.options.map(String) };
-  }
-
-  return { type: "string" };
+  return result;
 }
 
 export function zodToParams(
   schema: z.ZodObject<Record<string, z.ZodTypeAny>>,
 ): Record<string, ToolParameter> {
+  const json = z.toJSONSchema(schema) as {
+    properties?: Record<string, JsonSchemaObject>;
+    required?: string[];
+  };
+  const requiredSet = new Set(json.required ?? []);
   const params: Record<string, ToolParameter> = {};
-
-  for (const [key, rawField] of Object.entries(schema.shape)) {
-    const { resolved, required, defaultValue } =
-      resolveParameterSchema(rawField);
-    const desc = (rawField as { description?: string }).description;
-
-    params[key] = {
-      ...describeParameterType(resolved),
-      required,
-      ...(desc && { description: desc }),
-      ...(defaultValue !== undefined && { default: defaultValue }),
-    };
+  for (const [key, prop] of Object.entries(json.properties ?? {})) {
+    const required = requiredSet.has(key) && prop.default === undefined;
+    params[key] = jsonSchemaPropToToolParam(prop, required);
   }
-
   return params;
 }
 
