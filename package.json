@@ -45,6 +45,7 @@
     "cheerio": "^1.2.0",
     "chrome-devtools-mcp": "^1.1.1",
     "compromise": "^14.15.0",
+    "currency-symbol-map": "^5.1.0",
     "ipaddr.js": "^2.4.0",
     "lucide-react": "^1.16.0",
     "p-queue": "^9.3.0",

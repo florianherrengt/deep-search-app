@@ -11,6 +11,31 @@ import {
 } from "@/lib/tool-call-requirements";
 import { CURRENCIES, type Currency } from "@/lib/settings-store";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
+import getSymbolFromCurrency from "currency-symbol-map";
+
+/**
+ * Map currency symbols (e.g. "$", "€") to ISO 4217 codes.
+ * Built by inverting the currency-symbol-map library, which provides ~187
+ * code → symbol entries. The hand-rolled version covered only 16 of the 31
+ * currencies users can pick in settings, so a user with target = "AED"
+ * could not detect "د.إ 100" mentions.
+ *
+ * Symbols that map to multiple codes (e.g. "$" → USD/CAD/AUD/MXN/etc.)
+ * are represented as a comma-separated list, and the matcher below
+ * expands them into individual patterns.
+ */
+const CURRENCY_SYMBOL_TO_CODES: Record<string, string> = (() => {
+  const map: Record<string, string[]> = {};
+  const currencySymbolMap = getSymbolFromCurrency.currencySymbolMap;
+  for (const [code, symbol] of Object.entries(currencySymbolMap)) {
+    if (typeof symbol !== "string" || symbol.length === 0) continue;
+    if (!map[symbol]) map[symbol] = [];
+    map[symbol].push(code);
+  }
+  return Object.fromEntries(
+    Object.entries(map).map(([sym, codes]) => [sym, codes.join(", ")]),
+  );
+})();
 
 export const guardrailEventSchema = z.object({
   kind: z.enum([
@@ -147,25 +172,6 @@ const RESEARCH_TOOL_NAMES = new Set([
 
 const RESEARCH_CHECKPOINT_TOOL = "research_checkpoint";
 
-const CURRENCY_SYMBOL_MAP: Record<string, string> = {
-  $: "USD",
-  "€": "EUR",
-  "£": "GBP",
-  "¥": "JPY",
-  "₩": "KRW",
-  "₹": "INR",
-  "₽": "RUB",
-  "₺": "TRY",
-  "₴": "UAH",
-  "₱": "PHP",
-  "₫": "VND",
-  "₦": "NGN",
-  "₪": "ILS",
-  "₡": "CRC",
-  "₸": "KZT",
-  "₮": "MNT",
-};
-
 const CURRENCY_CODE_PATTERN = new RegExp(
   `\\b\\d[\\d,.]*\\s*(${CURRENCIES.join("|")})\\b` +
     `|` +
@@ -179,15 +185,15 @@ function detectForeignCurrencyMentions(
 ): string[] {
   const matches = new Set<string>();
 
-  for (const [symbol, currency] of Object.entries(CURRENCY_SYMBOL_MAP)) {
-    if (currency === targetCurrency) continue;
+  for (const [symbol, codes] of Object.entries(CURRENCY_SYMBOL_TO_CODES)) {
+    if (codes.split(", ").includes(targetCurrency)) continue;
     const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const symbolPattern = new RegExp(
       `${escaped}\\s*[\\d,.]+\\b|\\b[\\d,.]+\\s*${escaped}`,
       "g",
     );
     for (const m of text.matchAll(symbolPattern)) {
-      matches.add(`${m[0]} (${currency})`);
+      matches.add(`${m[0]} (${codes})`);
     }
   }
 
