@@ -44,6 +44,7 @@
     "chrome-devtools-mcp": "^1.1.1",
     "compromise": "^14.15.0",
     "lucide-react": "^1.16.0",
+    "p-queue": "^9.3.0",
     "postcss": "^8.5.15",
     "postcss-preset-mantine": "^1.18.0",
     "postcss-simple-vars": "^7.0.1",
