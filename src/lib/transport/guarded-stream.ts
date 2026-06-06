@@ -305,21 +305,17 @@ async function pipeUIMessageStream(
   controller: ReadableStreamDefaultController<UIMessageChunk>,
   abortSignal: AbortSignal | undefined,
 ) {
-  const reader = stream.getReader();
-  const cancel = () => {
-    void reader.cancel();
-  };
-  abortSignal?.addEventListener("abort", cancel, { once: true });
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      controller.enqueue(value);
-    }
-  } finally {
-    abortSignal?.removeEventListener("abort", cancel);
-    reader.releaseLock();
-  }
+  // The `signal` option is passed to pipeTo, which handles abort listening
+  // and reader cleanup automatically. We use the `preventClose: true` option
+  // because the outer stream's lifecycle is managed by the parent ReadableStream.
+  await stream.pipeTo(
+    new WritableStream<UIMessageChunk>({
+      write(chunk) {
+        controller.enqueue(chunk);
+      },
+    }),
+    { signal: abortSignal, preventClose: true },
+  );
 }
 
 function writeGuardrailEvent(
