@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { PencilIcon, TrashIcon, PlusIcon, XIcon, CheckIcon } from "lucide-react";
 import { Button, TextInput, Textarea, Box, Text, Group, Paper, Stack, ScrollArea, ActionIcon } from "@mantine/core";
+import { useForm } from "@mantine/form";
 import { useSkills } from "@/hooks/use-skills";
 import type { Skill } from "@/lib/skills-store";
 import slugify from "slugify";
@@ -10,68 +11,63 @@ type EditingState =
   | { mode: "add" }
   | { mode: "edit"; originalSlug: string };
 
+interface FormValues {
+  title: string;
+  whenToUse: string;
+  content: string;
+}
+
+const EMPTY_FORM: FormValues = { title: "", whenToUse: "", content: "" };
+
 export function SkillsSection() {
   const { skills, addSkill, updateSkill, deleteSkill } = useSkills();
 
   const [editing, setEditing] = useState<EditingState>({ mode: "idle" });
-  const [draftTitle, setDraftTitle] = useState("");
-  const [draftWhenToUse, setDraftWhenToUse] = useState("");
-  const [draftContent, setDraftContent] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const form = useForm<FormValues>({
+    initialValues: EMPTY_FORM,
+    validate: {
+      title: (v) => (v.trim() ? null : "Title is required"),
+      whenToUse: (v) => (v.trim() ? null : "When to use is required"),
+      content: (v) => (v.trim() ? null : "Content is required"),
+    },
+  });
 
   const startAdd = useCallback(() => {
     setEditing({ mode: "add" });
-    setDraftTitle("");
-    setDraftWhenToUse("");
-    setDraftContent("");
+    form.setValues(EMPTY_FORM);
     setError(null);
-  }, []);
+  }, [form]);
 
   const startEdit = useCallback((skill: Skill) => {
     setEditing({ mode: "edit", originalSlug: skill.slug });
-    setDraftTitle(skill.title);
-    setDraftWhenToUse(skill.whenToUse);
-    setDraftContent(skill.content);
+    form.setValues({ title: skill.title, whenToUse: skill.whenToUse, content: skill.content });
     setError(null);
-  }, []);
+  }, [form]);
 
   const cancelEdit = useCallback(() => {
     setEditing({ mode: "idle" });
-    setDraftTitle("");
-    setDraftWhenToUse("");
-    setDraftContent("");
+    form.reset();
     setError(null);
-  }, []);
+  }, [form]);
 
-  const handleSave = useCallback(async () => {
-    const title = draftTitle.trim();
-    const whenToUse = draftWhenToUse.trim();
-    const content = draftContent.trim();
-
-    if (!title) {
-      setError("Title is required");
-      return;
-    }
-    if (!whenToUse) {
-      setError("When to use is required");
-      return;
-    }
-    if (!content) {
-      setError("Content is required");
-      return;
-    }
-
+  const handleSubmit = useCallback(async (values: FormValues) => {
+    const trimmed = {
+      title: values.title.trim(),
+      whenToUse: values.whenToUse.trim(),
+      content: values.content.trim(),
+    };
     try {
       if (editing.mode === "add") {
-        await addSkill({ title, whenToUse, content });
+        await addSkill(trimmed);
       } else if (editing.mode === "edit") {
-        await updateSkill(editing.originalSlug, { title, whenToUse, content });
+        await updateSkill(editing.originalSlug, trimmed);
       }
       cancelEdit();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     }
-  }, [editing.mode, draftTitle, draftWhenToUse, draftContent, addSkill, updateSkill, cancelEdit]);
+  }, [editing, addSkill, updateSkill, cancelEdit]);
 
   const handleDelete = useCallback(
     async (slug: string) => {
@@ -87,7 +83,7 @@ export function SkillsSection() {
     [deleteSkill, editing, cancelEdit],
   );
 
-  const previewSlug = slugify(draftTitle.replace(/_/g, "-"), {
+  const previewSlug = slugify(form.values.title.replace(/_/g, "-"), {
     lower: true,
     strict: true,
     trim: true,
@@ -119,70 +115,49 @@ export function SkillsSection() {
         <Box maw={640} mx="auto" w="100%" px="md">
           {editing.mode !== "idle" ? (
             <Paper withBorder p="md">
-              <Stack gap="sm">
-                <Box>
+              <form onSubmit={form.onSubmit(handleSubmit)} onKeyDown={(e) => { if (e.key === "Escape") cancelEdit(); }}>
+                <Stack gap="sm">
+                  <Box>
+                    <TextInput
+                      label="Title"
+                      {...form.getInputProps("title")}
+                      placeholder="Skill title"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") cancelEdit();
+                      }}
+                    />
+                    {previewSlug && (
+                      <Text size="xs" c="dimmed" mt={4}>slug: {previewSlug}</Text>
+                    )}
+                  </Box>
                   <TextInput
-                    label="Title"
-                    value={draftTitle}
-                    onChange={(e) => {
-                      setDraftTitle(e.currentTarget.value);
-                      setError(null);
-                    }}
-                    placeholder="Skill title"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void handleSave();
-                      } else if (e.key === "Escape") {
-                        cancelEdit();
-                      }
-                    }}
+                    label="When to use"
+                    {...form.getInputProps("whenToUse")}
+                    placeholder="When should the AI load this skill?"
                   />
-                  {previewSlug && (
-                    <Text size="xs" c="dimmed" mt={4}>slug: {previewSlug}</Text>
+                  <Box>
+                    <Text size="sm" fw={500} mb={4}>Content</Text>
+                    <Textarea
+                      {...form.getInputProps("content")}
+                      placeholder="Skill instructions..."
+                      minRows={8}
+                      autosize
+                    />
+                  </Box>
+                  {error && (
+                    <Text size="sm" c="red">{error}</Text>
                   )}
-                </Box>
-                <TextInput
-                  label="When to use"
-                  value={draftWhenToUse}
-                  onChange={(e) => {
-                    setDraftWhenToUse(e.currentTarget.value);
-                    setError(null);
-                  }}
-                  placeholder="When should the AI load this skill?"
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") cancelEdit();
-                  }}
-                />
-                <Box>
-                  <Text size="sm" fw={500} mb={4}>Content</Text>
-                  <Textarea
-                    value={draftContent}
-                    onChange={(e) => {
-                      setDraftContent(e.currentTarget.value);
-                      setError(null);
-                    }}
-                    placeholder="Skill instructions..."
-                    minRows={8}
-                    autosize
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") cancelEdit();
-                    }}
-                  />
-                </Box>
-                {error && (
-                  <Text size="sm" c="red">{error}</Text>
-                )}
-                <Group gap="xs">
-                  <Button size="sm" onClick={() => void handleSave()} leftSection={<CheckIcon size={14} />}>
-                    Save
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={cancelEdit} leftSection={<XIcon size={14} />}>
-                    Cancel
-                  </Button>
-                </Group>
-              </Stack>
+                  <Group gap="xs">
+                    <Button type="submit" size="sm" leftSection={<CheckIcon size={14} />}>
+                      Save
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={cancelEdit} leftSection={<XIcon size={14} />}>
+                      Cancel
+                    </Button>
+                  </Group>
+                </Stack>
+              </form>
             </Paper>
           ) : skills.length > 0 ? (
             <Paper withBorder>

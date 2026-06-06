@@ -1,12 +1,20 @@
 import { useState, useCallback } from "react";
 import { PencilIcon, TrashIcon, PlusIcon, XIcon, CheckIcon } from "lucide-react";
 import { Button, TextInput, Textarea, Box, Text, Group, Paper, Stack, ScrollArea, ActionIcon } from "@mantine/core";
+import { useForm } from "@mantine/form";
 import { usePromptTemplates } from "@/hooks/use-prompt-templates";
 
 type EditingState =
   | { mode: "idle" }
   | { mode: "add" }
   | { mode: "edit"; originalName: string };
+
+interface FormValues {
+  name: string;
+  text: string;
+}
+
+const EMPTY_FORM: FormValues = { name: "", text: "" };
 
 export function PromptTemplatesSection() {
   const {
@@ -17,54 +25,49 @@ export function PromptTemplatesSection() {
   } = usePromptTemplates();
 
   const [editing, setEditing] = useState<EditingState>({ mode: "idle" });
-  const [draftName, setDraftName] = useState("");
-  const [draftText, setDraftText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const form = useForm<FormValues>({
+    initialValues: EMPTY_FORM,
+    validate: {
+      name: (v) => (v.trim() ? null : "Name is required"),
+      text: (v) => (v.trim() ? null : "Prompt text is required"),
+    },
+  });
 
   const startAdd = useCallback(() => {
     setEditing({ mode: "add" });
-    setDraftName("");
-    setDraftText("");
+    form.setValues(EMPTY_FORM);
     setError(null);
-  }, []);
+  }, [form]);
 
   const startEdit = useCallback((template: { name: string; text: string }) => {
     setEditing({ mode: "edit", originalName: template.name });
-    setDraftName(template.name);
-    setDraftText(template.text);
+    form.setValues({ name: template.name, text: template.text });
     setError(null);
-  }, []);
+  }, [form]);
 
   const cancelEdit = useCallback(() => {
     setEditing({ mode: "idle" });
-    setDraftName("");
-    setDraftText("");
+    form.reset();
     setError(null);
-  }, []);
+  }, [form]);
 
-  const handleSave = useCallback(async () => {
-    const name = draftName.trim();
-    const text = draftText.trim();
-    if (!name) {
-      setError("Name is required");
-      return;
-    }
-    if (!text) {
-      setError("Prompt text is required");
-      return;
-    }
-
+  const handleSubmit = useCallback(async (values: FormValues) => {
+    const trimmed = {
+      name: values.name.trim(),
+      text: values.text.trim(),
+    };
     try {
       if (editing.mode === "add") {
-        await addTemplate({ name, text });
+        await addTemplate(trimmed);
       } else if (editing.mode === "edit") {
-        await updateTemplate(editing.originalName, { name, text });
+        await updateTemplate(editing.originalName, trimmed);
       }
       cancelEdit();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     }
-  }, [editing.mode, draftName, draftText, addTemplate, updateTemplate, cancelEdit]);
+  }, [editing, addTemplate, updateTemplate, cancelEdit]);
 
   const handleDelete = useCallback(
     async (name: string) => {
@@ -106,54 +109,40 @@ export function PromptTemplatesSection() {
         <Box maw={640} mx="auto" w="100%" px="md">
           {editing.mode !== "idle" ? (
             <Paper withBorder p="md" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-              <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
-                <TextInput
-                  label="Name"
-                  value={draftName}
-                  onChange={(e) => {
-                    setDraftName(e.currentTarget.value);
-                    setError(null);
-                  }}
-                  placeholder="Template name"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void handleSave();
-                    } else if (e.key === "Escape") {
-                      cancelEdit();
-                    }
-                  }}
-                />
-                <Box style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-                  <Text size="sm" fw={500} mb={4}>Prompt</Text>
-                  <Textarea
-                    value={draftText}
-                    onChange={(e) => {
-                      setDraftText(e.currentTarget.value);
-                      setError(null);
-                    }}
-                    placeholder="Enter prompt text..."
-                    autosize
-                    minRows={6}
-                    style={{ flex: 1 }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") cancelEdit();
-                    }}
-                  />
-                </Box>
-                {error && (
-                  <Text size="sm" c="red">{error}</Text>
-                )}
-                <Group gap="xs">
-                  <Button size="sm" onClick={() => void handleSave()} leftSection={<CheckIcon size={14} />}>
-                    Save
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={cancelEdit} leftSection={<XIcon size={14} />}>
-                    Cancel
-                  </Button>
-                </Group>
-              </Stack>
+              <form onSubmit={form.onSubmit(handleSubmit)} onKeyDown={(e) => { if (e.key === "Escape") cancelEdit(); }} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
+                    <TextInput
+                      label="Name"
+                      {...form.getInputProps("name")}
+                      placeholder="Template name"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") cancelEdit();
+                      }}
+                    />
+                  <Box style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                    <Text size="sm" fw={500} mb={4}>Prompt</Text>
+                    <Textarea
+                      {...form.getInputProps("text")}
+                      placeholder="Enter prompt text..."
+                      autosize
+                      minRows={6}
+                      style={{ flex: 1 }}
+                    />
+                  </Box>
+                  {error && (
+                    <Text size="sm" c="red">{error}</Text>
+                  )}
+                  <Group gap="xs">
+                    <Button type="submit" size="sm" leftSection={<CheckIcon size={14} />}>
+                      Save
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={cancelEdit} leftSection={<XIcon size={14} />}>
+                      Cancel
+                    </Button>
+                  </Group>
+                </Stack>
+              </form>
             </Paper>
           ) : templates.length > 0 ? (
             <Paper withBorder>
