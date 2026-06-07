@@ -59,7 +59,8 @@ export function parseRedditJson(
 
   parts.push(`# ${post.title}`);
   parts.push("");
-  parts.push(`> **${post.author}** · ${scoreStr(post.score)} · ${post.num_comments} comments`);
+    const commentCount = post.num_comments === 1 ? "1 comment" : `${post.num_comments} comments`;
+  parts.push(`> **${post.author}** · ${scoreStr(post.score)} · ${commentCount}`);
   parts.push("");
 
   if (post.selftext.trim()) {

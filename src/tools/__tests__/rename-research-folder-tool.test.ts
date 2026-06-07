@@ -119,6 +119,47 @@ describe("createRenameResearchFolderTool", () => {
     expect(fsMocks.writeTextFile).toHaveBeenCalled();
   });
 
+  it("uses fallback name 'research' for empty input", async () => {
+    const onFolderRenamed = vi.fn();
+    const tool = createRenameResearchFolderTool({
+      getResearchFolder: async () => "2026-05-22_10-11-12",
+      onFolderRenamed,
+      embeddingConfig: mockEmbeddingConfig,
+    }) as unknown as ExecutableRenameTool;
+
+    const result = await tool.execute({ name: "" });
+
+    expect(result.folderName).toBe("research");
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      "search-results/2026-05-22_10-11-12",
+      "search-results/research",
+      expect.any(Object),
+    );
+    expect(onFolderRenamed).toHaveBeenCalledWith("research");
+  });
+
+  it("truncates very long name to RESEARCH_FOLDER_SLUG_MAX_LENGTH", async () => {
+    const onFolderRenamed = vi.fn();
+    const tool = createRenameResearchFolderTool({
+      getResearchFolder: async () => "2026-05-22_10-11-12",
+      onFolderRenamed,
+      embeddingConfig: mockEmbeddingConfig,
+    }) as unknown as ExecutableRenameTool;
+
+    const longName = "x".repeat(200);
+
+    const result = await tool.execute({ name: longName });
+
+    expect(result.folderName).toHaveLength(100);
+    expect(result.folderName).toBe("x".repeat(100));
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      "search-results/2026-05-22_10-11-12",
+      `search-results/${"x".repeat(100)}`,
+      expect.any(Object),
+    );
+    expect(onFolderRenamed).toHaveBeenCalledWith("x".repeat(100));
+  });
+
   it("calls onFolderRenamed with the final folder name", async () => {
     const onFolderRenamed = vi.fn();
     const tool = createRenameResearchFolderTool({

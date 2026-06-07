@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isValidServiceUrl,
   isValidUrl,
+  UrlValidationError,
   validateUrl,
 } from "@/lib/url-validation";
 
@@ -57,5 +58,34 @@ describe("validateUrl", () => {
   it("rejects IPv4-mapped IPv6 addresses", () => {
     expect(isValidUrl("https://[::ffff:127.0.0.1]")).toBe(false);
     expect(isValidUrl("https://[::ffff:192.168.1.1]")).toBe(false);
+  });
+
+  it("accepts whitespace-padded URLs", () => {
+    expect(isValidUrl(" https://example.com ")).toBe(true);
+    expect(isValidUrl("\nhttps://example.com\t")).toBe(true);
+  });
+
+  it("accepts uppercase scheme URLs", () => {
+    expect(isValidUrl("HTTPS://example.com")).toBe(true);
+    expect(isValidUrl("HTTPS://Example.Com/Path")).toBe(true);
+  });
+
+  it("rejects completely invalid strings", () => {
+    expect(isValidUrl("")).toBe(false);
+    expect(isValidUrl("not a url")).toBe(false);
+    expect(isValidUrl("://missing-scheme.com")).toBe(false);
+  });
+
+  it("rejects service URL with non-network scheme", () => {
+    expect(isValidServiceUrl("file:///etc/hosts")).toBe(false);
+    expect(isValidServiceUrl("data:text/html,hello")).toBe(false);
+    expect(isValidServiceUrl("javascript:alert(1)")).toBe(false);
+  });
+
+  it("sets UrlValidationError name property correctly", () => {
+    const error = new UrlValidationError("test message");
+    expect(error.name).toBe("UrlValidationError");
+    expect(error.message).toBe("test message");
+    expect(error).toBeInstanceOf(Error);
   });
 });

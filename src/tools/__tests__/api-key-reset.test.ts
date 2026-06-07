@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAvailableTools } from "@/lib/execute-tool";
-import type { ToolExecuteConfig } from "@/lib/execute-tool";
+import { getAvailableTools, type ToolExecuteConfig } from "@/lib/execute-tool";
 
 const SEARCH_TOOLS = [
   "brave_search",
@@ -127,6 +126,80 @@ describe("search tool availability from config", () => {
       const t = toolsAfter.find((t) => t.name === name);
       expect(t?.available).toBe(false);
     }
+  });
+
+  it("search_research available when embeddingConfig, rerankerConfig, and model are all provided", () => {
+    const tools = getAvailableTools({
+      apiKey: "test",
+      researchFolder: null,
+      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
+      rerankerConfig: { api_key: "rk", base_url: "https://example.com", model: "rr" },
+      getChatModel: () => TEST_CHAT_MODEL,
+    });
+    const sr = tools.find((t) => t.name === "search_research");
+    expect(sr?.available).toBe(true);
+  });
+
+  it("search_research unavailable when embeddingConfig is missing", () => {
+    const tools = getAvailableTools({
+      apiKey: "test",
+      researchFolder: null,
+      rerankerConfig: { api_key: "rk", base_url: "https://example.com", model: "rr" },
+      getChatModel: () => TEST_CHAT_MODEL,
+    });
+    const sr = tools.find((t) => t.name === "search_research");
+    expect(sr?.available).toBe(false);
+  });
+
+  it("search_research unavailable when rerankerConfig is missing", () => {
+    const tools = getAvailableTools({
+      apiKey: "test",
+      researchFolder: null,
+      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
+      getChatModel: () => TEST_CHAT_MODEL,
+    });
+    const sr = tools.find((t) => t.name === "search_research");
+    expect(sr?.available).toBe(false);
+  });
+
+  it("search_research unavailable when model (getChatModel) is missing", () => {
+    const tools = getAvailableTools({
+      apiKey: "test",
+      researchFolder: null,
+      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
+      rerankerConfig: { api_key: "rk", base_url: "https://example.com", model: "rr" },
+    });
+    const sr = tools.find((t) => t.name === "search_research");
+    expect(sr?.available).toBe(false);
+  });
+
+  it("rename_research_folder available when researchFolder and embeddingConfig are both provided", () => {
+    const tools = getAvailableTools({
+      apiKey: "test",
+      researchFolder: "some-folder",
+      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
+    });
+    const rrf = tools.find((t) => t.name === "rename_research_folder");
+    expect(rrf?.available).toBe(true);
+  });
+
+  it("rename_research_folder unavailable when researchFolder is missing", () => {
+    const tools = getAvailableTools({
+      apiKey: "test",
+      researchFolder: null,
+      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
+    });
+    const rrf = tools.find((t) => t.name === "rename_research_folder");
+    expect(rrf?.available).toBe(false);
+  });
+
+  it("rename_research_folder unavailable when embeddingConfig is missing", () => {
+    const tools = getAvailableTools({
+      apiKey: "test",
+      researchFolder: "some-folder",
+    });
+    const rrf = tools.find((t) => t.name === "rename_research_folder");
+    expect(rrf?.available).toBe(false);
   });
 
   it("model and research-folder dependent tools become available from direct-tool config", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ModelMessage, ToolExecutionOptions, ToolSet, UIMessage } from "ai";
 import {
   applyToolCallRequirementSafeguards,
+  formatToolCallRequirementViolation,
   getActiveToolNamesForMessages,
   ToolCallRequirementError,
 } from "@/lib/tool-call-requirements";
@@ -82,6 +83,59 @@ describe("tool call requirements", () => {
       ]),
     ).toBe("plan");
     expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it("formatToolCallRequirementViolation formats a single missing tool", () => {
+    const message = formatToolCallRequirementViolation({
+      toolName: "create_research_plan",
+      requiredPreviousTools: ["ask_questions", "rename_research_folder"],
+      missingPreviousTools: ["ask_questions"],
+      instruction:
+        "Call ask_questions first, then rename_research_folder to name the research folder, then retry create_research_plan.",
+    });
+
+    expect(message).toContain("create_research_plan");
+    expect(message).toContain("Missing required previous tool call:");
+    expect(message).toContain("`ask_questions`");
+    expect(message).toMatch(/^\S/);
+  });
+
+  it("formatToolCallRequirementViolation formats multiple missing tools with plural", () => {
+    const message = formatToolCallRequirementViolation({
+      toolName: "create_research_plan",
+      requiredPreviousTools: ["ask_questions", "rename_research_folder"],
+      missingPreviousTools: ["ask_questions", "rename_research_folder"],
+      instruction:
+        "Call ask_questions first, then rename_research_folder to name the research folder, then retry create_research_plan.",
+    });
+
+    expect(message).toContain("create_research_plan");
+    expect(message).toContain("Missing required previous tool calls:");
+    expect(message).toContain("`ask_questions`");
+    expect(message).toContain("`rename_research_folder`");
+  });
+
+  it("appends prerequisite description to gated tools via applyToolCallRequirementSafeguards", () => {
+    const tools = applyToolCallRequirementSafeguards({
+      ask_questions: {
+        description: "Ask the user multiple-choice questions.",
+      },
+      create_research_plan: {
+        description: "Create a research plan.",
+      },
+    } as unknown as ToolSet);
+
+    expect(tools.ask_questions.description).toBe(
+      "Ask the user multiple-choice questions.",
+    );
+
+    expect(tools.create_research_plan.description).toContain(
+      "Prerequisite: before calling this tool, call",
+    );
+    expect(tools.create_research_plan.description).toContain("`ask_questions`");
+    expect(tools.create_research_plan.description).toContain(
+      "`rename_research_folder`",
+    );
   });
 });
 

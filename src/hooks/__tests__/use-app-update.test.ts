@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { appUpdateReducer, type AppUpdateState } from "../use-app-update";
+import {
+  appUpdateReducer,
+  getDownloadProgress,
+  getErrorMessage,
+  type AppUpdateState,
+} from "../use-app-update";
+import type { DownloadEvent } from "@tauri-apps/plugin-updater";
 
 const updateInfo = {
   version: "2.0.0",
@@ -127,5 +133,118 @@ describe("appUpdateReducer", () => {
     };
     const next = appUpdateReducer(state, { type: "dismissed" });
     expect(next).toEqual({ status: "hidden" });
+  });
+});
+
+describe("getDownloadProgress", () => {
+  it("Started event sets contentLength, resets downloaded, percent calculated", () => {
+    const event: DownloadEvent = {
+      event: "Started",
+      data: { contentLength: 1000 },
+    };
+    const result = getDownloadProgress(event, {
+      contentLength: null,
+      downloaded: 0,
+    });
+    expect(result).toEqual({
+      contentLength: 1000,
+      downloaded: 0,
+      percent: 0,
+    });
+  });
+
+  it("Progress event increments downloaded and updates percent", () => {
+    const event: DownloadEvent = {
+      event: "Progress",
+      data: { chunkLength: 500 },
+    };
+    const result = getDownloadProgress(event, {
+      contentLength: 1000,
+      downloaded: 0,
+    });
+    expect(result).toEqual({
+      contentLength: 1000,
+      downloaded: 500,
+      percent: 50,
+    });
+  });
+
+  it("Progress without prior Started returns null percent", () => {
+    const event: DownloadEvent = {
+      event: "Progress",
+      data: { chunkLength: 500 },
+    };
+    const result = getDownloadProgress(event, {
+      contentLength: null,
+      downloaded: 0,
+    });
+    expect(result).toEqual({
+      contentLength: null,
+      downloaded: 500,
+      percent: null,
+    });
+  });
+
+  it("multiple Progress events accumulate downloaded", () => {
+    const event: DownloadEvent = {
+      event: "Progress",
+      data: { chunkLength: 300 },
+    };
+    const result = getDownloadProgress(event, {
+      contentLength: 1000,
+      downloaded: 500,
+    });
+    expect(result).toEqual({
+      contentLength: 1000,
+      downloaded: 800,
+      percent: 80,
+    });
+  });
+
+  it("percent is capped at 100 when Progress exceeds contentLength", () => {
+    const event: DownloadEvent = {
+      event: "Progress",
+      data: { chunkLength: 100 },
+    };
+    const result = getDownloadProgress(event, {
+      contentLength: 1000,
+      downloaded: 950,
+    });
+    expect(result).toEqual({
+      contentLength: 1000,
+      downloaded: 1050,
+      percent: 100,
+    });
+  });
+
+  it("Started with null contentLength returns null percent", () => {
+    const event: DownloadEvent = {
+      event: "Started",
+      data: { contentLength: undefined },
+    };
+    const result = getDownloadProgress(event, {
+      contentLength: null,
+      downloaded: 100,
+    });
+    expect(result).toEqual({
+      contentLength: null,
+      downloaded: 0,
+      percent: null,
+    });
+  });
+});
+
+describe("getErrorMessage", () => {
+  it("returns message from Error instances", () => {
+    const error = new Error("Something went wrong");
+    expect(getErrorMessage(error)).toBe("Something went wrong");
+  });
+
+  it("returns the string as-is", () => {
+    expect(getErrorMessage("Network failure")).toBe("Network failure");
+  });
+
+  it("returns default message for non-string, non-Error values", () => {
+    expect(getErrorMessage(42)).toBe("Could not install the update.");
   });
 });

@@ -10,8 +10,12 @@ const tauriMocks = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => tauriMocks);
 
-vi.mock("@/lib/research-relevance-evaluator", () => ({
+const relevanceMocks = vi.hoisted(() => ({
   evaluateResearchRelevance: vi.fn((_query, results) => Promise.resolve(results)),
+}));
+
+vi.mock("@/lib/research-relevance-evaluator", () => ({
+  evaluateResearchRelevance: relevanceMocks.evaluateResearchRelevance,
 }));
 
 import { createSearchResearchTool } from "@/tools/search-research-tool";
@@ -28,11 +32,11 @@ function mockModel() {
   return {} as any;
 }
 
-describe("createSearchResearchTool", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
+describe("createSearchResearchTool", () => {
   it("returns deduped folder names without chunk content", async () => {
     const tool = createSearchResearchTool(
       mockEmbeddingConfig,
@@ -108,5 +112,101 @@ describe("createSearchResearchTool", () => {
       expect.any(Error),
     );
     errorSpy.mockRestore();
+  });
+
+  it("falls back to original results when relevance evaluation fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tool = createSearchResearchTool(
+      mockEmbeddingConfig,
+      mockRerankerConfig,
+      mockModel(),
+    ) as unknown as ExecutableSearchTool;
+
+    tauriMocks.invoke.mockResolvedValueOnce([
+      {
+        folder_name: "market-map",
+        filename: "notes.md",
+        content: "content",
+        score: 0.9,
+      },
+      {
+        folder_name: "competitors",
+        filename: "notes.md",
+        content: "content",
+        score: 0.7,
+      },
+    ]);
+
+    relevanceMocks.evaluateResearchRelevance.mockRejectedValueOnce(
+      new Error("Relevance evaluation timed out"),
+    );
+
+    await expect(tool.execute({ query: "market size" })).resolves.toEqual([
+      { folder_name: "market-map" },
+      { folder_name: "competitors" },
+    ]);
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[search-research-tool] relevance evaluation failed:",
+      expect.any(Error),
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("re-throws AbortError from search invoke", async () => {
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    const tool = createSearchResearchTool(
+      mockEmbeddingConfig,
+      mockRerankerConfig,
+      mockModel(),
+    ) as unknown as ExecutableSearchTool;
+    tauriMocks.invoke.mockRejectedValueOnce(abortError);
+
+    await expect(tool.execute({ query: "market size" })).rejects.toBe(
+      abortError,
+    );
+  });
+
+  it("passes empty query string through to the backend invoke", async () => {
+    const tool = createSearchResearchTool(
+      mockEmbeddingConfig,
+      mockRerankerConfig,
+      mockModel(),
+    ) as unknown as ExecutableSearchTool;
+    tauriMocks.invoke.mockResolvedValueOnce([]);
+
+    await tool.execute({ query: "" });
+
+    expect(tauriMocks.invoke).toHaveBeenCalledWith("search_research", {
+      embeddingConfig: mockEmbeddingConfig,
+      rerankerConfig: mockRerankerConfig,
+      queries: [""],
+      folder: null,
+      limit: 8,
+    });
+  });
+
+  it("re-throws AbortError from relevance evaluation", async () => {
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    const tool = createSearchResearchTool(
+      mockEmbeddingConfig,
+      mockRerankerConfig,
+      mockModel(),
+    ) as unknown as ExecutableSearchTool;
+
+    tauriMocks.invoke.mockResolvedValueOnce([
+      {
+        folder_name: "market-map",
+        filename: "notes.md",
+        content: "content",
+        score: 0.9,
+      },
+    ]);
+
+    relevanceMocks.evaluateResearchRelevance.mockRejectedValueOnce(abortError);
+
+    await expect(tool.execute({ query: "market size" })).rejects.toBe(
+      abortError,
+    );
   });
 });

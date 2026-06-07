@@ -319,4 +319,47 @@ mod tests {
         let chunks = chunk_markdown("   \n  \n  ");
         assert!(chunks.is_empty());
     }
+
+    #[test]
+    fn chunk_markdown_large_no_headers_produces_single_oversized_chunk() {
+        let long_line = "a".repeat(60);
+        let mut content = String::new();
+        for _ in 0..40 {
+            content.push_str(&long_line);
+            content.push('\n');
+        }
+        assert!(content.len() > 2000);
+
+        let chunks = chunk_markdown(&content);
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].content.len() >= content.len());
+    }
+
+    #[test]
+    fn parse_deep_nesting_header_path_grows_correctly() {
+        let result = sections(
+            "## Level 1\na\n### Level 2\nb\n## Level 3\nc\n### Level 4\nd\n## Level 5\ne\n### Level 6\nf\n## Level 7\ng",
+        );
+        assert_eq!(result.len(), 7);
+        assert_eq!(result[0].1, Some("Level 1".to_string()));
+        assert_eq!(result[1].1, Some("Level 1 > Level 2".to_string()));
+        assert_eq!(result[2].1, Some("Level 1 > Level 2 > Level 3".to_string()));
+        assert_eq!(result[3].1, Some("Level 1 > Level 2 > Level 3 > Level 4".to_string()));
+        assert_eq!(result[4].1, Some("Level 1 > Level 2 > Level 3 > Level 4 > Level 5".to_string()));
+        assert_eq!(result[5].1, Some("Level 1 > Level 2 > Level 3 > Level 4 > Level 5 > Level 6".to_string()));
+        assert_eq!(result[6].1, Some("Level 1 > Level 2 > Level 3 > Level 4 > Level 5 > Level 6 > Level 7".to_string()));
+    }
+
+    #[test]
+    fn parse_very_short_sections_between_many_headers() {
+        let result = sections("## A\nx\n## B\ny\n## C\nz\n## D\nw");
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].1, Some("A".to_string()));
+        assert_eq!(result[1].1, Some("A > B".to_string()));
+        assert_eq!(result[2].1, Some("A > B > C".to_string()));
+        assert_eq!(result[3].1, Some("A > B > C > D".to_string()));
+        for section in &result {
+            assert!(!section.0.trim().is_empty());
+        }
+    }
 }

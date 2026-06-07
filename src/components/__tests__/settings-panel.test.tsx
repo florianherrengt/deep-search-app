@@ -22,4 +22,35 @@ describe("SettingsPanel", () => {
 
     expect(html).toContain("mantine-ScrollArea");
   });
+
+  it("renders the Settings heading text", () => {
+    const html = renderToStaticMarkup(
+      <MantineProvider>
+        <SettingsPanel />
+      </MantineProvider>,
+    );
+
+    expect(html).toContain(">Settings<");
+    expect(html).toContain("API keys and preferences");
+  });
+
+  it("renders the Reset All Settings button", () => {
+    const html = renderToStaticMarkup(
+      <MantineProvider>
+        <SettingsPanel />
+      </MantineProvider>,
+    );
+
+    expect(html).toContain("Reset All Settings");
+  });
+
+  it("renders the SettingsFields component", () => {
+    const html = renderToStaticMarkup(
+      <MantineProvider>
+        <SettingsPanel />
+      </MantineProvider>,
+    );
+
+    expect(html).toContain(">Provider<");
+  });
 });

@@ -107,11 +107,26 @@ describe("estimateMessageTokens", () => {
     expect(estimateMessageTokens([])).toBe(0);
   });
 
-  it("estimates tokens from text parts", () => {
+  it("estimates tokens from text parts with exact formula", () => {
     const messages = [makeUserMessage("hello world")];
+    expect(estimateMessageTokens(messages)).toBe(4);
+  });
+
+  it("estimates tokens for messages with mixed part types", () => {
+    const messages = [
+      makeUserMessage("hi"),
+      makeMessage([
+        { type: "reasoning", text: "Let me think about this." },
+        {
+          type: "tool-brave_search",
+          args: { query: "test" },
+          result: { title: "result" },
+        },
+        { type: "text", text: "Here is the answer." },
+      ] as unknown[]),
+    ];
     const tokens = estimateMessageTokens(messages);
     expect(tokens).toBeGreaterThan(0);
-    expect(tokens).toBeLessThan(100);
   });
 });
 
@@ -142,6 +157,20 @@ describe("getCurrentTokenCount", () => {
         {
           type: "data-token_usage",
           data: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        },
+      ]),
+    ];
+    const tokens = getCurrentTokenCount(messages);
+    expect(tokens).toBeGreaterThan(0);
+  });
+
+  it("falls back to estimate when provider usage has negative inputTokens", () => {
+    const messages = [
+      makeUserMessage("hello world"),
+      makeMessage([
+        {
+          type: "data-token_usage",
+          data: { inputTokens: -1, outputTokens: 0, totalTokens: -1 },
         },
       ]),
     ];

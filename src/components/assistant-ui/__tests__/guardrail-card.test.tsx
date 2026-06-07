@@ -51,6 +51,63 @@ describe("GuardrailCard", () => {
     expect(html).toContain("latest output is shown");
   });
 
+  it("renders passed status events with green styling", () => {
+    const html = renderToStaticMarkup(
+      wrap(
+        <GuardrailCard
+          event={{
+            kind: "research_checkpoint",
+            status: "passed",
+            title: "Research checkpoint passed",
+            message: "The agent completed the research checkpoint.",
+          }}
+        />,
+      ),
+    );
+
+    expect(html).toContain("Research checkpoint passed");
+    expect(html).toContain("The agent completed the research checkpoint");
+    expect(html).toContain("--mantine-color-green-3");
+  });
+
+  it("renders tool_call_requirement events", () => {
+    const html = renderToStaticMarkup(
+      wrap(
+        <GuardrailCard
+          event={{
+            kind: "tool_call_requirement",
+            status: "retrying",
+            title: "Tool prerequisite enforced",
+            message: "Prompted the agent to call extract_page_content before create_file.",
+            reason: "The agent tried to call create_file before required previous tool calls: extract_page_content.",
+          }}
+        />,
+      ),
+    );
+
+    expect(html).toContain("Tool prerequisite enforced");
+    expect(html).toContain("extract_page_content before create_file");
+  });
+
+  it("renders currency_conversion events", () => {
+    const html = renderToStaticMarkup(
+      wrap(
+        <GuardrailCard
+          event={{
+            kind: "currency_conversion",
+            status: "retrying",
+            title: "Currency conversion enforced",
+            message: "Prompted the agent to convert foreign currency amounts.",
+            reason: "Foreign currency amounts found: $100 (USD). Target currency: EUR. Do not display foreign currencies.",
+          }}
+        />,
+      ),
+    );
+
+    expect(html).toContain("Currency conversion enforced");
+    expect(html).toContain("convert foreign currency amounts");
+  });
+
   it("renders nothing for invalid guardrail events", () => {
     const html = renderToStaticMarkup(
       wrap(<GuardrailCard event={{ status: "retrying" }} />),

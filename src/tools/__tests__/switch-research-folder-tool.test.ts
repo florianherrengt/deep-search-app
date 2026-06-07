@@ -52,6 +52,34 @@ describe("createSwitchResearchFolderTool", () => {
     expect(switchResearchFolder).toHaveBeenCalledWith("market-map");
   });
 
+  it("rejects path traversal attempts", async () => {
+    const tool = createSwitchResearchFolderTool(
+      vi.fn(),
+    ) as unknown as ExecutableSwitchTool;
+
+    await expect(tool.execute({ folder: "../../etc" })).rejects.toThrow(
+      /Path segment must not contain/,
+    );
+  });
+
+  it("rejects dot as folder name", async () => {
+    const tool = createSwitchResearchFolderTool(
+      vi.fn(),
+    ) as unknown as ExecutableSwitchTool;
+
+    await expect(tool.execute({ folder: "." })).rejects.toThrow(
+      /Path segment must not be/,
+    );
+  });
+
+  it("rejects empty folder name", async () => {
+    const tool = createSwitchResearchFolderTool(
+      vi.fn(),
+    ) as unknown as ExecutableSwitchTool;
+
+    await expect(tool.execute({ folder: "" })).rejects.toThrow();
+  });
+
   it("rejects missing folders without switching", async () => {
     const switchResearchFolder = vi.fn();
     const tool = createSwitchResearchFolderTool(

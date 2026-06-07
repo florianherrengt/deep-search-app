@@ -289,5 +289,109 @@ describe("AmazonExtractor", () => {
 
       expect(result).toBe("Currently unavailable.");
     });
+
+    it("detects 'enter the characters you see below' challenge", async () => {
+      mockWebview.mockResolvedValueOnce(AMAZON_PRODUCT_HTML);
+
+      await extractor.extract("https://www.amazon.co.uk/dp/B0CR19B55Y");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>enter the characters you see below</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'type the characters you see in this image' challenge", async () => {
+      mockWebview.mockResolvedValueOnce(AMAZON_PRODUCT_HTML);
+
+      await extractor.extract("https://www.amazon.co.uk/dp/B0CR19B55Y");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>type the characters you see in this image</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'captcha' challenge", async () => {
+      mockWebview.mockResolvedValueOnce(AMAZON_PRODUCT_HTML);
+
+      await extractor.extract("https://www.amazon.co.uk/dp/B0CR19B55Y");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>captcha</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'are you a robot' challenge", async () => {
+      mockWebview.mockResolvedValueOnce(AMAZON_PRODUCT_HTML);
+
+      await extractor.extract("https://www.amazon.co.uk/dp/B0CR19B55Y");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>are you a robot</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'sorry, something went wrong' challenge", async () => {
+      mockWebview.mockResolvedValueOnce(AMAZON_PRODUCT_HTML);
+
+      await extractor.extract("https://www.amazon.co.uk/dp/B0CR19B55Y");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>sorry, something went wrong</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("extracts price from #priceblock_dealprice", async () => {
+      mockWebview.mockResolvedValueOnce(`
+        <html><body>
+          <span id="productTitle">Deal Product</span>
+          <span id="priceblock_dealprice" class="a-price"><span class="a-offscreen">$29.99</span></span>
+        </body></html>
+      `);
+
+      const result = await extractor.extract("https://www.amazon.com/dp/B000000007");
+
+      expect(result).toContain("**Price:** $29.99");
+    });
+
+    it("extracts price from #priceblock_ourprice", async () => {
+      mockWebview.mockResolvedValueOnce(`
+        <html><body>
+          <span id="productTitle">Our Price Product</span>
+          <span id="priceblock_ourprice">$19.99</span>
+        </body></html>
+      `);
+
+      const result = await extractor.extract("https://www.amazon.com/dp/B000000008");
+
+      expect(result).toContain("**Price:** $19.99");
+    });
+
+    it("strips 'Brand: ' prefix from brand name", async () => {
+      mockWebview.mockResolvedValueOnce(`
+        <html><body>
+          <span id="productTitle">Product</span>
+          <a id="bylineInfo">Brand: Nike</a>
+        </body></html>
+      `);
+
+      const result = await extractor.extract("https://www.amazon.com/dp/B000000009");
+
+      expect(result).toContain("**Brand:** Nike");
+    });
   });
 });

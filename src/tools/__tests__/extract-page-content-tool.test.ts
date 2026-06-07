@@ -10,6 +10,7 @@ import {
   fetchHtml,
   sanitizeHtml,
 } from "../extract-page-content-tool";
+import { validateUrl, UrlValidationError } from "@/lib/url-validation";
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -253,5 +254,81 @@ describe("extractPageContent", () => {
     expect(result.match(/Free returns/g)).toHaveLength(2);
     expect(result.match(/Product A \$10/g)).toHaveLength(2);
     expect(result).toContain("Product B $12");
+  });
+});
+
+describe("URL validation", () => {
+  it("throws for an invalid URL", () => {
+    expect(() => validateUrl("not-a-valid-url")).toThrow(UrlValidationError);
+  });
+
+  it("throws for non-https protocol", () => {
+    expect(() => validateUrl("http://example.com")).toThrow(UrlValidationError);
+  });
+
+  it("throws for blocked schemes", () => {
+    expect(() => validateUrl("file:///etc/passwd")).toThrow(UrlValidationError);
+  });
+});
+
+describe("extractPageContent edge cases", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "extract_content") return "<html><body>Fallback content from webview</body></html>";
+      return undefined;
+    });
+  });
+
+  it("falls back to webview when fetched content is shorter than 200 characters", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "fetch_html") return "<html><body>Short</body></html>";
+      if (command === "extract_content") return "<html><body>Fallback content from webview with much more text</body></html>";
+      return undefined;
+    });
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      { summarize: false },
+    );
+
+    expect(result).toContain("Fallback content");
+    expect(mockInvoke).toHaveBeenCalledWith("fetch_html", {
+      url: "https://example.com/page",
+    });
+    expect(mockInvoke).toHaveBeenCalledWith("open_tab", {
+      id: expect.any(String),
+      url: "https://example.com/page",
+    });
+  });
+
+  it("returns empty string when fetch and webview both produce no content", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "fetch_html") return null;
+      if (command === "extract_content") return "";
+      return undefined;
+    });
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      { summarize: false },
+    );
+
+    expect(result).toBe("");
+  });
+
+  it("does not fallback to webview when method is fetch even with short content", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "fetch_html") return "<html><body>Hi</body></html>";
+      return undefined;
+    });
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      { method: "fetch", summarize: false },
+    );
+
+    expect(result).toContain("Hi");
+    expect(mockInvoke).not.toHaveBeenCalledWith("open_tab", expect.anything());
   });
 });

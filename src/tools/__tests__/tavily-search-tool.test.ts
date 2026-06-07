@@ -76,6 +76,21 @@ describe("createTavilySearchTool", () => {
     );
   });
 
+  it("returns 'No results found.' for empty results array", async () => {
+    const tool = createTavilySearchTool(
+      "tvly-test-key",
+    ) as unknown as ExecutableTavilyTool;
+    tauriMocks.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ query: "test", results: [] }),
+    });
+
+    await expect(tool.execute({ query: "standing desk" })).resolves.toBe(
+      "No results found.",
+    );
+  });
+
   it("surfaces malformed Tavily responses instead of returning an empty result set", async () => {
     const tool = createTavilySearchTool(
       "tvly-test-key",

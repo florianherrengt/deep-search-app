@@ -46,6 +46,7 @@ import {
   createDeleteFileTool,
   createListFilesTool,
 } from "@/tools/file-tools";
+import { SafePathSegmentSchema } from "@/lib/app-file-storage";
 
 const getFolder = async () => "test-folder";
 
@@ -418,5 +419,79 @@ describe("list_files", () => {
       folder: "test-folder",
       files: [],
     });
+  });
+});
+
+describe("SafePathSegmentSchema", () => {
+  it("rejects path traversal with ../", () => {
+    const result = SafePathSegmentSchema.safeParse("../../etc/passwd");
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects path with forward slashes", () => {
+    const result = SafePathSegmentSchema.safeParse("folder/file.md");
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects path with backslashes", () => {
+    const result = SafePathSegmentSchema.safeParse("folder\\file.md");
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects '..' as a filename", () => {
+    const result = SafePathSegmentSchema.safeParse("..");
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects '.' as a filename", () => {
+    const result = SafePathSegmentSchema.safeParse(".");
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a plain filename", () => {
+    const result = SafePathSegmentSchema.safeParse("notes.md");
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("file tool edge cases", () => {
+  it("rejects create_file with empty content", async () => {
+    const tool = createCreateFileTool(getFolder) as unknown as {
+      execute: (i: { filename: string; content: string }) => Promise<string>;
+    };
+
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await expect(
+      tool.execute({ filename: "empty.md", content: "" }),
+    ).resolves.toBe("OK");
+
+    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
+      "search-results/test-folder/empty.md",
+      "",
+      { baseDir: "AppData" },
+    );
+  });
+
+  it("rejects update_file with empty old_string", async () => {
+    const tool = createUpdateFileTool(getFolder) as unknown as {
+      execute: (i: {
+        filename: string;
+        old_string: string;
+        new_string: string;
+        replace_all?: boolean;
+      }) => Promise<string>;
+    };
+
+    fsMocks.exists.mockResolvedValueOnce(true);
+    fsMocks.readTextFile.mockResolvedValueOnce("hello world");
+
+    await expect(
+      tool.execute({
+        filename: "notes.md",
+        old_string: "",
+        new_string: "replaced",
+      }),
+    ).rejects.toThrow("multiple times");
   });
 });

@@ -93,4 +93,92 @@ describe("parseRedditJson", () => {
     const md = parseRedditJson(samplePost, comments);
     expect(md).toContain("1 pt:");
   });
+
+  it("renders '1 comment' (singular) for num_comments: 1", () => {
+    const post: RedditPost = { ...samplePost, num_comments: 1 };
+    const md = parseRedditJson(post, []);
+    expect(md).not.toContain("1 comments");
+  });
+
+  it("collapses newlines in comment bodies to spaces", () => {
+    const comments: RedditComment[] = [
+      {
+        author: "multiline",
+        body: "Line one\nLine two\nLine three",
+        score: 1,
+        created_utc: 0,
+        replies: [],
+      },
+    ];
+    const md = parseRedditJson(samplePost, comments);
+    expect(md).toContain("Line one Line two Line three");
+    expect(md).not.toContain("\nLine two");
+  });
+
+  it("renders 3+ levels of nested comments with correct tree connectors", () => {
+    const comments: RedditComment[] = [
+      {
+        author: "l1",
+        body: "Level 1",
+        score: 5,
+        created_utc: 0,
+        replies: [
+          {
+            author: "l2",
+            body: "Level 2",
+            score: 3,
+            created_utc: 0,
+            replies: [
+              {
+                author: "l3",
+                body: "Level 3",
+                score: 1,
+                created_utc: 0,
+                replies: [],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        author: "sibling",
+        body: "Sibling comment",
+        score: 2,
+        created_utc: 0,
+        replies: [],
+      },
+    ];
+    const md = parseRedditJson(samplePost, comments);
+    expect(md).toContain("├── **l1** · 5 pts: Level 1");
+    expect(md).toContain("│   └── **l2** · 3 pts: Level 2");
+    expect(md).toContain("│       └── **l3** · 1 pt: Level 3");
+    expect(md).toContain("└── **sibling** · 2 pts: Sibling comment");
+  });
+
+  it("renders zero score as '0 pts'", () => {
+    const comments: RedditComment[] = [
+      { author: "zero", body: "zero score", score: 0, created_utc: 0, replies: [] },
+    ];
+    const md = parseRedditJson(samplePost, comments);
+    expect(md).toContain("0 pts");
+  });
+
+  it("renders negative score correctly", () => {
+    const comments: RedditComment[] = [
+      { author: "neg", body: "negative", score: -5, created_utc: 0, replies: [] },
+    ];
+    const md = parseRedditJson(samplePost, comments);
+    expect(md).toContain("-5 pts");
+  });
+
+  it("omits body section when selftext is whitespace only", () => {
+    const post: RedditPost = { ...samplePost, selftext: "   " };
+    const md = parseRedditJson(post, []);
+    expect(md).not.toContain("   ");
+  });
+
+  it("renders num_comments count in post metadata", () => {
+    const md = parseRedditJson(samplePost, []);
+    expect(md).toContain("5 comments");
+  });
 });

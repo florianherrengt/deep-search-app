@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import {
   asksUserForInput,
   evaluateAssistantStep,
+  isResearchLikeRequest,
   reviewResearchCheckpoint,
 } from "@/lib/agent-guards";
 import { SUB_AGENT_TEXT_PROVIDER_METADATA } from "@/lib/sub-agent-stream";
@@ -53,6 +54,41 @@ describe("asksUserForInput", () => {
         "Here are the direct links. Just pick the colour you like - they're all 120x70cm and pre-drilled.",
       ),
     ).toBe(false);
+  });
+
+  it("returns false for whitespace-only text after normalization", () => {
+    expect(asksUserForInput("   \n   \t   ")).toBe(false);
+  });
+});
+
+describe("isResearchLikeRequest", () => {
+  it("returns false for short greetings", () => {
+    expect(isResearchLikeRequest("hi")).toBe(false);
+    expect(isResearchLikeRequest("hello")).toBe(false);
+    expect(isResearchLikeRequest("thanks")).toBe(false);
+    expect(isResearchLikeRequest("ok")).toBe(false);
+  });
+
+  it("returns true for long questions of 40 or more characters", () => {
+    expect(
+      isResearchLikeRequest(
+        "What are the best libraries for building desktop apps with Rust?",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false for short questions under 40 characters without research keywords", () => {
+    expect(isResearchLikeRequest("What day is it?")).toBe(false);
+  });
+
+  it("returns true for text containing research keywords", () => {
+    expect(isResearchLikeRequest("find me something")).toBe(true);
+    expect(isResearchLikeRequest("latest news please")).toBe(true);
+  });
+
+  it("returns false for empty strings", () => {
+    expect(isResearchLikeRequest("")).toBe(false);
+    expect(isResearchLikeRequest("  ")).toBe(false);
   });
 });
 
@@ -253,6 +289,49 @@ describe("evaluateAssistantStep", () => {
 
     expect(decision).toMatchObject({ action: "accept" });
   });
+
+  it("retries when foreign currency mentions are found with target currency set", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Tell me about pricing")],
+      responseMessage: assistantMessage(
+        "The item costs $50 and €40 in different regions.",
+      ),
+      targetCurrency: "GBP",
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "currency_conversion",
+      event: {
+        kind: "currency_conversion",
+        status: "retrying",
+      },
+      toolChoice: "required",
+    });
+    expect(decision.action === "retry" && decision.event.reason).toContain(
+      "GBP",
+    );
+  });
+
+  it("accepts when foreign currency mentions match target currency", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Tell me about pricing")],
+      responseMessage: assistantMessage("The item costs $50."),
+      targetCurrency: "USD",
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+  });
+
+  it("accepts when currency_conversion tool already used with foreign mentions", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Tell me about pricing")],
+      responseMessage: assistantWithCurrencyConversionTool(),
+      targetCurrency: "GBP",
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+  });
 });
 
 function userMessage(text: string): UIMessage {
@@ -405,6 +484,23 @@ function assistantWithSearchToolAndSubAgentText(): UIMessage {
         text: "Verification found no high-risk factual errors.",
         providerMetadata: SUB_AGENT_TEXT_PROVIDER_METADATA,
       },
+    ],
+  };
+}
+
+function assistantWithCurrencyConversionTool(): UIMessage {
+  return {
+    id: "assistant-currency-conversion",
+    role: "assistant",
+    parts: [
+      { type: "text", text: "The item costs $50, which is about £40." },
+      {
+        type: "tool-currency_conversion",
+        toolCallId: "conv-1",
+        state: "output-available",
+        input: { amount: 50, from: "USD", to: "GBP" },
+        output: { converted: 40 },
+      } as UIMessage["parts"][number],
     ],
   };
 }

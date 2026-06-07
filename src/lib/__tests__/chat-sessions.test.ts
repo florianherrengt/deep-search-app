@@ -4,6 +4,7 @@ import {
   createChatSessionRecord,
   getRunningResearchChatIds,
   getRunningResearchFolders,
+  hasRunningResearchFolder,
   updateChatSessionResearchFolder,
   updateChatSessionRunState,
 } from "@/App";
@@ -117,5 +118,52 @@ describe("chat session state", () => {
 
     expect(active?.researchFolder).toBe("visible-folder");
     expect(updatedBackground?.researchFolder).toBe("generated-background-folder");
+  });
+
+  it("creates a new session when forceNew is true even for same folder and chat", () => {
+    const session = createChatSessionRecord({
+      researchChatId: "chat-one",
+      researchFolder: "folder-one",
+    });
+    const state = {
+      sessions: [session],
+      activeSessionId: session.sessionId,
+    };
+
+    const next = activateChatSession(state, {
+      researchChatId: "chat-one",
+      researchFolder: "folder-one",
+      forceNew: true,
+    });
+
+    expect(next.sessions).toHaveLength(2);
+    expect(next.activeSessionId).not.toBe(session.sessionId);
+    expect(next.sessions[0]?.sessionId).toBe(session.sessionId);
+  });
+
+  it("hasRunningResearchFolder detects running and non-running folders", () => {
+    const running = createChatSessionRecord({
+      researchChatId: "chat-running",
+      researchFolder: "running-folder",
+    });
+    const idle = createChatSessionRecord({
+      researchChatId: "chat-idle",
+      researchFolder: "idle-folder",
+    });
+    const sessions = updateChatSessionRunState(
+      [running, idle],
+      running.sessionId,
+      true,
+    );
+
+    expect(hasRunningResearchFolder(sessions, "running-folder")).toBe(true);
+    expect(hasRunningResearchFolder(sessions, "idle-folder")).toBe(false);
+    expect(hasRunningResearchFolder(sessions, "nonexistent-folder")).toBe(false);
+  });
+
+  it("handles empty sessions array for running folder queries", () => {
+    expect(getRunningResearchFolders([])).toEqual([]);
+    expect(getRunningResearchChatIds([])).toEqual([]);
+    expect(hasRunningResearchFolder([], "any-folder")).toBe(false);
   });
 });

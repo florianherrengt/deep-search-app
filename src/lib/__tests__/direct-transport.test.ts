@@ -228,6 +228,31 @@ describe("DirectTransport research folder lifecycle", () => {
     );
   });
 
+  it("throws when no chat model is configured", async () => {
+    const transport = new DirectTransport(
+      () => null,
+      () => mockEmbeddingConfig,
+      () => mockRerankerConfig,
+      () => ({}),
+      "chat-id",
+    );
+
+    await expect(
+      transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Hello")],
+        abortSignal: undefined,
+      }),
+    ).rejects.toThrow("No chat model is configured.");
+  });
+
+  it("reconnectToStream resolves to null", async () => {
+    const transport = createTransport(vi.fn());
+    await expect(transport.reconnectToStream()).resolves.toBeNull();
+  });
+
   it("rejects promptly when aborted during previous-research lookup", async () => {
     let searchStarted!: () => void;
     const searchStartedPromise = new Promise<void>((resolve) => {

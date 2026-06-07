@@ -82,6 +82,43 @@ describe("createSerperSearchTool", () => {
     );
   });
 
+  it("returns 'No results found.' for empty organic results", async () => {
+    const tool = createSerperSearchTool(
+      "serper-test-key",
+    ) as unknown as ExecutableSerperTool;
+    tauriMocks.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ organic: [] }),
+    });
+
+    await expect(tool.execute({ query: "coastal camping" })).resolves.toBe(
+      "No results found.",
+    );
+  });
+
+  it("defaults missing snippet to empty string", async () => {
+    const tool = createSerperSearchTool(
+      "serper-test-key",
+    ) as unknown as ExecutableSerperTool;
+    tauriMocks.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        organic: [
+          {
+            title: "No snippet here",
+            link: "https://example.com/no-snippet",
+          },
+        ],
+      }),
+    });
+
+    await expect(tool.execute({ query: "test" })).resolves.toBe(
+      "No snippet here: https://example.com/no-snippet\n",
+    );
+  });
+
   it("surfaces malformed Serper responses instead of returning an empty result set", async () => {
     const tool = createSerperSearchTool(
       "serper-test-key",

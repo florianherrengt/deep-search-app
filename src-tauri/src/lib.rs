@@ -713,8 +713,18 @@ mod tests {
 
     #[test]
     fn webview_url_validation_accepts_public_https_urls() {
-        let parsed: url::Url = "https://example.com".parse().unwrap();
-        assert!(validate_url_components(&parsed).is_ok());
+        for raw in [
+            "https://example.com",
+            "https://example.com/path/to/page",
+            "https://example.com/search?q=rust&lang=en",
+            "https://example.com/page#section",
+            "https://docs.rs/tauri/latest/tauri/",
+            "https://en.wikipedia.org/wiki/Rust_(programming_language)",
+            "https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.0.0",
+        ] {
+            let parsed: url::Url = raw.parse().unwrap();
+            assert!(validate_url_components(&parsed).is_ok(), "{raw}");
+        }
     }
 
     #[test]

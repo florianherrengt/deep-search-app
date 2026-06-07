@@ -614,6 +614,194 @@ describe("createGuardedStream", () => {
     );
   });
 
+  it("enforces currency conversion when searchKeys.currency is set", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (options): Promise<LanguageModelV3StreamResult> => {
+        callCount += 1;
+        if (callCount === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: textChunks("The premium plan costs $50 and €40 per month."),
+            }),
+          };
+        }
+
+        expect(options.toolChoice).toEqual({ type: "required" });
+        return {
+          stream: simulateReadableStream({
+            chunks: toolCallChunks("currency_conversion", "call-cc-1", {
+              amount: 50,
+              from_currency: "USD",
+            }),
+          }),
+        };
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+        messages: [userMessage("How much does the premium plan cost?")],
+        abortSignal: undefined,
+        searchKeys: { currency: "GBP" },
+      }),
+    );
+
+    expect(callCount).toBe(2);
+
+    const guardEvents = chunks.filter(
+      (chunk) => chunk.type === "data-guardrail_event",
+    );
+    expect(guardEvents).toHaveLength(1);
+    expect(guardEvents[0]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          kind: "currency_conversion",
+          status: "retrying",
+          attempt: 1,
+        }),
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "tool-input-available",
+        toolName: "currency_conversion",
+      }),
+    );
+  });
+
+  it("bounds tool_call_requirement retries and emits a warning", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        callCount += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: toolCallChunks("create_research_plan", "call-plan", {
+              query: "Research the market",
+            }),
+          }),
+        };
+      },
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+        messages: [userMessage("Research the market")],
+        abortSignal: undefined,
+      }),
+    );
+
+    const guardEvents = chunks.filter(
+      (chunk) => chunk.type === "data-guardrail_event",
+    );
+
+    expect(callCount).toBe(3);
+    expect(guardEvents).toHaveLength(3);
+    expect(guardEvents[0]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          kind: "tool_call_requirement",
+          status: "retrying",
+          attempt: 1,
+        }),
+      }),
+    );
+    expect(guardEvents[1]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          kind: "tool_call_requirement",
+          status: "retrying",
+          attempt: 2,
+        }),
+      }),
+    );
+    expect(guardEvents[2]).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          kind: "tool_call_requirement",
+          status: "warning",
+          title: "Guardrail retry limit reached",
+        }),
+      }),
+    );
+  });
+
+  it("emits a data-token_usage chunk when usage data is available", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({
+          chunks: textChunks("Hi there"),
+        }),
+      }),
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+        messages: [userMessage("Hello")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "data-token_usage",
+      }),
+    );
+  });
+
+  it("emits a diagnostic when the model returns tool calls but finishes with 'stop'", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: "stream-start", warnings: [] },
+            {
+              type: "tool-call",
+              toolCallId: "call-brave",
+              toolName: "brave_search",
+              input: JSON.stringify({ query: "pricing" }),
+            },
+            finishChunk("stop"),
+          ],
+        }),
+      }),
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+        messages: [userMessage("Find pricing")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "data-agent_diagnostic",
+        data: expect.objectContaining({
+          kind: "empty_response",
+          title: "No assistant reply",
+          finishReason: "stop",
+          toolCallCount: 1,
+        }),
+      }),
+    );
+    expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
+  });
+
   it("always ends the stream with exactly one finish or abort event", async () => {
     const endings: string[] = [];
 

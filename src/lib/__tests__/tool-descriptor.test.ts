@@ -1,6 +1,61 @@
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
-import { zodToParams } from "@/lib/tool-descriptor";
+import { describeTool, zodToParams } from "@/lib/tool-descriptor";
+
+describe("describeTool", () => {
+  it("creates a ToolDescriptor with correct fields", async () => {
+    const schema = z.object({
+      query: z.string().describe("The search query"),
+      num: z.number().default(5),
+    });
+
+    const descriptor = describeTool(
+      "brave_search",
+      { description: "Searches the web with Brave" },
+      schema,
+      true,
+    );
+
+    expect(descriptor.name).toBe("brave_search");
+    expect(descriptor.description).toBe("Searches the web with Brave");
+    expect(descriptor.available).toBe(true);
+    expect(descriptor.parameters).toEqual({
+      query: { type: "string", required: true, description: "The search query" },
+      num: { type: "number", required: false, default: 5 },
+    });
+    expect(typeof descriptor.execute).toBe("function");
+  });
+
+  it("uses name as fallback description when tool has no description", () => {
+    const schema = z.object({});
+    const descriptor = describeTool("my_tool", {}, schema, false);
+    expect(descriptor.description).toBe("my_tool");
+  });
+
+  it("returns null-executing execute wrapper for tools without execute", async () => {
+    const schema = z.object({});
+    const descriptor = describeTool("my_tool", {}, schema, true);
+    await expect(descriptor.execute({})).resolves.toBeNull();
+  });
+
+  it("wraps tool execute function", async () => {
+    const tool = {
+      description: "Test tool",
+      execute: (params: Record<string, unknown>) => params,
+    };
+    const schema = z.object({});
+    const descriptor = describeTool("test_tool", tool, schema, true);
+    await expect(descriptor.execute({ key: "value" })).resolves.toEqual({
+      key: "value",
+    });
+  });
+
+  it("sets available to false when tool is not available", () => {
+    const schema = z.object({});
+    const descriptor = describeTool("disabled_tool", {}, schema, false);
+    expect(descriptor.available).toBe(false);
+  });
+});
 
 describe("zodToParams", () => {
   it("maps z.string() to { type: 'string', required: true }", () => {

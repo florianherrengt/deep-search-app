@@ -327,5 +327,82 @@ describe("ShopifyExtractor", () => {
       );
       expect(result).toContain("# LT 01 Court Lite Premium Nappa White");
     });
+
+    it("decodes HTML entities in description text", async () => {
+      const product = {
+        ...MOCK_JS_PRODUCT,
+        description: 'Tom &amp; Jerry&#39;s &lt;best&gt; &amp;quot;shoes&amp;quot;',
+      };
+      mockWebview.mockResolvedValue(wrapJsonInHtml(product));
+
+      const result = await extractor.extract(
+        "https://store.com/products/test",
+      );
+      expect(result).toContain("Tom & Jerry's");
+      expect(result).toContain("\"shoes\"");
+    });
+
+    it("handles empty string currency code", async () => {
+      const product = {
+        product: {
+          id: 1,
+          title: "Test Product",
+          variants: [
+            {
+              id: 1,
+              title: "Default",
+              price: "100.00",
+              price_currency: "",
+            },
+          ],
+          options: [],
+        },
+      };
+      mockWebview
+        .mockResolvedValueOnce("<html><body>not js</body></html>")
+        .mockResolvedValueOnce(wrapJsonInHtml(product));
+
+      const result = await extractor.extract(
+        "https://store.com/products/test",
+      );
+      expect(result).toContain("**Price:** 100.00");
+    });
+
+    it("uses code fallback for unknown currency", async () => {
+      const product = {
+        product: {
+          id: 1,
+          title: "Test Product",
+          variants: [
+            {
+              id: 1,
+              title: "Default",
+              price: "100.00",
+              price_currency: "THB",
+            },
+          ],
+          options: [],
+        },
+      };
+      mockWebview
+        .mockResolvedValueOnce("<html><body>not js</body></html>")
+        .mockResolvedValueOnce(wrapJsonInHtml(product));
+
+      const result = await extractor.extract(
+        "https://store.com/products/test",
+      );
+      expect(result).toContain("**Price:** 100.00 THB");
+    });
+
+    it("suppresses tags when there are more than 20", async () => {
+      const tags = Array.from({ length: 25 }, (_, i) => `tag-${i + 1}`);
+      const product = { ...MOCK_JS_PRODUCT, tags };
+      mockWebview.mockResolvedValue(wrapJsonInHtml(product));
+
+      const result = await extractor.extract(
+        "https://store.com/products/test",
+      );
+      expect(result).not.toContain("**Tags:**");
+    });
   });
 });

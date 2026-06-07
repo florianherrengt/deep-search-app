@@ -1,9 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const aiMocks = vi.hoisted(() => ({
+  generateText: vi.fn(),
+}));
+
+vi.mock("ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ai")>();
+  return {
+    ...actual,
+    generateText: aiMocks.generateText,
+  };
+});
+
 import {
   researchPlanInputSchema,
   createResearchPlanTool,
 } from "@/tools/research-plan-tool";
 import { RESEARCH_PLANNER_SYSTEM } from "@/tools/research-plan-tool";
+
+type ExecutablePlanTool = {
+  execute: (input: { query: string }) => Promise<string>;
+};
+
+function makeModel() {
+  return { modelId: "test", doGenerate: async () => ({}) } as never;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("researchPlanInputSchema", () => {
   it("accepts a valid query", () => {
@@ -67,8 +92,58 @@ describe("RESEARCH_PLANNER_SYSTEM", () => {
 
 describe("createResearchPlanTool", () => {
   it("has the correct description", () => {
-    const mockModel = { modelId: "test", doGenerate: async () => ({}) } as never;
-    const t = createResearchPlanTool(mockModel);
+    const t = createResearchPlanTool(makeModel());
     expect(t.description).toContain("research plan");
+  });
+
+  it("calls generateText with correct parameters", async () => {
+    const model = makeModel();
+    aiMocks.generateText.mockResolvedValueOnce({
+      text: "Research plan output",
+    });
+
+    const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
+    const result = await t.execute({ query: "What is AI?" });
+
+    expect(result).toBe("Research plan output");
+    expect(aiMocks.generateText).toHaveBeenCalledWith({
+      model,
+      system: RESEARCH_PLANNER_SYSTEM,
+      prompt: "What is AI?",
+      abortSignal: undefined,
+    });
+  });
+
+  it("propagates abort signal to generateText", async () => {
+    const model = makeModel();
+    aiMocks.generateText.mockResolvedValueOnce({
+      text: "Research plan output",
+    });
+
+    const abortController = new AbortController();
+    const t = createResearchPlanTool(model);
+    await t.execute!(
+      { query: "What is AI?" },
+      { abortSignal: abortController.signal, toolCallId: "call-1", messages: [] },
+    );
+
+    expect(aiMocks.generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        abortSignal: abortController.signal,
+      }),
+    );
+  });
+
+  it("throws when model call fails", async () => {
+    const model = makeModel();
+    aiMocks.generateText.mockRejectedValueOnce(
+      new Error("Model API error"),
+    );
+
+    const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
+
+    await expect(t.execute({ query: "What is AI?" })).rejects.toThrow(
+      "Model API error",
+    );
   });
 });

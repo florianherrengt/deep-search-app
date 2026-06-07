@@ -168,5 +168,145 @@ describe("RedditExtractor", () => {
       expect(result).toBe("");
       expect(mockWebview).not.toHaveBeenCalled();
     });
+
+    it("detects #challenge-form element as challenge", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body><div id=\"challenge-form\">...</div></body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects .g-recaptcha element as challenge", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body><div class=\"g-recaptcha\"></div></body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects .cf-challenge-running element as challenge", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body><div class=\"cf-challenge-running\"></div></body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects recaptcha iframe as challenge", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body><iframe src=\"https://www.google.com/recaptcha/api2/anchor\"></iframe></body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'captcha challenge' text marker", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>captcha challenge</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'captcha required' text marker", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>captcha required</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'checking if the site connection is secure' text marker", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>checking if the site connection is secure</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'checking your browser' text marker", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>checking your browser</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'are you a robot' text marker", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>are you a robot</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("detects 'security check' text marker", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      await extractor.extract("https://www.reddit.com/r/test/comments/abc/test_post/");
+
+      const options = mockWebview.mock.calls[0][1];
+      expect(
+        options?.shouldRetry?.(
+          "<html><body>security check</body></html>",
+        ),
+      ).toBe(true);
+    });
+
+    it("includes post selftext in output", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      const result = await extractor.extract(
+        "https://www.reddit.com/r/test/comments/abc/test_post/",
+      );
+
+      expect(result).toContain("Body text");
+    });
   });
 });

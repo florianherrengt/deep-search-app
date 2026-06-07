@@ -186,4 +186,50 @@ describe("chat provider settings", () => {
     expect(fieldKeys).not.toContain("anthropic_context_window");
     expect(fieldKeys).not.toContain("zhipu_context_window");
   });
+
+  it("returns empty providers when no API keys are configured", () => {
+    const settings: Settings = { ...settingsDefaults };
+    expect(getConfiguredChatProviderDefinitions(settings)).toEqual([]);
+
+    const options = getChatModelOptions(settings);
+    expect(options.every((option) => option.disabled)).toBe(true);
+  });
+
+  it("treats whitespace-only API key as unconfigured", () => {
+    const settings: Settings = {
+      ...settingsDefaults,
+      openrouter_api_key: "   ",
+    };
+    expect(getConfiguredChatProviderDefinitions(settings)).toEqual([]);
+  });
+
+  it("handles fetchChatModelContextWindowTokens HTTP error gracefully", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(null, { status: 500, statusText: "Internal Server Error" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchChatModelContextWindowTokens({
+        provider: "openrouter",
+        apiKey: "sk-or-test",
+        model: "test/error-provider-model",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("handles fetchChatModelContextWindowTokens network failure gracefully", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchChatModelContextWindowTokens({
+        provider: "openrouter",
+        apiKey: "sk-or-test",
+        model: "test/network-failure-model",
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

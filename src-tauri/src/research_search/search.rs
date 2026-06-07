@@ -504,6 +504,125 @@ mod tests {
     }
 
     #[test]
+    fn tokenize_keeps_terms_with_digits_under_3_chars() {
+        let terms = tokenize_search_terms("v2 rocket");
+        assert!(terms.contains(&"v2".to_string()));
+    }
+
+    #[test]
+    fn tokenize_keeps_terms_exactly_3_chars() {
+        let terms = tokenize_search_terms("the cat sat");
+        assert!(terms.contains(&"cat".to_string()));
+        assert!(terms.contains(&"sat".to_string()));
+        assert!(!terms.contains(&"the".to_string()));
+    }
+
+    #[test]
+    fn tokenize_filters_stop_words() {
+        let terms = tokenize_search_terms("the and or but from with");
+        assert!(terms.is_empty());
+    }
+
+    #[test]
+    fn tokenize_filters_short_terms_no_digits() {
+        let terms = tokenize_search_terms("a bc de fg hi");
+        assert!(terms.is_empty());
+    }
+
+    #[test]
+    fn tokenize_handles_special_characters() {
+        let terms = tokenize_search_terms("hello! world? foo-bar; baz:qux");
+        assert_eq!(terms, vec!["hello", "world", "foo", "bar", "baz", "qux"]);
+    }
+
+    #[test]
+    fn tokenize_lowercases_input() {
+        let terms = tokenize_search_terms("Hello WORLD FooBar");
+        assert!(terms.contains(&"hello".to_string()));
+        assert!(terms.contains(&"world".to_string()));
+        assert!(terms.contains(&"foobar".to_string()));
+    }
+
+    #[test]
+    fn tokenize_empty_input() {
+        let terms = tokenize_search_terms("");
+        assert!(terms.is_empty());
+    }
+
+    #[test]
+    fn cosine_identical_vectors() {
+        let v = vec![1.0_f32, 2.0_f32, 3.0_f32];
+        let result = cosine_similarity(&v, &v);
+        assert!((result - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn cosine_orthogonal_vectors() {
+        let a = vec![1.0_f32, 0.0_f32];
+        let b = vec![0.0_f32, 1.0_f32];
+        let result = cosine_similarity(&a, &b);
+        assert!((result - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn cosine_opposite_vectors() {
+        let a = vec![1.0_f32, 2.0_f32];
+        let b = vec![-1.0_f32, -2.0_f32];
+        let result = cosine_similarity(&a, &b);
+        assert!((result - (-1.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn cosine_zero_vector() {
+        let a = vec![0.0_f32, 0.0_f32];
+        let b = vec![1.0_f32, 2.0_f32];
+        let result = cosine_similarity(&a, &b);
+        assert!((result - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn adaptive_rrf_empty_inputs() {
+        let result = adaptive_rrf(&[], &[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn adaptive_rrf_only_vector_results() {
+        let items = vec![RankedItem { chunk_id: 1, rank: 0 }];
+        let result = adaptive_rrf(&items, &[]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, 1);
+    }
+
+    #[test]
+    fn adaptive_rrf_only_fts_results() {
+        let items = vec![RankedItem { chunk_id: 2, rank: 0 }];
+        let result = adaptive_rrf(&[], &items);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, 2);
+    }
+
+    #[test]
+    fn adaptive_rrf_both_sources_overlapping() {
+        let vec_items = vec![RankedItem { chunk_id: 1, rank: 0 }];
+        let fts_items = vec![RankedItem { chunk_id: 1, rank: 0 }];
+        let result = adaptive_rrf(&vec_items, &fts_items);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].0, 1);
+    }
+
+    #[test]
+    fn adaptive_rrf_higher_rank_gets_lower_score() {
+        let items = vec![
+            RankedItem { chunk_id: 10, rank: 0 },
+            RankedItem { chunk_id: 20, rank: 5 },
+        ];
+        let result = adaptive_rrf(&items, &[]);
+        assert_eq!(result.len(), 2);
+        assert!(result[0].1 > result[1].1);
+    }
+
+    #[test]
     fn folder_metadata_matches_related_folder_names() {
         let conn = folder_metadata_conn();
         conn.execute(

@@ -80,6 +80,50 @@ describe("shouldContinueAfterToolResult", () => {
       }),
     ).toBe(false);
   });
+
+  it("continues when the latest tool is in output-error state", () => {
+    expect(
+      shouldContinueAfterToolResult({
+        messages: [
+          userMessage("Find current pricing"),
+          assistantMessage([{ type: "step-start" }, errorToolPart("brave_search")]),
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("does not continue when the last message is not from assistant", () => {
+    expect(
+      shouldContinueAfterToolResult({
+        messages: [userMessage("Find current pricing")],
+      }),
+    ).toBe(false);
+  });
+
+  it("does not continue when parts array is empty", () => {
+    expect(
+      shouldContinueAfterToolResult({
+        messages: [
+          userMessage("Find current pricing"),
+          assistantMessage([]),
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("does not continue when the last tool in the step is incomplete", () => {
+    expect(
+      shouldContinueAfterToolResult({
+        messages: [
+          userMessage("Find current pricing"),
+          assistantMessage([
+            { type: "step-start" },
+            incompleteToolPart("brave_search"),
+          ]),
+        ],
+      }),
+    ).toBe(false);
+  });
 });
 
 function userMessage(text: string): UIMessage {
@@ -105,6 +149,27 @@ function toolPart(toolName: string): UIMessage["parts"][number] {
     state: "output-available",
     input: { query: "pricing" },
     output: "result",
+    providerExecuted: false,
+  } as UIMessage["parts"][number];
+}
+
+function errorToolPart(toolName: string): UIMessage["parts"][number] {
+  return {
+    type: `tool-${toolName}`,
+    toolCallId: `${toolName}-1`,
+    state: "output-error",
+    input: { query: "pricing" },
+    providerExecuted: false,
+    errorText: "Fetch failed",
+  } as UIMessage["parts"][number];
+}
+
+function incompleteToolPart(toolName: string): UIMessage["parts"][number] {
+  return {
+    type: `tool-${toolName}`,
+    toolCallId: `${toolName}-1`,
+    state: "input-streaming",
+    input: { query: "pricing" },
     providerExecuted: false,
   } as UIMessage["parts"][number];
 }

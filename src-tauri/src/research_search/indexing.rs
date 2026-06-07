@@ -564,15 +564,6 @@ mod tests {
     }
 
     #[test]
-    fn chunk_markdown_empty_returns_no_chunks() {
-        let chunks = chunking::chunk_markdown("");
-        assert!(chunks.is_empty());
-
-        let chunks = chunking::chunk_markdown("   \n  \n  ");
-        assert!(chunks.is_empty());
-    }
-
-    #[test]
     fn reindex_from_many_to_one() {
         let conn = test_db();
         let folder_id = insert_test_folder(&conn, "test-folder");
@@ -598,5 +589,24 @@ mod tests {
 
         assert_eq!(count_chunks(&conn, folder_id, "doc.md"), 1);
         assert_eq!(get_chunk_indices(&conn, folder_id, "doc.md"), vec![0]);
+    }
+
+    #[test]
+    fn register_folder_with_empty_name() {
+        let conn = test_db();
+        let id = register_folder(&conn, "", "some query").unwrap();
+
+        assert!(id > 0);
+        assert_eq!(get_folder_id(&conn, "").unwrap(), Some(id));
+    }
+
+    #[test]
+    fn register_folder_idempotent() {
+        let conn = test_db();
+        let id1 = register_folder(&conn, "idem-folder", "query v1").unwrap();
+        let id2 = register_folder(&conn, "idem-folder", "query v2").unwrap();
+
+        assert_eq!(id1, id2);
+        assert!(get_folder_id(&conn, "idem-folder").unwrap().is_some());
     }
 }

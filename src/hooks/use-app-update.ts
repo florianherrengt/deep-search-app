@@ -194,7 +194,7 @@ function toUpdateInfo(update: Update): AppUpdateInfo {
   };
 }
 
-function getDownloadProgress(
+export function getDownloadProgress(
   event: DownloadEvent,
   current: { contentLength: number | null; downloaded: number },
 ) {
@@ -217,7 +217,7 @@ function getDownloadProgress(
   return { contentLength, downloaded, percent };
 }
 
-function getErrorMessage(error: unknown) {
+export function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return "Could not install the update.";

@@ -33,6 +33,7 @@ import {
   deleteResearchFolder,
   listResearchChats,
   listResearchFolders,
+  moveResearchChatToFolder,
   readResearchChatMessages,
   renameResearchFolder,
   saveResearchChatMessages,
@@ -350,6 +351,142 @@ describe("research history", () => {
         name: "market-map",
       },
     );
+  });
+
+  it("sets title to Untitled chat for empty messages", async () => {
+    const chatId = "2026-05-22T10-00-00.000Z";
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await saveResearchChatMessages("market-map", chatId, [] as never);
+
+    const written = JSON.parse(fsMocks.writeTextFile.mock.calls[0][1]);
+    expect(written.title).toBe("Untitled chat");
+  });
+
+  it("truncates long chat titles over 56 characters", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: "This is a very long message that exceeds fifty six characters and should be truncated",
+          },
+        ],
+      },
+    ];
+    const chatId = "2026-05-22T10-00-00.000Z";
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await saveResearchChatMessages("market-map", chatId, messages as never);
+
+    const written = JSON.parse(fsMocks.writeTextFile.mock.calls[0][1]);
+    expect(written.title.length).toBe(56);
+    expect(written.title).toContain("...");
+  });
+
+  it("collapses multi-line messages into single line for title", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: "Hello\nworld\ntest",
+          },
+        ],
+      },
+    ];
+    const chatId = "2026-05-22T10-00-00.000Z";
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await saveResearchChatMessages("market-map", chatId, messages as never);
+
+    const written = JSON.parse(fsMocks.writeTextFile.mock.calls[0][1]);
+    expect(written.title).toBe("Hello world test");
+  });
+
+  it("derives createdAt from valid chat ID", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+    ];
+    const chatId = "2026-05-22T10-11-12.123Z";
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await saveResearchChatMessages("market-map", chatId, messages as never);
+
+    const written = JSON.parse(fsMocks.writeTextFile.mock.calls[0][1]);
+    expect(written.createdAt).toBe("2026-05-22T10:11:12.123Z");
+  });
+
+  it("moves a research chat to a different folder", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+    ];
+    fsMocks.exists.mockResolvedValueOnce(false);
+    fsMocks.exists.mockResolvedValueOnce(true);
+
+    await moveResearchChatToFolder({
+      fromFolderName: "provisional-folder",
+      toFolderName: "final-folder",
+      chatId: "2026-05-22T10-11-12.123Z",
+      messages: messages as never,
+    });
+
+    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
+      "search-results/final-folder/chats/2026-05-22T10-11-12.123Z.json",
+      expect.any(String),
+      { baseDir: BaseDirectory.AppData },
+    );
+
+    expect(fsMocks.remove).toHaveBeenCalledWith(
+      "search-results/provisional-folder",
+      {
+        baseDir: BaseDirectory.AppData,
+        recursive: true,
+      },
+    );
+
+    expect(tauriMocks.invoke).toHaveBeenCalledWith(
+      "delete_research_folder_index",
+      { name: "provisional-folder" },
+    );
+  });
+
+  it("moving a research chat to the same folder just saves without deleting", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+    ];
+
+    await moveResearchChatToFolder({
+      fromFolderName: "market-map",
+      toFolderName: "market-map",
+      chatId: "2026-05-22T10-11-12.123Z",
+      messages: messages as never,
+    });
+
+    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
+      "search-results/market-map/chats/2026-05-22T10-11-12.123Z.json",
+      expect.any(String),
+      { baseDir: BaseDirectory.AppData },
+    );
+
+    expect(fsMocks.remove).not.toHaveBeenCalled();
+    expect(tauriMocks.invoke).not.toHaveBeenCalled();
   });
 });
 

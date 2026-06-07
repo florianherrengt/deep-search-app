@@ -19,11 +19,14 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 
 import { BaseDirectory } from "@tauri-apps/plugin-fs";
 import {
+  deleteAppFile,
   deleteAppSubfolder,
   listAppFiles,
   listAppSubfolders,
   readAppFile,
+  renameAppFile,
   renameAppSubfolder,
+  SafeSubfolderSchema,
   writeAppFile,
 } from "@/lib/app-file-storage";
 
@@ -298,5 +301,137 @@ describe("app file storage", () => {
     expect(fsMocks.rename).not.toHaveBeenCalled();
     expect(fsMocks.writeTextFile).not.toHaveBeenCalled();
     expect(fsMocks.readTextFile).not.toHaveBeenCalled();
+  });
+
+  it("deletes an existing file from an app data subfolder", async () => {
+    fsMocks.exists.mockResolvedValueOnce(true);
+
+    await deleteAppFile({
+      subfolder: "notes",
+      filename: "example.md",
+    });
+
+    expect(fsMocks.exists).toHaveBeenCalledWith("notes/example.md", {
+      baseDir: BaseDirectory.AppData,
+    });
+    expect(fsMocks.remove).toHaveBeenCalledWith("notes/example.md", {
+      baseDir: BaseDirectory.AppData,
+    });
+  });
+
+  it("deletes an existing file from a nested app data subfolder", async () => {
+    fsMocks.exists.mockResolvedValueOnce(true);
+
+    await deleteAppFile({
+      subfolder: "search-results/apartment-dogs",
+      filename: "brave-initial.md",
+    });
+
+    expect(fsMocks.remove).toHaveBeenCalledWith(
+      "search-results/apartment-dogs/brave-initial.md",
+      {
+        baseDir: BaseDirectory.AppData,
+      },
+    );
+  });
+
+  it("returns gracefully when file to delete does not exist", async () => {
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await deleteAppFile({
+      subfolder: "notes",
+      filename: "missing.md",
+    });
+
+    expect(fsMocks.remove).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsafe path segments in deleteAppFile without touching filesystem", async () => {
+    await expect(
+      deleteAppFile({
+        subfolder: "../notes",
+        filename: "example.md",
+      }),
+    ).rejects.toThrow();
+
+    expect(fsMocks.exists).not.toHaveBeenCalled();
+    expect(fsMocks.remove).not.toHaveBeenCalled();
+  });
+
+  it("renames a file within the same subfolder", async () => {
+    fsMocks.exists.mockResolvedValueOnce(false);
+
+    await renameAppFile({
+      subfolder: "notes",
+      oldFilename: "draft.md",
+      newFilename: "final.md",
+    });
+
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      "notes/draft.md",
+      "notes/final.md",
+      {
+        oldPathBaseDir: BaseDirectory.AppData,
+        newPathBaseDir: BaseDirectory.AppData,
+      },
+    );
+  });
+
+  it("skips rename when old and new filenames are the same", async () => {
+    await renameAppFile({
+      subfolder: "notes",
+      oldFilename: "unchanged.md",
+      newFilename: "unchanged.md",
+    });
+
+    expect(fsMocks.exists).not.toHaveBeenCalled();
+    expect(fsMocks.rename).not.toHaveBeenCalled();
+  });
+
+  it("rejects rename when the target file already exists", async () => {
+    fsMocks.exists.mockResolvedValueOnce(true);
+
+    await expect(
+      renameAppFile({
+        subfolder: "notes",
+        oldFilename: "draft.md",
+        newFilename: "existing.md",
+      }),
+    ).rejects.toThrow("already exists");
+  });
+
+  it("rejects unsafe path segments in renameAppFile without touching filesystem", async () => {
+    await expect(
+      renameAppFile({
+        subfolder: "../notes",
+        oldFilename: "draft.md",
+        newFilename: "final.md",
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      renameAppFile({
+        subfolder: "notes",
+        oldFilename: "../draft",
+        newFilename: "final.md",
+      }),
+    ).rejects.toThrow();
+
+    expect(fsMocks.exists).not.toHaveBeenCalled();
+    expect(fsMocks.rename).not.toHaveBeenCalled();
+  });
+
+  it("rejects a SafeSubfolderSchema path with 5 or more segments", () => {
+    const result = SafeSubfolderSchema.safeParse("a/b/c/d/e");
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            message: "Subfolder must not be more than 4 segments deep",
+          }),
+        ]),
+      );
+    }
   });
 });
