@@ -27,12 +27,16 @@ export const skillsStore = createStore(
   skillsDefaults,
 );
 
-export function findUniqueSlug(title: string, existingSlugs: string[]): string {
-  const base = slugify(title.replace(/_/g, "-"), {
+export function slugifySkillTitle(title: string): string {
+  return slugify(title.replace(/_/g, "-"), {
     lower: true,
     strict: true,
     trim: true,
   });
+}
+
+export function findUniqueSlug(title: string, existingSlugs: string[]): string {
+  const base = slugifySkillTitle(title);
   if (!existingSlugs.includes(base)) return base;
 
   let i = 2;
