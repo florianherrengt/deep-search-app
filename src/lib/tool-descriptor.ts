@@ -69,17 +69,13 @@ type ToolExecutor = (
   input: Record<string, unknown>,
 ) => unknown | Promise<unknown>;
 
-function asToolLike(tool: unknown): AnyTool {
-  return tool && typeof tool === "object" ? (tool as AnyTool) : {};
-}
-
 export function describeTool(
   name: string,
   tool: unknown,
   schema: z.ZodObject<Record<string, z.ZodTypeAny>>,
   available: boolean,
 ): ToolDescriptor {
-  const toolLike = asToolLike(tool);
+  const toolLike = tool && typeof tool === "object" ? (tool as AnyTool) : {};
   const toolExecute = toolLike.execute as ToolExecutor;
   const execute =
     typeof toolLike.execute === "function"
