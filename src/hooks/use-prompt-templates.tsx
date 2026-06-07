@@ -94,8 +94,7 @@ export function PromptTemplatesProvider({ children }: { children: ReactNode }) {
   );
 
   const lastSelected =
-    state.lastSelectedTemplate &&
-    state.templates.find((t) => t.name === state.lastSelectedTemplate)
+    state.templates.some((t) => t.name === state.lastSelectedTemplate)
       ? state.lastSelectedTemplate
       : null;
 
