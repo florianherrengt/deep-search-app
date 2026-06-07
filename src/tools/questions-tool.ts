@@ -6,7 +6,7 @@ const candidateSchema = z.object({
   value: z.string().describe("Machine-readable value returned when selected"),
 });
 
-export const questionSchema = z.object({
+const questionSchema = z.object({
   question: z.string().describe("Question to ask the user"),
   candidates: candidateSchema
     .array()
