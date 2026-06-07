@@ -37,13 +37,6 @@ export function setStorybookTauriStores(stores: StoreSeed) {
   (window as StorybookWindow).__storybookTauriStores = cloneStoreSeed(stores);
 }
 
-export function withTauriStores(stores: StoreSeed): Decorator {
-  return (Story) => {
-    setStorybookTauriStores(stores);
-    return <Story />;
-  };
-}
-
 export function withAppUpdateState(state: AppUpdateState): Decorator {
   return (Story) => {
     if (typeof window !== "undefined") {
