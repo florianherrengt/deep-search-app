@@ -57,3 +57,27 @@ export function createSearchTool<TResponse>(
     },
   });
 }
+
+export async function formatSearchHttpError(
+  providerName: string,
+  response: Response,
+): Promise<string> {
+  const statusText = response.statusText ? ` ${response.statusText}` : "";
+  const body = await readResponseText(response);
+  return `${providerName} search failed with HTTP ${response.status}${statusText}${body ? `: ${body}` : ""}`;
+}
+
+async function readResponseText(response: Response): Promise<string> {
+  try {
+    const text = await response.text();
+    return truncateForError(text.trim());
+  } catch {
+    return "";
+  }
+}
+
+function truncateForError(text: string): string {
+  const maxLength = 300;
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}...`;
+}

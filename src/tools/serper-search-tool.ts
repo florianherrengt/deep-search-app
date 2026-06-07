@@ -1,6 +1,6 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { z } from "zod";
-import { createSearchTool } from "./create-search-tool";
+import { createSearchTool, formatSearchHttpError } from "./create-search-tool";
 import { searchQueryInputSchema } from "./search-result";
 
 const API_BASE_URL = "https://google.serper.dev";
@@ -45,31 +45,10 @@ export function createSerperSearchTool(apiKey: string) {
       });
 
       if (!response.ok) {
-        throw new Error(await formatSerperHttpError(response));
+        throw new Error(await formatSearchHttpError("Serper", response));
       }
 
       return await response.text();
     },
   });
-}
-
-async function formatSerperHttpError(response: Response): Promise<string> {
-  const statusText = response.statusText ? ` ${response.statusText}` : "";
-  const body = await readResponseText(response);
-  return `Serper search failed with HTTP ${response.status}${statusText}${body ? `: ${body}` : ""}`;
-}
-
-async function readResponseText(response: Response): Promise<string> {
-  try {
-    const text = await response.text();
-    return truncateForError(text.trim());
-  } catch {
-    return "";
-  }
-}
-
-function truncateForError(text: string): string {
-  const maxLength = 300;
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength)}...`;
 }
