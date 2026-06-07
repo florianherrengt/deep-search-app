@@ -6,8 +6,6 @@ export const researchPlanInputSchema = z.object({
   query: z.string().min(1).describe("The user's research question or request"),
 });
 
-export type ResearchPlanInput = z.infer<typeof researchPlanInputSchema>;
-
 export { RESEARCH_PLANNER_SYSTEM };
 
 export function createResearchPlanTool(model: LanguageModel) {
