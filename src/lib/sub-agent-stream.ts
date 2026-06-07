@@ -20,14 +20,6 @@ export interface SubAgentStreamContext {
 
 let nextSubAgentTextId = 0;
 
-export function createSubAgentStreamContext(
-  writer: UIMessageStreamWriter<UIMessage>,
-): SubAgentStreamContext {
-  return {
-    subAgentStream: { writer },
-  };
-}
-
 export function isSubAgentOutputTextPart(
   part: UIMessage["parts"][number],
 ): boolean {
