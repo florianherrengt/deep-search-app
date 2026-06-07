@@ -20,14 +20,14 @@ const RateResponseSchema = z.object({
   rate: z.number(),
 });
 
-export const currencyConversionInputSchema = z.object({
+const currencyConversionInputSchema = z.object({
   amount: z.number().positive().describe("The amount of money to convert"),
   from_currency: z
     .string()
     .describe("Currency code of the amount (e.g. USD, EUR, GBP)"),
 });
 
-export const currencyConversionOutputSchema = z.string();
+const currencyConversionOutputSchema = z.string();
 
 export function createCurrencyConversionTool(targetCurrency: Currency) {
   return tool({
