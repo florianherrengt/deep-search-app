@@ -10,10 +10,6 @@ export const searchResultSchema = z.object({
   description: z.string(),
 });
 
-export const searchResultsOutputSchema = z.object({
-  results: z.array(searchResultSchema),
-});
-
 export type SearchResult = z.infer<typeof searchResultSchema>;
 
 export function formatSearchResults(results: SearchResult[]): string {

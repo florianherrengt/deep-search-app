@@ -18,8 +18,6 @@ const BraveWebResponseSchema = z.object({
 
 export const braveSearchInputSchema = searchQueryInputSchema;
 
-export const braveSearchOutputSchema = z.string();
-
 export function createBraveSearchTool(apiKey: string) {
   return createSearchTool({
     providerName: "Brave",

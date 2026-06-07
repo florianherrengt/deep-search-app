@@ -17,8 +17,6 @@ const TavilyWebResponseSchema = z.object({
 
 export const tavilySearchInputSchema = searchQueryInputSchema;
 
-export const tavilySearchOutputSchema = z.string();
-
 export function createTavilySearchTool(apiKey: string) {
   const normalizedApiKey = apiKey.trim();
 

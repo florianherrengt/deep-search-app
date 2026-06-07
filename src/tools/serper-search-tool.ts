@@ -19,8 +19,6 @@ const SerperWebResponseSchema = z.object({
 
 export const serperSearchInputSchema = searchQueryInputSchema;
 
-export const serperSearchOutputSchema = z.string();
-
 export function createSerperSearchTool(apiKey: string) {
   const normalizedApiKey = apiKey.trim();
 

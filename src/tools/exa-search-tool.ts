@@ -17,8 +17,6 @@ const ExaWebResponseSchema = z.object({
 
 export const exaSearchInputSchema = searchQueryInputSchema;
 
-export const exaSearchOutputSchema = z.string();
-
 export function createExaSearchTool(apiKey: string) {
   return createSearchTool({
     providerName: "Exa",

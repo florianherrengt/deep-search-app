@@ -19,8 +19,6 @@ const SearXNGResponseSchema = z.object({
 
 export const searxngSearchInputSchema = searchQueryInputSchema;
 
-export const searxngSearchOutputSchema = z.string();
-
 export function createSearXNGSearchTool(baseUrl: string = DEFAULT_BASE_URL) {
   validateServiceUrl(baseUrl);
 
