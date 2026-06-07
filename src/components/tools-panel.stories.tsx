@@ -4,7 +4,6 @@ import { ToolsPanel } from "./tools-panel";
 
 const configuredToolConfig = {
   researchFolder: "2026-06-06_storybook-integration",
-  apiKey: "storybook-key",
   braveApiKey: "BSA-storybook",
   exaApiKey: "exa-storybook",
   serperApiKey: "serper-storybook",

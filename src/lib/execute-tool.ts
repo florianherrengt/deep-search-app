@@ -79,7 +79,6 @@ type ToolInputSchema = z.ZodObject<Record<string, z.ZodTypeAny>>;
 
 export interface ToolExecuteConfig {
   researchFolder: string | null;
-  apiKey: string;
   embeddingConfig?: import("@/lib/research-search").EmbeddingConfig;
   rerankerConfig?: import("@/lib/research-search").RerankerConfig;
   getChatModel?: () => ChatModelConfig | null;

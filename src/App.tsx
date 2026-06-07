@@ -624,7 +624,6 @@ function AppInner() {
         <ToolsPanel
           config={{
             researchFolder: activeResearchFolder,
-            apiKey: settings.openrouter_api_key,
             embeddingConfig,
             rerankerConfig,
             getChatModel: getSelectedToolChatModel,

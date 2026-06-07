@@ -17,7 +17,7 @@ const TEST_CHAT_MODEL = {
 
 describe("search tool availability from config", () => {
   it("all search tools unavailable when no keys provided", () => {
-    const tools = getAvailableTools({ apiKey: "test", researchFolder: null });
+    const tools = getAvailableTools({ researchFolder: null });
     for (const name of SEARCH_TOOLS) {
       const t = tools.find((t) => t.name === name);
       expect(t?.available ?? false).toBe(false);
@@ -26,7 +26,6 @@ describe("search tool availability from config", () => {
 
   it("brave_search available when brave key provided", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       braveApiKey: "brave-key-123",
     });
@@ -36,7 +35,6 @@ describe("search tool availability from config", () => {
 
   it("exa_search available when exa key provided", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       exaApiKey: "exa-key-123",
     });
@@ -46,7 +44,6 @@ describe("search tool availability from config", () => {
 
   it("serper_search available when serper key provided", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       serperApiKey: "serper-key-123",
     });
@@ -56,7 +53,6 @@ describe("search tool availability from config", () => {
 
   it("tavily_search available when tavily key provided", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       tavilyApiKey: "tavily-key-123",
     });
@@ -66,7 +62,6 @@ describe("search tool availability from config", () => {
 
   it("searxng_search available when non-default url provided", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       searxngBaseUrl: "https://search.example.com",
     });
@@ -76,7 +71,6 @@ describe("search tool availability from config", () => {
 
   it("searxng_search available with a configured local service url", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       searxngBaseUrl: "http://localhost:8080",
     });
@@ -86,7 +80,6 @@ describe("search tool availability from config", () => {
 
   it("searxng_search unavailable with a non-network service url", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       searxngBaseUrl: "file:///tmp/search",
     });
@@ -96,7 +89,6 @@ describe("search tool availability from config", () => {
 
   it("simulated reset-all flow: all keys become unavailable", () => {
     const configWithKeys: ToolExecuteConfig = {
-      apiKey: "test",
       researchFolder: null,
       braveApiKey: "brave-key",
       exaApiKey: "exa-key",
@@ -112,7 +104,6 @@ describe("search tool availability from config", () => {
     }
 
     const configCleared: ToolExecuteConfig = {
-      apiKey: "test",
       researchFolder: null,
       braveApiKey: "",
       exaApiKey: "",
@@ -130,7 +121,6 @@ describe("search tool availability from config", () => {
 
   it("search_research available when embeddingConfig, rerankerConfig, and model are all provided", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
       rerankerConfig: { api_key: "rk", base_url: "https://example.com", model: "rr" },
@@ -142,7 +132,6 @@ describe("search tool availability from config", () => {
 
   it("search_research unavailable when embeddingConfig is missing", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       rerankerConfig: { api_key: "rk", base_url: "https://example.com", model: "rr" },
       getChatModel: () => TEST_CHAT_MODEL,
@@ -153,7 +142,6 @@ describe("search tool availability from config", () => {
 
   it("search_research unavailable when rerankerConfig is missing", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
       getChatModel: () => TEST_CHAT_MODEL,
@@ -164,7 +152,6 @@ describe("search tool availability from config", () => {
 
   it("search_research unavailable when model (getChatModel) is missing", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
       rerankerConfig: { api_key: "rk", base_url: "https://example.com", model: "rr" },
@@ -175,7 +162,6 @@ describe("search tool availability from config", () => {
 
   it("rename_research_folder available when researchFolder and embeddingConfig are both provided", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: "some-folder",
       embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
     });
@@ -185,7 +171,6 @@ describe("search tool availability from config", () => {
 
   it("rename_research_folder unavailable when researchFolder is missing", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: null,
       embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
     });
@@ -195,7 +180,6 @@ describe("search tool availability from config", () => {
 
   it("rename_research_folder unavailable when embeddingConfig is missing", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: "some-folder",
     });
     const rrf = tools.find((t) => t.name === "rename_research_folder");
@@ -204,7 +188,6 @@ describe("search tool availability from config", () => {
 
   it("model and research-folder dependent tools become available from direct-tool config", () => {
     const tools = getAvailableTools({
-      apiKey: "test",
       researchFolder: "manual-folder",
       getChatModel: () => TEST_CHAT_MODEL,
     });
