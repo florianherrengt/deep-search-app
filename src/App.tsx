@@ -556,7 +556,7 @@ function AppInner() {
   return (
     <TabPanel
       chatPanel={
-        <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+        <div className="md-flex-row">
           <ResearchSidebar
             folders={researchFolders}
             activeFolderName={activeResearchFolder}
@@ -579,7 +579,7 @@ function AppInner() {
             onRenameFolder={handleRenameResearchFolder}
             onDeleteFolder={handleDeleteResearchFolder}
           />
-          <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="md-flex-fill">
             {visibleChatSessions.map((session) => (
               <div
                 key={session.sessionId}

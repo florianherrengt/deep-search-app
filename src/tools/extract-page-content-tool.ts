@@ -61,6 +61,7 @@ interface WebviewExtractionMock {
 declare global {
   interface Window {
     __deepSearchWebviewExtractionMock?: WebviewExtractionMock;
+    __deepSearchFetchHtmlMock?: (url: string) => Promise<string | null>;
   }
 }
 
@@ -203,6 +204,9 @@ export async function fetchHtml(
 ): Promise<string | null> {
   try {
     validateUrl(url);
+    if (import.meta.env.DEV && typeof window !== "undefined" && window.__deepSearchFetchHtmlMock) {
+      return window.__deepSearchFetchHtmlMock(url);
+    }
     return await abortablePromise(
       invoke<string | null>("fetch_html", { url }),
       abortSignal,

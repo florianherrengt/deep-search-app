@@ -55,6 +55,7 @@ When adding a new external API endpoint, update **both** files:
 - Unit test files are co-located in `__tests__/` directories within each module
 - Rust tests are inline (`#[cfg(test)]` modules) in `src-tauri/src/lib.rs`
 - E2E tests build and launch the actual Tauri app (expensive, not part of normal dev flow)
+- **E2E tests MUST always run in a subagent** (using the Task tool with a `general` subagent) — they are expensive to run and produce large amounts of output that would consume too much context in the main conversation. Never run `npm run test:e2e` or `cargo test` directly; always delegate to a subagent.
 
 ## Storybook UI Testing
 

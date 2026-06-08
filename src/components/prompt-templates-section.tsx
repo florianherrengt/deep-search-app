@@ -84,7 +84,7 @@ export function PromptTemplatesSection() {
   );
 
   return (
-    <Box style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <Box className="md-flex-col">
       <Box maw={640} mx="auto" w="100%" px="md" py={32} style={{ flexShrink: 0 }}>
         <Group justify="space-between">
           <Box>
@@ -105,12 +105,12 @@ export function PromptTemplatesSection() {
         </Group>
       </Box>
 
-      <ScrollArea style={{ flex: 1, minHeight: 0 }} pb={32}>
+      <ScrollArea className="md-flex-fill" pb={32}>
         <Box maw={640} mx="auto" w="100%" px="md">
           {editing.mode !== "idle" ? (
-            <Paper withBorder p="md" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-              <form onSubmit={form.onSubmit(handleSubmit)} onKeyDown={(e) => { if (e.key === "Escape") cancelEdit(); }} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-                <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
+            <Paper withBorder p="md" className="md-flex-col">
+              <form onSubmit={form.onSubmit(handleSubmit)} onKeyDown={(e) => { if (e.key === "Escape") cancelEdit(); }} className="md-flex-col">
+                <Stack gap="sm" className="md-flex-fill">
                     <TextInput
                       label="Name"
                       {...form.getInputProps("name")}
@@ -120,7 +120,7 @@ export function PromptTemplatesSection() {
                         if (e.key === "Escape") cancelEdit();
                       }}
                     />
-                  <Box style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                  <Box className="md-flex-col">
                     <Text size="sm" fw={500} mb={4}>Prompt</Text>
                     <Textarea
                       {...form.getInputProps("text")}
@@ -154,7 +154,7 @@ export function PromptTemplatesSection() {
                   py="sm"
                   style={index > 0 ? { borderTop: "1px solid var(--mantine-color-default-border)" } : undefined}
                 >
-                  <Box style={{ minWidth: 0, flex: 1 }}>
+                  <Box className="md-flex-fill">
                     <Text size="sm" fw={500} truncate>{template.name}</Text>
                     <Text size="xs" c="dimmed" lineClamp={2} mt={2} style={{ whiteSpace: "pre-wrap" }}>
                       {template.text}

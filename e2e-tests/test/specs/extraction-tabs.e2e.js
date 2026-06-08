@@ -58,7 +58,7 @@ describe('Extraction Webview Tabs', () => {
       );
       return tab?.getAttribute('data-variant') ?? null;
     }, url);
-    expect(activeVariant).toBe('secondary');
+    expect(activeVariant).toBe('light');
 
     await releaseTauriWebviewExtractionMock();
 

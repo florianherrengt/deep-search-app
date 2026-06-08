@@ -32,7 +32,8 @@ const CodeHeader: FC<{
       <button
         onClick={() => code && clipboard.copy(code)}
         aria-label="Copy code"
-        style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--mantine-color-dimmed)", background: "none", border: "none", cursor: "pointer" }}
+        className="md-icon-btn"
+        style={{ display: "flex", alignItems: "center", gap: 4 }}
       >
         {clipboard.copied ? (
           <CheckIcon style={{ width: 14, height: 14 }} />

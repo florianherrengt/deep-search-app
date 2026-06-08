@@ -24,7 +24,7 @@ export function SettingsPanel() {
           <SettingsFields settings={settings} updateSetting={updateSetting} />
         </Stack>
 
-        <Box mt="md" style={{ borderTop: "1px solid var(--mantine-color-default-border)", paddingTop: 16 }}>
+        <Box mt="md" className="md-divider-top" pt={16}>
           <Button
             color="red"
             size="sm"

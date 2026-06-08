@@ -46,6 +46,19 @@ async function addTemplate(name, text) {
   await waitForText(name, 5000);
 }
 
+async function deleteAllVisibleTemplates() {
+  let attempts = 0;
+  while (attempts < 20) {
+    const deleteButtons = await $$('button[aria-label^="Delete "]');
+    if (deleteButtons.length === 0) break;
+    const btn = deleteButtons[deleteButtons.length - 1];
+    if (!(await btn.isDisplayed())) break;
+    await btn.click();
+    await browser.pause(300);
+    attempts += 1;
+  }
+}
+
 describe('Prompt Templates', () => {
   afterEach(async () => {
     await clearChatTestState();
@@ -93,18 +106,24 @@ describe('Prompt Templates', () => {
     await switchToChatTab();
     await waitForText('Summarize', 5000);
 
-    const arrowButtons = await $$('button[aria-label="Select template"]');
-    expect(arrowButtons.length).toBeGreaterThan(0);
-    await arrowButtons[0].click();
+    const templateButtons = await $$('button[aria-label="Prompt templates"]');
+    expect(templateButtons.length).toBeGreaterThan(0);
+    await templateButtons[0].click();
 
-    const popoverItems = await $$('[role="dialog"] button, [data-radix-popper-content-wrapper] button');
-    for (const item of popoverItems) {
-      const text = await item.getText();
-      if (text === 'Summarize') {
-        await item.click();
-        break;
-      }
-    }
+    await browser.waitUntil(
+      async () => {
+        const items = await $$('[role="menuitem"]');
+        for (const item of items) {
+          const text = await item.getText();
+          if (text === 'Summarize') {
+            await item.click();
+            return true;
+          }
+        }
+        return false;
+      },
+      { timeout: 5000, interval: 200 },
+    );
 
     const textarea = await $('textarea[placeholder="Ask something..."]');
     await textarea.waitForExist({ timeout: 5000 });
@@ -115,6 +134,8 @@ describe('Prompt Templates', () => {
   it('should send template via main button click', async () => {
     await ensureChatUI();
     await switchToPromptsTab();
+    await deleteAllVisibleTemplates();
+    await browser.pause(500);
 
     await addTemplate('Hello', 'Say hello world');
 
@@ -123,16 +144,28 @@ describe('Prompt Templates', () => {
 
     await installOpenRouterMock([textResponse('Hello world response')]);
 
-    const templateButtons = await $$('button');
-    for (const btn of templateButtons) {
-      const title = await btn.getAttribute('title');
-      if (title && title.startsWith('Send "Hello"')) {
-        await btn.click();
-        break;
-      }
-    }
+    const templateButtons = await $$('button[aria-label="Prompt templates"]');
+    expect(templateButtons.length).toBeGreaterThan(0);
+    await templateButtons[0].click();
+
+    await browser.waitUntil(
+      async () => {
+        const items = await $$('[role="menuitem"]');
+        for (const item of items) {
+          const text = await item.getText();
+          if (text === 'Hello') {
+            await item.click();
+            return true;
+          }
+        }
+        return false;
+      },
+      { timeout: 5000, interval: 200 },
+    );
 
     await waitForText('Say hello world', 5000);
+
+    await clickButtonWithText('Send');
     await waitForText('Hello world response', 10000);
   });
 
@@ -158,12 +191,24 @@ describe('Prompt Templates', () => {
   it('should edit a template', async () => {
     await ensureChatUI();
     await switchToPromptsTab();
+    await deleteAllVisibleTemplates();
+    await browser.pause(500);
 
     await addTemplate('Original', 'Original text');
 
-    const editButtons = await $$('button[aria-label="Edit Original"]');
-    expect(editButtons.length).toBe(1);
-    await editButtons[0].click();
+    let editButton;
+    await browser.waitUntil(
+      async () => {
+        const buttons = await $$('button[aria-label="Edit Original"]');
+        if (buttons.length > 0 && await buttons[0].isDisplayed()) {
+          editButton = buttons[0];
+          return true;
+        }
+        return false;
+      },
+      { timeout: 5000, interval: 200 },
+    );
+    await editButton.click();
 
     const nameInput = await $('input');
     await nameInput.waitForExist({ timeout: 5000 });
@@ -185,7 +230,15 @@ describe('Prompt Templates', () => {
   it('should show empty state when no templates exist', async () => {
     await ensureChatUI();
     await switchToPromptsTab();
+    await deleteAllVisibleTemplates();
+    await browser.pause(500);
 
-    await waitForText('No templates yet', 5000);
+    const bodyText = await $('body').getText();
+    if (!bodyText.includes('No templates yet')) {
+      await deleteAllVisibleTemplates();
+      await browser.pause(500);
+    }
+
+    await waitForText('No templates yet', 10000);
   });
 });

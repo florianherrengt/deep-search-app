@@ -33,7 +33,7 @@ body,
 }
 
 [data-mantine-color-scheme="dark"] .md-code-bg {
-  background-color: var(--mantine-color-dark-7);
+  background-color: var(--mantine-color-dark-6);
 }
 
 .md-surface {
@@ -51,5 +51,79 @@ body,
 }
 
 [data-mantine-color-scheme="dark"] .md-hover-bg:hover {
-  background-color: var(--mantine-color-dark-7);
+  background-color: var(--mantine-color-dark-6);
+}
+
+.md-card {
+  border-radius: var(--mantine-radius-md);
+  border: 1px solid var(--mantine-color-default-border);
+  padding: 8px 12px;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.md-card-sm {
+  border-radius: var(--mantine-radius-md);
+  border: 1px solid;
+  padding: 8px 12px;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.md-divider-top {
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.md-divider-bottom {
+  border-bottom: 1px solid var(--mantine-color-default-border);
+}
+
+.md-divider-right {
+  border-right: 1px solid var(--mantine-color-default-border);
+}
+
+.md-flex-col {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.md-flex-row {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.md-flex-fill {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.md-flex-fill-overflow {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.md-icon-btn {
+  border-radius: var(--mantine-radius-sm);
+  padding: 4px;
+  color: var(--mantine-color-dimmed);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.md-code-block {
+  overflow-x: auto;
+  border-radius: var(--mantine-radius-sm);
+  padding: 8px;
+  font-size: var(--mantine-font-size-xs);
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.md-content-x {
+  padding-left: 24px;
+  padding-right: 24px;
 }

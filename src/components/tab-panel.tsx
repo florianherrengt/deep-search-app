@@ -31,15 +31,15 @@ export function TabPanel({
   onCloseTab,
 }: TabPanelProps) {
   return (
-    <Box style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <Box className="md-flex-col">
       <Group
         gap={4}
+        className="md-divider-bottom"
         style={{
           height: TAB_BAR_HEIGHT,
           flexShrink: 0,
           paddingLeft: 8,
           paddingRight: 8,
-          borderBottom: "1px solid var(--mantine-color-default-border)",
           backgroundColor: "var(--mantine-color-body)",
         }}
         wrap="nowrap"
@@ -102,7 +102,7 @@ export function TabPanel({
           </Box>
         )}
       </Group>
-      <Box style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+      <Box className="md-flex-fill-overflow">
         <Box style={{ height: "100%" }} hidden={activeTabId !== "main"}>
           {chatPanel}
         </Box>

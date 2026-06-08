@@ -20,6 +20,10 @@ export async function ensureChatUI() {
         zhipu_model: 'glm-4.7-flash',
       }),
     );
+
+    window.__deepSearchDisambiguateMock = async () => 'mocked disambiguation result';
+    window.__deepSearchCurrencyMock = async (_from, _to, amount) => (amount * 1.1).toFixed(2);
+    window.__deepSearchFetchHtmlMock = async () => null;
   });
   await browser.refresh();
   await $('textarea').waitForExist({ timeout: 10000 });
@@ -36,7 +40,21 @@ export async function clearChatTestState() {
     delete window.__deepSearchWebviewExtractionMock;
     delete window.__deepSearchReleaseExtraction;
     delete window.__deepSearchWebviewExtractionLog;
+    delete window.__deepSearchDisambiguateMock;
+    delete window.__deepSearchCurrencyMock;
+    delete window.__deepSearchFetchHtmlMock;
     delete window.__logs;
+    delete window.__allFetchLogs;
+  });
+}
+
+export async function clearPromptTemplates() {
+  await browser.execute(async () => {
+    const { load } = await import('@tauri-apps/plugin-store');
+    const store = await load('prompt-templates.json');
+    await store.set('templates', []);
+    await store.set('lastSelectedTemplate', null);
+    await store.save();
   });
 }
 

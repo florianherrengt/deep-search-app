@@ -42,24 +42,20 @@ function ReasoningRoot({
     [lockScroll, isControlled, controlledOnOpenChange],
   );
 
-  const variantStyles: Record<string, React.CSSProperties> = {
-    outline: { borderRadius: 8, border: "1px solid var(--mantine-color-default-border)", padding: "8px 12px" },
-    ghost: {},
-    muted: { borderRadius: 8, padding: "8px 12px" },
-  };
-
-  const variantClassNames: Record<string, string> = {
-    outline: "",
-    ghost: "",
-    muted: "md-code-bg",
-  };
+  const variantClassName = variant === "muted" ? "md-code-bg" : "";
+  const variantStyle: React.CSSProperties =
+    variant === "outline"
+      ? { border: "1px solid var(--mantine-color-default-border)" }
+      : variant === "muted"
+        ? {}
+        : {};
 
   return (
     <Box
       ref={collapsibleRef}
       mb="md"
-      className={variantClassNames[variant]}
-      style={{ width: "100%", ...variantStyles[variant] }}
+      className={`${variantClassName} md-card`.trim()}
+      style={{ width: "100%", ...variantStyle }}
     >
       {typeof children === "function"
         ? (children as (props: { open: boolean; onToggle: () => void }) => React.ReactNode)({ open: isOpen, onToggle: () => handleOpenChange(!isOpen) })

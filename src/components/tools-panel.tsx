@@ -152,7 +152,7 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
             </Stack>
           </Box>
 
-          <Box style={{ flex: 1, minWidth: 0 }}>
+          <Box className="md-flex-fill">
             {selectedTool ? (
               <Paper withBorder p="md">
                 <Stack gap="sm">
@@ -288,26 +288,26 @@ function ResultCard({ entry }: { entry: ToolResult }) {
       </Group>
 
       <Collapse in={expanded}>
-        <Box style={{ borderTop: "1px solid var(--mantine-color-default-border)" }} p="sm">
+        <Box className="md-divider-top" p="sm">
           <Stack gap="sm">
             <Box>
               <Text size="xs" fw={500} c="dimmed" mb={4}>Input</Text>
               <Paper className="md-code-bg" p="xs" style={{ overflow: "auto", maxHeight: 160 }}>
-                <pre style={{ margin: 0, fontSize: 12 }}>{JSON.stringify(entry.params, null, 2)}</pre>
+                <pre className="md-code-block">{JSON.stringify(entry.params, null, 2)}</pre>
               </Paper>
             </Box>
             {entry.error ? (
               <Box>
                 <Text size="xs" fw={500} c="dimmed" mb={4}>Error</Text>
                 <Paper bg="var(--mantine-color-red-0)" c="red" p="xs" style={{ overflow: "auto", maxHeight: 160 }}>
-                  <pre style={{ margin: 0, fontSize: 12 }}>{entry.error}</pre>
+                  <pre className="md-code-block">{entry.error}</pre>
                 </Paper>
               </Box>
             ) : (
               <Box>
                 <Text size="xs" fw={500} c="dimmed" mb={4}>Output</Text>
                 <Paper className="md-code-bg" p="xs" style={{ overflow: "auto", maxHeight: 320 }}>
-                  <pre style={{ margin: 0, fontSize: 12 }}>
+                  <pre className="md-code-block">
                     {typeof entry.result === "string"
                       ? entry.result
                       : JSON.stringify(entry.result, null, 2)}

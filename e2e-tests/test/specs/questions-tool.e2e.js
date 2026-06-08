@@ -45,7 +45,10 @@ describe('Questions Tool UI', () => {
 
     const customInput = await $('input[placeholder="Or type your own..."]');
     await customInput.waitForExist({ timeout: 10000 });
-    await customInput.setValue('Green');
+    await customInput.click();
+    await customInput.clearValue();
+    await browser.keys('Green');
+    await browser.pause(500);
 
     await clickButtonWithText('Submit Answers');
     await waitForText('Answers submitted');

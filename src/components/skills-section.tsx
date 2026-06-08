@@ -85,7 +85,7 @@ export function SkillsSection() {
   const previewSlug = slugifySkillTitle(form.values.title);
 
   return (
-    <Box style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <Box className="md-flex-col">
       <Box maw={640} mx="auto" w="100%" px="md" py={32} style={{ flexShrink: 0 }}>
         <Group justify="space-between">
           <Box>
@@ -106,7 +106,7 @@ export function SkillsSection() {
         </Group>
       </Box>
 
-      <ScrollArea style={{ flex: 1, minHeight: 0 }} pb={32}>
+      <ScrollArea className="md-flex-fill" pb={32}>
         <Box maw={640} mx="auto" w="100%" px="md">
           {editing.mode !== "idle" ? (
             <Paper withBorder p="md">
@@ -164,7 +164,7 @@ export function SkillsSection() {
                   py="sm"
                   style={index > 0 ? { borderTop: "1px solid var(--mantine-color-default-border)" } : undefined}
                 >
-                  <Box style={{ minWidth: 0, flex: 1 }}>
+                  <Box className="md-flex-fill">
                     <Text size="sm" fw={500} truncate>{skill.title}</Text>
                     <Text size="xs" c="dimmed">{skill.slug}</Text>
                     <Text size="xs" c="dimmed" lineClamp={2} mt={2}>{skill.whenToUse}</Text>

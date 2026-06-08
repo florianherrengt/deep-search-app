@@ -76,7 +76,7 @@ function PendingView({
     Object.keys(customAnswers).length > 0;
 
   return (
-    <Box my="sm" p="md" className="md-surface" style={{ borderRadius: 8, border: "1px solid" }}>
+    <Box my="sm" p="md" className="md-surface md-card-sm">
       {questions.map((q: QuestionArgs["questions"][number], qi: number) => (
         <Box key={qi} mb="md">
           <Text size="sm" fw={500} mb="xs">{q.question}</Text>
@@ -115,14 +115,14 @@ function PendingView({
 
 function CompletedView({ result }: { result: QuestionResult }) {
   return (
-    <Box my="sm" p="sm" style={{ borderRadius: 8, border: "1px solid var(--mantine-color-teal-3)", backgroundColor: "var(--mantine-color-teal-0)" }}>
+    <Box my="sm" p="sm" className="md-card-sm" style={{ border: "1px solid var(--mantine-color-teal-3)", backgroundColor: "var(--mantine-color-teal-0)", color: "var(--mantine-color-teal-text)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
         <CheckCircleIcon style={{ width: 16, height: 16, color: "var(--mantine-color-teal-6)" }} />
-        <Text size="sm" fw={500} c="teal.7">Answers submitted</Text>
+        <Text size="sm" fw={500}>Answers submitted</Text>
       </div>
       {result.answers.map((a, i) => (
-        <Text key={i} size="sm" c="gray.7">
-          <span style={{ fontWeight: 500 }}>{a.question}</span>
+        <Text key={i} size="sm" c="dimmed">
+          <span style={{ fontWeight: 500, color: "var(--mantine-color-text)" }}>{a.question}</span>
           <span style={{ margin: "0 4px" }}>&rarr;</span>
           <span style={a.custom ? { fontStyle: "italic" } : undefined}>{a.answer}</span>
           {a.custom && (

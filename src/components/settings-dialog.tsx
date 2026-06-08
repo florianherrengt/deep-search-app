@@ -31,7 +31,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
         <SettingsFields settings={settings} updateSetting={updateSetting} />
 
-        <Group style={{ borderTop: "1px solid var(--mantine-color-default-border)", paddingTop: 16 }} mt="md">
+        <Group className="md-divider-top" style={{ paddingTop: 16 }} mt="md">
           <Button
             color="red"
             size="sm"

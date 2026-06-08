@@ -6,19 +6,33 @@ export const theme = createTheme({
   primaryColor: "dark",
   colors: {
     dark: [
-      "#f6f6f6",
-      "#e7e7e7",
-      "#d1d1d1",
-      "#b0b0b0",
-      "#888888",
-      "#6d6d6d",
-      "#5d5d5d",
-      "#4f4f4f",
+      "#e8e8e8",
+      "#c8c8c8",
+      "#a0a0a0",
+      "#808080",
+      "#525252",
       "#3a3a3a",
-      "#0f0f0f",
+      "#1e1e1e",
+      "#141414",
+      "#0a0a0a",
+      "#000000",
     ],
   },
   headings: {
     fontFamily: "Inter, Avenir, Helvetica, Arial, sans-serif",
+  },
+  other: {
+    sidebarWidth: 256,
+    contentPaddingX: 24,
+    iconSizeSm: 12,
+    iconSizeMd: 14,
+    iconSizeLg: 16,
+  },
+  components: {
+    Paper: {
+      defaultProps: {
+        radius: "md",
+      },
+    },
   },
 });

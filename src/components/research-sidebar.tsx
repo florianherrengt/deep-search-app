@@ -208,16 +208,10 @@ export function ResearchSidebar({
       <Box
         component="aside"
         data-testid="research-sidebar"
-        style={{
-          height: "100%",
-          width: 256,
-          flexShrink: 0,
-          display: "flex",
-          flexDirection: "column",
-          borderRight: "1px solid var(--mantine-color-default-border)",
-        }}
+        className="md-flex-col md-divider-right"
+        style={{ width: 256, flexShrink: 0 }}
       >
-        <Box p="sm" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+        <Box p="sm" className="md-divider-bottom">
           <Button
             fullWidth
             variant={activeFolderName ? "outline" : "light"}
@@ -229,7 +223,7 @@ export function ResearchSidebar({
           </Button>
         </Box>
 
-        <Box p="sm" pb="xs" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
+        <Box p="sm" pb="xs" className="md-divider-bottom">
           <form onSubmit={handleSearch} style={{ position: "relative" }}>
             <TextInput
               value={searchQuery}
@@ -253,7 +247,7 @@ export function ResearchSidebar({
         </Box>
 
         {showSearchResults ? (
-          <ScrollArea style={{ flex: 1, minHeight: 0 }} p="xs">
+          <ScrollArea className="md-flex-fill" p="xs">
             {searchLoading ? (
               <Group justify="center" py="md">
                 <Loader size="sm" type="dots" />
@@ -299,7 +293,7 @@ export function ResearchSidebar({
             )}
           </ScrollArea>
         ) : (
-          <ScrollArea style={{ flex: 1, minHeight: 0 }} p="xs">
+          <ScrollArea className="md-flex-fill" p="xs">
             <Text size="xs" fw={500} tt="uppercase" c="dimmed" px="xs" pb="xs">
               Previous Searches
             </Text>
@@ -530,7 +524,7 @@ function ResearchChatList({
                 ) : null
               }
             >
-              <Box style={{ minWidth: 0, flex: 1, lineHeight: 1.4 }}>
+              <Box style={{ minWidth: 0, flex: 1 }}>
                 <Text size="xs" truncate lh={1.4}>{chat.title}</Text>
                 <Text size="xs" fz={11} c="dimmed" lh={1.4} mt={1}>
                   {formatChatTimestamp(chat.updatedAt ?? chat.createdAt)}

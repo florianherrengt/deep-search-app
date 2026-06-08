@@ -32,6 +32,21 @@ describe('Chat Flow', () => {
     await waitForText('Send', 5000);
   });
 
+  it('should lay out sidebar and chat area side by side', async () => {
+    await ensureChatUI();
+
+    const sidebar = await $('[data-testid="research-sidebar"]');
+    await sidebar.waitForExist({ timeout: 5000 });
+    const textarea = await $('textarea');
+    await textarea.waitForExist({ timeout: 5000 });
+
+    const sidebarBox = await sidebar.getBoundingClientRect();
+    const textareaBox = await textarea.getBoundingClientRect();
+
+    expect(sidebarBox.right).toBeLessThan(textareaBox.left);
+    expect(sidebarBox.y).toBeLessThanOrEqual(textareaBox.y + 10);
+  });
+
   it('should send a message and display a mocked response', async () => {
     await ensureChatUI();
     await installOpenRouterMock([textResponse('Hello from test')]);

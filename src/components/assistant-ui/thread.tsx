@@ -51,13 +51,13 @@ export function Thread({
   const selectedModel = models.find((model) => model.id === selectedModelId);
 
   return (
-    <ThreadPrimitive.Root style={{ position: "relative", display: "flex", height: "100%", flexDirection: "column" }}>
+    <ThreadPrimitive.Root className="md-flex-col" style={{ position: "relative" }}>
       <ThreadPrimitive.Viewport
         scrollToBottomOnRunStart={false}
         style={{ display: "flex", flex: 1, flexDirection: "column", gap: 12, overflowY: "auto", padding: "16px 24px" }}
       >
         <AuiIf condition={(s) => s.thread.isEmpty}>
-          <div style={{ display: "flex", height: "60vh", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", opacity: 0.6 }}>
+          <div style={{ display: "flex", height: "60vh", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", color: "var(--mantine-color-dimmed)" }}>
             <h1 style={{ marginBottom: 4, fontSize: 24, fontWeight: 700 }}>Deep Search</h1>
             <p style={{ fontSize: 18 }}>Ask something...</p>
           </div>
@@ -188,7 +188,7 @@ function MessageActionBar() {
       <ActionBarPrimitive.Copy
         copiedDuration={2000}
         aria-label="Copy message"
-        style={{ borderRadius: 4, padding: 4, color: "var(--mantine-color-dimmed)", background: "none", border: "none", cursor: "pointer" }}
+        className="md-icon-btn"
       >
         <AuiIf condition={({ message }) => message.isCopied}>
           <CheckIcon style={{ width: 14, height: 14, color: "var(--mantine-color-green-6)" }} />
@@ -198,7 +198,7 @@ function MessageActionBar() {
         </AuiIf>
       </ActionBarPrimitive.Copy>
       {role === "assistant" && (
-        <ActionBarPrimitive.Reload aria-label="Regenerate response" style={{ borderRadius: 4, padding: 4, color: "var(--mantine-color-dimmed)", background: "none", border: "none", cursor: "pointer" }}>
+        <ActionBarPrimitive.Reload aria-label="Regenerate response" className="md-icon-btn">
           <RefreshCwIcon style={{ width: 14, height: 14 }} />
         </ActionBarPrimitive.Reload>
       )}
@@ -291,7 +291,7 @@ function ThreadMessage() {
           </MessagePrimitive.GroupedParts>
           <MessageActionBar />
           <MessagePrimitive.Error>
-            <ErrorPrimitive.Root style={{ borderRadius: 8, border: "1px solid var(--mantine-color-red-3)", backgroundColor: "var(--mantine-color-red-0)", padding: "8px 12px", fontSize: 14, color: "var(--mantine-color-red-8)" }}>
+            <ErrorPrimitive.Root className="md-card-sm" style={{ border: "1px solid var(--mantine-color-red-3)", backgroundColor: "var(--mantine-color-red-0)", color: "var(--mantine-color-red-text)" }}>
               <ErrorPrimitive.Message />
             </ErrorPrimitive.Root>
           </MessagePrimitive.Error>

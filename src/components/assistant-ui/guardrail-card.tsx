@@ -25,15 +25,16 @@ function GuardrailCardContent({ event }: { event: GuardrailEvent }) {
       : ShieldCheckIcon;
 
   const colorStyles: React.CSSProperties = warning
-    ? { borderColor: "var(--mantine-color-yellow-3)", backgroundColor: "var(--mantine-color-yellow-0)", color: "var(--mantine-color-yellow-8)" }
+    ? { borderColor: "var(--mantine-color-yellow-3)", backgroundColor: "var(--mantine-color-yellow-0)", color: "var(--mantine-color-yellow-text)" }
     : passed
-      ? { borderColor: "var(--mantine-color-green-3)", backgroundColor: "var(--mantine-color-green-0)", color: "var(--mantine-color-green-8)" }
-      : { borderColor: "var(--mantine-color-blue-3)", backgroundColor: "var(--mantine-color-blue-0)", color: "var(--mantine-color-blue-8)" };
+      ? { borderColor: "var(--mantine-color-green-3)", backgroundColor: "var(--mantine-color-green-0)", color: "var(--mantine-color-green-text)" }
+      : { borderColor: "var(--mantine-color-blue-3)", backgroundColor: "var(--mantine-color-blue-0)", color: "var(--mantine-color-blue-text)" };
 
   return (
     <Box
       my="sm"
-      style={{ maxWidth: 576, borderRadius: 8, border: "1px solid", padding: "8px 12px", fontSize: 14, ...colorStyles }}
+      className="md-card-sm"
+      style={{ maxWidth: 576, ...colorStyles }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
         <Icon style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }} />

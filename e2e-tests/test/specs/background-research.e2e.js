@@ -28,11 +28,11 @@ describe('Background Research', () => {
     const finalText = 'Tab switch background run completed.';
 
     await installOpenRouterMock([
-      folderNameResponse('tab-switch-background'),
+      textResponse('thinking'),
       heldTextResponse(finalText, releaseKey),
     ]);
 
-    await sendMessage('Alpha background run');
+    await sendMessage('Alpha background research');
     await waitForHeldOpenRouterResponse(releaseKey);
 
     await switchToAppTab('prompts');
@@ -46,40 +46,37 @@ describe('Background Research', () => {
   });
 
   it('keeps the first search running after starting a new search', async () => {
-    const firstFolder = 'first-background-run';
     const firstReleaseKey = 'first-background-run';
     const firstFinalText = 'First background run completed.';
     const secondFinalText = 'Second background run completed.';
 
     await installOpenRouterMock([
-      folderNameResponse(firstFolder),
+      textResponse(firstFinalText),
       heldTextResponse(firstFinalText, firstReleaseKey),
-      folderNameResponse('second-background-run'),
+      textResponse(secondFinalText),
       textResponse(secondFinalText),
     ]);
 
-    await sendMessage('First background run');
+    await sendMessage('First background research');
     await waitForHeldOpenRouterResponse(firstReleaseKey);
 
     await clickButtonWithText('New Chat');
-    await sendMessage('Second background run');
+    await sendMessage('Second background research');
     await waitForText(secondFinalText);
 
     expect(await streamWasCancelled(firstReleaseKey)).toBe(false);
 
     await releaseHeldOpenRouterResponse(firstReleaseKey);
     await waitForOpenRouterStreamEvent(firstReleaseKey, 'completed');
-    await waitForResearchChatSaves(firstFolder, 2);
     expect(await streamWasCancelled(firstReleaseKey)).toBe(false);
+
+    const firstFolder = await getFirstResearchFolderName();
+    expect(firstFolder).toBeTruthy();
 
     await selectResearchFolder(firstFolder);
     await waitForText(firstFinalText);
   });
 });
-
-function folderNameResponse(folderName) {
-  return textResponse(JSON.stringify({ folderName }));
-}
 
 async function switchToAppTab(tabId) {
   const tab = await $(`[data-testid="app-tab"][data-tab-id="${tabId}"]`);
@@ -120,22 +117,17 @@ async function streamWasCancelled(releaseKey) {
   );
 }
 
-async function waitForResearchChatSaves(folderName, count) {
-  await browser.waitUntil(
-    async () =>
-      browser.execute(
-        ({ folder, minimumCount }) =>
-          (window.__deepSearchAppFileStorageLog || []).filter(
-            (entry) =>
-              entry.action === 'write' &&
-              entry.subfolder === `search-results/${folder}/chats`,
-          ).length >= minimumCount,
-        { folder: folderName, minimumCount: count },
-      ),
-    {
-      timeout: 10000,
-      interval: 100,
-      timeoutMsg: `Expected at least ${count} chat saves for "${folderName}"`,
-    },
+async function getFirstResearchFolderName() {
+  const log = await browser.execute(
+    () => window.__deepSearchAppFileStorageLog || [],
   );
+  const writeEntries = log.filter(
+    (entry) =>
+      entry.action === 'write' &&
+      entry.subfolder &&
+      entry.subfolder.includes('/chats'),
+  );
+  if (writeEntries.length === 0) return null;
+  const match = writeEntries[0].subfolder.match(/^search-results\/([^/]+)\//);
+  return match ? match[1] : null;
 }

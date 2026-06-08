@@ -19,17 +19,11 @@ function AgentDiagnosticCardContent({
   return (
     <Box
       my="sm"
-      className="md-surface"
-      style={{
-        maxWidth: 576,
-        borderRadius: 8,
-        border: "1px solid",
-        padding: "8px 12px",
-        fontSize: 14,
-      }}
+      className="md-surface md-card"
+      style={{ maxWidth: 576 }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-        <InfoIcon style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }} />
+        <InfoIcon style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0, color: "var(--mantine-color-dimmed)" }} />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 500 }}>{event.title}</div>
           <div style={{ marginTop: 2, fontSize: 12, opacity: 0.8 }}>{event.message}</div>
