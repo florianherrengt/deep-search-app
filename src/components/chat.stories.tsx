@@ -103,29 +103,28 @@ function generateHeavyConversation(steps = 30) {
       id: `user-${++idx}`, role: "user",
       parts: [{ type: "text", text: `Research topic ${letter} step ${s + 1}.` }],
     });
+    const toolNames = ["web_search", "extract_page_content", "search_research"] as const;
+    const toolParts = Array.from({ length: 3 }, (_, i) => {
+      const isExtract = i === 1;
+      const resultText = isExtract
+        ? "Extracted page content:\n\n" + "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(143)
+        : `Search result 1 for topic ${letter}: found relevant data. `.repeat(30);
+      return {
+        type: `tool-${toolNames[i]}`,
+        toolCallId: `c-${s}-${i}`,
+        state: "output-available",
+        input: { query: `topic ${letter} part ${i}` },
+        output: isExtract
+          ? { success: true, content: resultText, url: `https://ex.com/p-${s}-${i}` }
+          : { success: true, results: [{ title: `R${i}`, url: `https://ex.com/${s}-${i}` }] },
+      };
+    });
     messages.push({
       id: `asst-${++idx}`, role: "assistant",
       parts: [
-        ...Array.from({ length: 3 }, (_, i) => ({
-          type: "tool-call", toolCallId: `c-${s}-${i}`,
-          toolName: i === 0 ? "web_search" : i === 1 ? "extract_page_content" : "search_research",
-          args: { query: `topic ${letter} part ${i}` },
-        })),
+        ...toolParts,
+        { type: "text", text: `Analysis for topic ${letter}: based on the research, here's what I found. `.repeat(20) },
       ],
-    });
-    for (let t = 0; t < 6; t++) {
-      const isExtract = t % 3 === 0;
-      const text = isExtract
-        ? "Extracted page content:\n\n" + "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(143)
-        : `Search result ${t + 1} for topic ${letter}: found relevant data. `.repeat(30);
-      messages.push({
-        id: `tr-${++idx}`, role: "user",
-        parts: [{ type: "tool-result", toolCallId: `c-${s}-${t % 3}`, toolName: "web_search", result: isExtract ? { success: true, content: text, url: `https://ex.com/p-${s}-${t}` } : { success: true, results: [{ title: `R${t}`, url: `https://ex.com/${s}-${t}` }] } }],
-      });
-    }
-    messages.push({
-      id: `asst-resp-${++idx}`, role: "assistant",
-      parts: [{ type: "text", text: `Analysis for topic ${letter}: based on the research, here's what I found. `.repeat(20) }],
     });
   }
   return messages;
