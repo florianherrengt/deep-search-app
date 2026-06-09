@@ -9,6 +9,7 @@ import {
   evaluateToolCallRequirementForResponse,
   type ToolCallRequirementViolation,
 } from "@/lib/tool-call-requirements";
+import { TOOL_NAMES } from "@/lib/tool-names";
 import { CURRENCIES, type Currency } from "@/lib/settings-store";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import getSymbolFromCurrency from "currency-symbol-map";
@@ -160,17 +161,17 @@ const RESEARCH_KEYWORDS = [
   "directions",
 ];
 
-const RESEARCH_TOOL_NAMES = new Set([
-  "brave_search",
-  "exa_search",
-  "serper_search",
-  "tavily_search",
-  "searxng_search",
-  "extract_page_content",
-  "create_file",
+const RESEARCH_TOOL_NAMES = new Set<string>([
+  TOOL_NAMES.brave_search,
+  TOOL_NAMES.exa_search,
+  TOOL_NAMES.serper_search,
+  TOOL_NAMES.tavily_search,
+  TOOL_NAMES.searxng_search,
+  TOOL_NAMES.extract_page_content,
+  TOOL_NAMES.create_file,
 ]);
 
-const RESEARCH_CHECKPOINT_TOOL = "research_checkpoint";
+const RESEARCH_CHECKPOINT_TOOL = TOOL_NAMES.research_checkpoint;
 
 const CURRENCY_CODE_PATTERN = new RegExp(
   `\\b\\d[\\d,.]*\\s*(${CURRENCIES.join("|")})\\b` +
@@ -390,7 +391,7 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
   const currentTurnMessages = getCurrentTurnMessages(messages, responseMessage);
 
   if (
-    !hasToolCall(responseMessage, "ask_questions") &&
+    !hasToolCall(responseMessage, TOOL_NAMES.ask_questions) &&
     asksUserForInput(text)
   ) {
     return {
@@ -407,14 +408,14 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
         "Your previous response asked the user for input in plain text. Convert that request into an ask_questions tool call now. Do not answer in plain text.",
       toolChoice: {
         type: "tool",
-        toolName: "ask_questions",
+        toolName: TOOL_NAMES.ask_questions,
       } as ToolChoice<TOOLS>,
     };
   }
 
   if (
     targetCurrency &&
-    !hasToolCall(responseMessage, "currency_conversion")
+    !hasToolCall(responseMessage, TOOL_NAMES.currency_conversion)
   ) {
     const foreignMentions = detectForeignCurrencyMentions(
       stripCodeBlocksAndQuotes(text),
@@ -426,7 +427,7 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
         targetCurrency,
       );
       const currencyToolAlreadyCalled = currentTurnMessages.some((message) =>
-        hasToolCall(message, "currency_conversion"),
+        hasToolCall(message, TOOL_NAMES.currency_conversion),
       );
       return {
         action: "retry",

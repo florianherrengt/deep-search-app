@@ -20,6 +20,7 @@ import {
   type GuardDecision,
 } from "@/lib/agent-guards";
 import { getActiveToolNamesForMessages } from "@/lib/tool-call-requirements";
+import { TOOL_NAMES } from "@/lib/tool-names";
 import systemPrompt from "../system-prompt.md?raw";
 import { createTools, type AppToolSet, type SearchToolKeys } from "./tool-registry";
 import type { EmbeddingConfig, RerankerConfig, SearchResult } from "@/lib/research-search";
@@ -483,7 +484,7 @@ function buildSystemPrompt(
     if (folderContext.readmeContent) {
       section += `\n\nREADME.md:\n${folderContext.readmeContent}`;
     }
-    section += `\n\nUse \`read_file\` to read any file's full contents, or \`list_files\` to re-check the file listing. You can continue adding to or updating these files with \`update_file\`.`;
+    section += `\n\nUse \`${TOOL_NAMES.read_file}\` to read any file's full contents, or \`${TOOL_NAMES.list_files}\` to re-check the file listing. You can continue adding to or updating these files with \`${TOOL_NAMES.update_file}\`.`;
     prompt += section;
   }
 

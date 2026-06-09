@@ -4,6 +4,7 @@ import {
 } from "@/lib/chat-providers";
 import { z } from "zod";
 import { describeTool, type ToolDescriptor } from "@/lib/tool-descriptor";
+import { TOOL_NAMES } from "@/lib/tool-names";
 import {
   braveSearchInputSchema,
   createBraveSearchTool,
@@ -159,87 +160,87 @@ export function getAvailableTools(
     : undefined;
 
   return [
-    describeOptionalTool("brave_search", braveTool, braveSearchInputSchema),
-    describeOptionalTool("exa_search", exaTool, exaSearchInputSchema),
-    describeOptionalTool("serper_search", serperTool, serperSearchInputSchema),
-    describeOptionalTool("tavily_search", tavilyTool, tavilySearchInputSchema),
+    describeOptionalTool(TOOL_NAMES.brave_search, braveTool, braveSearchInputSchema),
+    describeOptionalTool(TOOL_NAMES.exa_search, exaTool, exaSearchInputSchema),
+    describeOptionalTool(TOOL_NAMES.serper_search, serperTool, serperSearchInputSchema),
+    describeOptionalTool(TOOL_NAMES.tavily_search, tavilyTool, tavilySearchInputSchema),
     describeOptionalTool(
-      "searxng_search",
+      TOOL_NAMES.searxng_search,
       searxngTool,
       searxngSearchInputSchema,
     ),
 
     describeTool(
-      "disambiguate",
+      TOOL_NAMES.disambiguate,
       disambiguateTool,
       disambiguateInputSchema,
       true,
     ),
 
     describeOptionalTool(
-      "extract_page_content",
+      TOOL_NAMES.extract_page_content,
       extractTool,
       extractPageContentInputSchema,
     ),
 
     describeTool(
-      "sequential_thinking",
+      TOOL_NAMES.sequential_thinking,
       createSequentialThinkingTool(),
       sequentialThinkingInputSchema,
       true,
     ),
 
     describeOptionalTool(
-      "search_research",
+      TOOL_NAMES.search_research,
       searchResearchTool,
       searchResearchInputSchema,
     ),
 
     describeOptionalTool(
-      "create_file",
+      TOOL_NAMES.create_file,
       createTool,
       createFileInputSchema,
     ),
 
     describeOptionalTool(
-      "read_file",
+      TOOL_NAMES.read_file,
       readTool,
       readFileInputSchema,
     ),
 
     describeOptionalTool(
-      "update_file",
+      TOOL_NAMES.update_file,
       updateTool,
       updateFileInputSchema,
     ),
 
     describeOptionalTool(
-      "move_file",
+      TOOL_NAMES.move_file,
       moveTool,
       moveFileInputSchema,
     ),
 
     describeOptionalTool(
-      "delete_file",
+      TOOL_NAMES.delete_file,
       deleteTool,
       deleteFileInputSchema,
     ),
 
     describeOptionalTool(
-      "list_files",
+      TOOL_NAMES.list_files,
       listTool,
       z.object({}),
     ),
 
     describeTool(
-      "switch_research_folder",
+      TOOL_NAMES.switch_research_folder,
       createSwitchResearchFolderTool(() => {}),
       switchResearchFolderInputSchema,
       true,
     ),
 
     describeOptionalTool(
-      "rename_research_folder",
+      TOOL_NAMES.rename_research_folder,
       getResearchFolder && embeddingConfig
         ? createRenameResearchFolderTool({
             getResearchFolder,
@@ -251,19 +252,19 @@ export function getAvailableTools(
     ),
 
     describeOptionalTool(
-      "research_checkpoint",
+      TOOL_NAMES.research_checkpoint,
       checkpointTool,
       researchCheckpointInputSchema,
     ),
 
     describeOptionalTool(
-      "create_research_plan",
+      TOOL_NAMES.create_research_plan,
       planTool,
       researchPlanInputSchema,
     ),
 
     describeOptionalTool(
-      "verified_research_is_good",
+      TOOL_NAMES.verified_research_is_good,
       verifiedResearchTool,
       verifiedResearchInputSchema,
     ),

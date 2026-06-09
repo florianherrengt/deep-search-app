@@ -69,7 +69,7 @@ describe('Research Sidebar', () => {
     const prompt = folderName.replace(/-/g, ' ');
 
     await installOpenRouterMock([
-      toolCallResponse('save_research_file', {
+      toolCallResponse('create_file', {
         filename: 'notes.md',
         content: 'Saved from e2e test',
       }),

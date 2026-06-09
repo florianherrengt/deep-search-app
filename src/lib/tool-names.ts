@@ -1,0 +1,27 @@
+export const TOOL_NAMES = {
+  ask_questions: "ask_questions",
+  disambiguate: "disambiguate",
+  brave_search: "brave_search",
+  exa_search: "exa_search",
+  serper_search: "serper_search",
+  tavily_search: "tavily_search",
+  searxng_search: "searxng_search",
+  extract_page_content: "extract_page_content",
+  create_file: "create_file",
+  read_file: "read_file",
+  update_file: "update_file",
+  move_file: "move_file",
+  delete_file: "delete_file",
+  list_files: "list_files",
+  research_checkpoint: "research_checkpoint",
+  sequential_thinking: "sequential_thinking",
+  load_skill: "load_skill",
+  search_research: "search_research",
+  switch_research_folder: "switch_research_folder",
+  rename_research_folder: "rename_research_folder",
+  create_research_plan: "create_research_plan",
+  verified_research_is_good: "verified_research_is_good",
+  currency_conversion: "currency_conversion",
+} as const;
+
+export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES];

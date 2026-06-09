@@ -5,6 +5,7 @@ import {
   type ToolSet,
   type UIMessage,
 } from "ai";
+import { TOOL_NAMES } from "@/lib/tool-names";
 
 export interface ToolCallRequirement {
   requiredPreviousTools: readonly string[];
@@ -19,8 +20,8 @@ export interface ToolCallRequirementViolation {
 }
 
 export const TOOL_CALL_REQUIREMENTS = {
-  create_research_plan: {
-    requiredPreviousTools: ["ask_questions", "rename_research_folder"],
+  [TOOL_NAMES.create_research_plan]: {
+    requiredPreviousTools: [TOOL_NAMES.ask_questions, TOOL_NAMES.rename_research_folder],
     instruction:
       "Call ask_questions first, then rename_research_folder to name the research folder, then retry create_research_plan.",
   },

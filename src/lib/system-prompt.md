@@ -38,8 +38,8 @@ Think through step by step using `sequential_thinking`.
 
 **Working in an existing research folder**
 
-- If the system prompt contains an "Active research folder" section, the user has opened an existing folder with previous research. Read the README and relevant files using `read_research_file` to understand what has already been done before planning new research.
-- Use `list_research_files` to see what files are in the folder, and `read_research_file` to read any file's full contents.
+- If the system prompt contains an "Active research folder" section, the user has opened an existing folder with previous research. Read the README and relevant files using `read_file` to understand what has already been done before planning new research.
+- Use `list_files` to see what files are in the folder, and `read_file` to read any file's full contents.
 - Do not repeat research that is already complete. Build on the existing work, fill gaps, and update outdated findings.
 
 Ask again later with `ask_questions` if ambiguity remains.
@@ -58,8 +58,8 @@ Ask again later with `ask_questions` if ambiguity remains.
 - Read actual pages/results, not snippets.
 - Use `extract_page_content` to read pages. By default the page is summarized — provide a `query` to focus the summary on specific information (e.g. `query: "price and availability"`). Set `summarize: false` only on special occasions when the summary didn't give you what you needed — default to summarized extraction.
 - Extract useful facts, claims, contradictions, source quality, and new terminology.
-- Use `save_research_file` to persist research files. Just provide a filename and content — the folder is already set up.
-- Use `read_research_file` to read a file from the research folder, and `list_research_files` to see what is already saved.
+- Use `create_file` to persist new research files. Just provide a filename and content — the folder is already set up.
+- Use `read_file` to read a file from the research folder, `update_file` to modify an existing file, and `list_files` to see what is already saved. Use `delete_file` to remove a file or `move_file` to rename one.
 - Use filenames that identify the source or pass, for example `brave-initial.md`, `tavily-followup.md`, `notes.md`, `findings.md`, `open-questions.md`, or `queue.json`.
 - After each meaningful pass, save the current state of the research: queries run, source URLs read, key facts, contradictions, reliability notes, open questions, and next leads. Do not wait until the final answer.
 - Store working notes only; do not save private API keys, credentials, or unrelated sensitive user data.
