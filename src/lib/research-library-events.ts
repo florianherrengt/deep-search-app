@@ -1,8 +1,8 @@
-export const RESEARCH_LIBRARY_CHANGED_EVENT = "research-library-changed";
+const RESEARCH_LIBRARY_CHANGED_EVENT = "research-library-changed";
 
-export type ResearchLibraryChangeType = "write" | "delete" | "rename";
+type ResearchLibraryChangeType = "write" | "delete" | "rename";
 
-export interface ResearchLibraryChangedDetail {
+interface ResearchLibraryChangedDetail {
   changeType: ResearchLibraryChangeType;
   folderName: string;
   previousFolderName?: string;
