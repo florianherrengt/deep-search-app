@@ -1,5 +1,5 @@
 import { resolveResource } from "@tauri-apps/api/path";
-import { Command, type Child } from "@tauri-apps/plugin-shell";
+import { Command } from "@tauri-apps/plugin-shell";
 
 export const CHROME_DEVTOOLS_MCP_SIDECAR = "binaries/node";
 export const CHROME_DEVTOOLS_MCP_RESOURCE =
@@ -12,9 +12,4 @@ export async function createChromeDevToolsMcpCommand() {
     entrypoint,
     ...CHROME_DEVTOOLS_MCP_ARGS,
   ]);
-}
-
-export async function spawnChromeDevToolsMcp(): Promise<Child> {
-  const command = await createChromeDevToolsMcpCommand();
-  return command.spawn();
 }
