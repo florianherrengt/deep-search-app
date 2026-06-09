@@ -16,6 +16,7 @@ import {
 } from "@/lib/research-history";
 import { searchResearch, type SearchResult } from "@/lib/research-search";
 import { evaluateResearchRelevance } from "@/lib/research-relevance-evaluator";
+import { isRecord } from "@/lib/json";
 
 export { createGuardedStream } from "./guarded-stream";
 export type { SearchToolKeys } from "./tool-registry";
@@ -316,8 +317,4 @@ function getAskQuestionsAnswers(
     if (!isRecord(answer) || typeof answer.answer !== "string") return [];
     return [answer.answer.trim()];
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
