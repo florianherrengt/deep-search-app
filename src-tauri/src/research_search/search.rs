@@ -49,9 +49,10 @@ const RRF_K: f64 = 20.0;
 const MMR_SIMILARITY_THRESHOLD: f64 = 0.85;
 const FOLDER_METADATA_FILENAME: &str = "folder-metadata";
 const SEARCH_STOP_WORDS: &[&str] = &[
-    "about", "after", "also", "and", "are", "but", "can", "did", "does", "for", "from", "had",
-    "has", "have", "how", "into", "not", "off", "or", "out", "the", "their", "then", "there",
-    "these", "this", "was", "what", "when", "where", "which", "who", "why", "with", "you", "your",
+    "about", "after", "also", "and", "are", "best", "but", "can", "did", "does", "for", "from",
+    "had", "has", "have", "how", "into", "not", "off", "or", "out", "the", "their", "then",
+    "there", "these", "this", "was", "what", "when", "where", "which", "who", "why", "with",
+    "you", "your",
 ];
 
 #[derive(Debug, Clone)]

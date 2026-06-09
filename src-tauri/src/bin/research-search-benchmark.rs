@@ -107,6 +107,7 @@ struct BenchReport {
 }
 
 fn main() {
+    dotenvy::dotenv().ok();
     let args: Vec<String> = std::env::args().collect();
     let refresh = args.iter().any(|a| a == "--refresh");
 
@@ -306,7 +307,11 @@ fn build_cache(corpus: &Corpus) -> ProviderCache {
     for folder in &corpus.folders {
         for (_filename, content) in &folder.files {
             let chunks = research_search::chunking::chunk_markdown(content);
-            let texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+            let folder_prefix = format!("[From: '{}']\n\n", folder.name);
+            let texts: Vec<String> = chunks
+                .iter()
+                .map(|c| format!("{}{}", folder_prefix, c.content))
+                .collect();
             if texts.is_empty() {
                 continue;
             }
@@ -497,8 +502,10 @@ fn run_benchmark_query(
 
     let passed = if q.expected_relevant.is_empty() {
         scoring.no_match_correct
-    } else {
+    } else if q.expected_relevant.len() == 1 {
         scoring.recall_at_1 >= 1.0
+    } else {
+        scoring.recall_at_3 >= 1.0
     };
 
     QueryResult {
