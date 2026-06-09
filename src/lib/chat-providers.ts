@@ -181,8 +181,6 @@ async function fetchOpenRouterModelContextWindowTokens(
 
   if (!model) {
     console.warn("[context-window] No OpenRouter match for:", modelId, "(baseName:", baseName, ")");
-  } else {
-    console.log("[context-window] Matched:", model.id, "->", model.context_length, "for lookup:", modelId);
   }
 
   return normalizeContextWindowTokens(model?.context_length);
