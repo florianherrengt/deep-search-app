@@ -1,8 +1,15 @@
-import { useState, useCallback, type FormEvent, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useState,
+  useCallback,
+  type CSSProperties,
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import {
   FolderIcon,
   FolderOpenIcon,
   LoaderIcon,
+  MessageCircleQuestionIcon,
   MessageSquareIcon,
   PencilIcon,
   PlusIcon,
@@ -49,6 +56,8 @@ interface ResearchSidebarProps {
   chatsStatus: "idle" | "loading" | "ready" | "error";
   runningFolderNames?: string[];
   runningChatIds?: string[];
+  attentionFolderNames?: string[];
+  attentionChatIds?: string[];
   onNewChat: () => void;
   onSelectFolder: (folderName: string) => void;
   onNewResearchChat: (folderName: string) => void;
@@ -68,6 +77,8 @@ export function ResearchSidebar({
   chatsStatus,
   runningFolderNames = [],
   runningChatIds = [],
+  attentionFolderNames = [],
+  attentionChatIds = [],
   onNewChat,
   onSelectFolder,
   onNewResearchChat,
@@ -200,6 +211,8 @@ export function ResearchSidebar({
       : [];
   const runningFolderSet = new Set(runningFolderNames);
   const runningChatIdSet = new Set(runningChatIds);
+  const attentionFolderSet = new Set(attentionFolderNames);
+  const attentionChatIdSet = new Set(attentionChatIds);
 
   const showSearchResults = searchLoading || searchResults !== null;
 
@@ -268,17 +281,20 @@ export function ResearchSidebar({
                         inner: { justifyContent: "flex-start" },
                         root: { minHeight: 36, height: "auto" },
                       }}
+                      classNames={{
+                        root: folderButtonClassName(
+                          false,
+                          attentionFolderSet.has(name),
+                        ),
+                      }}
                       onClick={() => onSelectFolder(name)}
                       leftSection={<FolderIcon size={16} />}
                       rightSection={
-                        runningFolderSet.has(name) ? (
-                          <span title="Research running">
-                            <LoaderIcon size={12} style={{ animation: "spin 1s linear infinite" }} />
-                            <VisuallyHidden>
-                              Research running in {name}
-                            </VisuallyHidden>
-                          </span>
-                        ) : null
+                        <ResearchStatusIndicator
+                          running={runningFolderSet.has(name)}
+                          needsAttention={attentionFolderSet.has(name)}
+                          label={name}
+                        />
                       }
                     >
                       {name}
@@ -315,6 +331,7 @@ export function ResearchSidebar({
                 {folders.map((folder) => {
                   const active = folder.name === activeFolderName;
                   const folderRunning = runningFolderSet.has(folder.name);
+                  const folderNeedsAttention = attentionFolderSet.has(folder.name);
                   return (
                     <Box key={folder.name}>
                       <Button
@@ -325,7 +342,12 @@ export function ResearchSidebar({
                           inner: { justifyContent: "flex-start" },
                           root: { minHeight: 30, height: "auto" },
                         }}
-                        classNames={{ root: active ? "md-code-bg" : undefined }}
+                        classNames={{
+                          root: folderButtonClassName(
+                            active,
+                            folderNeedsAttention,
+                          ),
+                        }}
                         aria-current={active ? "page" : undefined}
                         onMouseDown={(e: ReactMouseEvent) => {
                           if (e.button === 0) {
@@ -339,14 +361,11 @@ export function ResearchSidebar({
                         title={folder.name}
                         leftSection={<FolderIcon size={16} />}
                         rightSection={
-                          folderRunning ? (
-                            <span title="Research running">
-                              <LoaderIcon size={12} style={{ animation: "spin 1s linear infinite" }} />
-                              <VisuallyHidden>
-                                Research running in {folder.name}
-                              </VisuallyHidden>
-                            </span>
-                          ) : null
+                          <ResearchStatusIndicator
+                            running={folderRunning}
+                            needsAttention={folderNeedsAttention}
+                            label={folder.name}
+                          />
                         }
                       >
                         {folder.name}
@@ -358,6 +377,7 @@ export function ResearchSidebar({
                           activeChatId={activeChatId}
                           status={chatsStatus}
                           runningChatIds={runningChatIdSet}
+                          attentionChatIds={attentionChatIdSet}
                           onNewChat={onNewResearchChat}
                           onSelectChat={onSelectChat}
                         />
@@ -449,6 +469,7 @@ interface ResearchChatListProps {
   activeChatId: string | null;
   status: "idle" | "loading" | "ready" | "error";
   runningChatIds: Set<string>;
+  attentionChatIds: Set<string>;
   onNewChat: (folderName: string) => void;
   onSelectChat: (folderName: string, chatId: string) => void;
 }
@@ -459,6 +480,7 @@ function ResearchChatList({
   activeChatId,
   status,
   runningChatIds,
+  attentionChatIds,
   onNewChat,
   onSelectChat,
 }: ResearchChatListProps) {
@@ -502,6 +524,7 @@ function ResearchChatList({
         chats.map((chat) => {
           const active = chat.id === activeChatId;
           const chatRunning = runningChatIds.has(chat.id);
+          const chatNeedsAttention = attentionChatIds.has(chat.id);
 
           return (
             <Button
@@ -513,6 +536,9 @@ function ResearchChatList({
                 inner: { justifyContent: "flex-start", alignItems: "flex-start" },
                 root: { minHeight: 28, height: "auto", padding: "3px 8px" },
               }}
+              classNames={{
+                root: chatButtonClassName(chatNeedsAttention),
+              }}
               aria-current={active ? "page" : undefined}
               onMouseDown={(e: ReactMouseEvent) => {
                 if (e.button === 0) {
@@ -522,14 +548,12 @@ function ResearchChatList({
               title={chat.title}
               leftSection={<MessageSquareIcon size={14} style={{ marginTop: 2 }} />}
               rightSection={
-                chatRunning ? (
-                  <span title="Research running">
-                    <LoaderIcon size={12} style={{ marginTop: 2, animation: "spin 1s linear infinite" }} />
-                    <VisuallyHidden>
-                      Research running in {chat.title}
-                    </VisuallyHidden>
-                  </span>
-                ) : null
+                <ResearchStatusIndicator
+                  running={chatRunning}
+                  needsAttention={chatNeedsAttention}
+                  label={chat.title}
+                  style={{ marginTop: 2 }}
+                />
               }
             >
               <Box style={{ minWidth: 0, flex: 1 }}>
@@ -543,6 +567,59 @@ function ResearchChatList({
         })}
     </Box>
   );
+}
+
+function folderButtonClassName(active: boolean, needsAttention: boolean) {
+  return [
+    active ? "md-code-bg" : null,
+    needsAttention ? "md-sidebar-attention" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function chatButtonClassName(needsAttention: boolean) {
+  return needsAttention ? "md-sidebar-attention" : undefined;
+}
+
+function ResearchStatusIndicator({
+  running,
+  needsAttention,
+  label,
+  style,
+}: {
+  running: boolean;
+  needsAttention: boolean;
+  label: string;
+  style?: CSSProperties;
+}) {
+  if (needsAttention) {
+    return (
+      <span
+        className="md-sidebar-attention-icon"
+        title="Question waiting"
+        style={style}
+      >
+        <MessageCircleQuestionIcon size={13} />
+        <VisuallyHidden>
+          Question waiting in {label}
+        </VisuallyHidden>
+      </span>
+    );
+  }
+
+  if (running) {
+    return (
+      <span title="Research running" style={style}>
+        <LoaderIcon size={12} style={{ animation: "spin 1s linear infinite" }} />
+        <VisuallyHidden>
+          Research running in {label}
+        </VisuallyHidden>
+      </span>
+    );
+  }
+
+  return null;
 }
 
 function formatChatTimestamp(value: string | null) {

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn, userEvent, within } from "storybook/test";
 import { ResearchSidebar } from "./research-sidebar";
@@ -75,6 +76,8 @@ const meta = {
     chatsStatus: "ready",
     runningFolderNames: [],
     runningChatIds: [],
+    attentionFolderNames: [],
+    attentionChatIds: [],
     onNewChat: fn(),
     onSelectFolder: fn(),
     onNewResearchChat: fn(),
@@ -149,6 +152,37 @@ export const RunningItems: Story = {
   },
 };
 
+export const WaitingForAnswer: Story = {
+  args: {
+    activeFolderName: folders[1].name,
+    activeChatId: chats[1].id,
+    attentionFolderNames: [folders[1].name, folders[2].name],
+    attentionChatIds: [chats[1].id],
+  },
+};
+
+export const WaitingForAnswerLight: Story = {
+  args: WaitingForAnswer.args,
+  decorators: [
+    (Story) => (
+      <ForcedColorScheme scheme="light">
+        <Story />
+      </ForcedColorScheme>
+    ),
+  ],
+};
+
+export const WaitingForAnswerDark: Story = {
+  args: WaitingForAnswer.args,
+  decorators: [
+    (Story) => (
+      <ForcedColorScheme scheme="dark">
+        <Story />
+      </ForcedColorScheme>
+    ),
+  ],
+};
+
 export const SearchResults: Story = {
   decorators: [
     (Story) => {
@@ -166,3 +200,17 @@ export const SearchResults: Story = {
     await userEvent.keyboard("{Enter}");
   },
 };
+
+function ForcedColorScheme({
+  scheme,
+  children,
+}: {
+  scheme: "light" | "dark";
+  children: ReactNode;
+}) {
+  return (
+    <div data-mantine-color-scheme={scheme} style={{ minHeight: "100vh" }}>
+      {children}
+    </div>
+  );
+}

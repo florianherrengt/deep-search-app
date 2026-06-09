@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   activateChatSession,
   createChatSessionRecord,
+  getAttentionRequiredResearchChatIds,
+  getAttentionRequiredResearchFolders,
   getRunningResearchChatIds,
   getRunningResearchFolders,
   hasRunningResearchFolder,
+  updateChatSessionAttentionState,
   updateChatSessionResearchFolder,
   updateChatSessionRunState,
 } from "@/App";
@@ -53,6 +56,38 @@ describe("chat session state", () => {
     expect(next.sessions).toHaveLength(1);
     expect(next.activeSessionId).toBe(session.sessionId);
     expect(next.sessions[0]?.isRunning).toBe(true);
+  });
+
+  it("reuses an existing folder chat session instead of replacing a pending question", () => {
+    const session = createChatSessionRecord({
+      researchChatId: "chat-one",
+      researchFolder: "folder-one",
+    });
+    const state = {
+      sessions: updateChatSessionAttentionState(
+        [session],
+        session.sessionId,
+        true,
+      ),
+      activeSessionId: session.sessionId,
+    };
+
+    const next = activateChatSession(state, {
+      researchChatId: "chat-one",
+      researchFolder: "folder-one",
+      initialMessages: [
+        {
+          id: "loaded",
+          role: "assistant",
+          parts: [{ type: "text", text: "Loaded from disk" }],
+        },
+      ],
+    });
+
+    expect(next.sessions).toHaveLength(1);
+    expect(next.activeSessionId).toBe(session.sessionId);
+    expect(next.sessions[0]?.needsAttention).toBe(true);
+    expect(next.sessions[0]?.initialMessages).toEqual([]);
   });
 
   it("refreshes a completed existing folder chat session with loaded messages", () => {
@@ -165,5 +200,45 @@ describe("chat session state", () => {
     expect(getRunningResearchFolders([])).toEqual([]);
     expect(getRunningResearchChatIds([])).toEqual([]);
     expect(hasRunningResearchFolder([], "any-folder")).toBe(false);
+  });
+
+  it("derives attention-required research folders and chats", () => {
+    const first = createChatSessionRecord({
+      researchChatId: "chat-one",
+      researchFolder: "folder-one",
+    });
+    const second = createChatSessionRecord({
+      researchChatId: "chat-two",
+      researchFolder: "folder-two",
+    });
+    const unsaved = createChatSessionRecord({
+      researchChatId: "chat-unsaved",
+      researchFolder: null,
+    });
+    const sessions = updateChatSessionAttentionState(
+      updateChatSessionAttentionState(
+        updateChatSessionAttentionState(
+          [first, second, unsaved],
+          first.sessionId,
+          true,
+        ),
+        second.sessionId,
+        true,
+      ),
+      unsaved.sessionId,
+      true,
+    );
+
+    expect(getAttentionRequiredResearchFolders(sessions)).toEqual([
+      "folder-one",
+      "folder-two",
+    ]);
+    expect(getAttentionRequiredResearchChatIds(sessions)).toEqual([
+      "chat-one",
+      "chat-two",
+      "chat-unsaved",
+    ]);
+    expect(getAttentionRequiredResearchFolders([])).toEqual([]);
+    expect(getAttentionRequiredResearchChatIds([])).toEqual([]);
   });
 });

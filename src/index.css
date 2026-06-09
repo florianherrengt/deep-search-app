@@ -36,6 +36,54 @@ body,
   background-color: var(--mantine-color-dark-6);
 }
 
+.md-sidebar-attention {
+  --md-sidebar-attention-bg: var(--mantine-color-yellow-0);
+  --md-sidebar-attention-hover: var(--mantine-color-yellow-1);
+  --button-bg: var(--mantine-color-yellow-0);
+  --button-hover: var(--mantine-color-yellow-1);
+  --button-color: var(--mantine-color-yellow-9);
+
+  background-color: var(--md-sidebar-attention-bg) !important;
+  color: var(--mantine-color-yellow-9);
+}
+
+.md-sidebar-attention:hover {
+  background-color: var(--md-sidebar-attention-hover) !important;
+}
+
+[data-mantine-color-scheme="dark"] .md-sidebar-attention {
+  --md-sidebar-attention-bg: color-mix(in srgb, var(--mantine-color-yellow-9) 18%, var(--mantine-color-dark-7));
+  --md-sidebar-attention-hover: color-mix(in srgb, var(--mantine-color-yellow-9) 25%, var(--mantine-color-dark-7));
+  --button-bg: color-mix(in srgb, var(--mantine-color-yellow-9) 18%, var(--mantine-color-dark-7));
+  --button-hover: color-mix(in srgb, var(--mantine-color-yellow-9) 25%, var(--mantine-color-dark-7));
+  --button-color: var(--mantine-color-yellow-1);
+
+  color: var(--mantine-color-yellow-1);
+}
+
+.md-sidebar-attention-icon {
+  color: var(--mantine-color-yellow-8);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+[data-mantine-color-scheme="dark"] .md-sidebar-attention-icon {
+  color: var(--mantine-color-yellow-3);
+}
+
+[data-mantine-color-scheme="light"] .md-sidebar-attention {
+  --md-sidebar-attention-bg: var(--mantine-color-yellow-0);
+  --md-sidebar-attention-hover: var(--mantine-color-yellow-1);
+  --button-bg: var(--mantine-color-yellow-0);
+  --button-hover: var(--mantine-color-yellow-1);
+  --button-color: var(--mantine-color-yellow-9);
+
+  color: var(--mantine-color-yellow-9);
+}
+
+[data-mantine-color-scheme="light"] .md-sidebar-attention-icon {
+  color: var(--mantine-color-yellow-8);
+}
+
 .md-surface {
   background-color: var(--mantine-color-gray-0);
   border-color: var(--mantine-color-gray-3);

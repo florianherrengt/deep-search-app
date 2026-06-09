@@ -22,6 +22,7 @@ import {
 } from "@/lib/chat-providers";
 import { saveResearchChatMessages } from "@/lib/research-history";
 import { getCurrentTokenCount } from "@/lib/token-usage";
+import { hasPendingQuestionTool } from "@/lib/chat-attention";
 
 export function Chat({
   sessionId,
@@ -37,6 +38,7 @@ export function Chat({
   onResearchFolderChange,
   onResearchChatSaved,
   onRunStateChange,
+  onAttentionStateChange,
   onSelectedModelIdChange,
   onModelChange,
   searchKeys,
@@ -61,6 +63,7 @@ export function Chat({
   ) => void;
   onResearchChatSaved?: (folderName: string, chatId: string) => void;
   onRunStateChange?: (sessionId: string, running: boolean) => void;
+  onAttentionStateChange?: (sessionId: string, needsAttention: boolean) => void;
   onSelectedModelIdChange: (modelId: string) => void;
   onModelChange?: (model: ConfiguredChatModelOption) => void;
   searchKeys: SearchToolKeys;
@@ -257,6 +260,14 @@ export function Chat({
   useEffect(() => {
     onRunStateChange?.(sessionId, isRunning);
   }, [isRunning, onRunStateChange, sessionId]);
+
+  const needsAttention = useMemo(
+    () => hasPendingQuestionTool(chat.messages),
+    [chat.messages],
+  );
+  useEffect(() => {
+    onAttentionStateChange?.(sessionId, needsAttention);
+  }, [needsAttention, onAttentionStateChange, sessionId]);
 
   const runtime = useAISDKRuntime(chat);
   const tokenCount = useMemo(

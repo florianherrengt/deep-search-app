@@ -60,6 +60,7 @@ export interface ChatSessionRecord {
   isProvisionalResearchFolder: boolean;
   initialMessages: UIMessage[];
   isRunning: boolean;
+  needsAttention: boolean;
 }
 
 interface ChatSessionState {
@@ -88,6 +89,7 @@ export function createChatSessionRecord({
     isProvisionalResearchFolder,
     initialMessages,
     isRunning: false,
+    needsAttention: false,
   };
 }
 
@@ -104,7 +106,7 @@ export function activateChatSession(
       );
 
   if (existing) {
-    if (!existing.isRunning) {
+    if (!existing.isRunning && !existing.needsAttention) {
       const session = createChatSessionRecord(input);
       return {
         sessions: current.sessions
@@ -156,6 +158,18 @@ export function updateChatSessionRunState(
   );
 }
 
+export function updateChatSessionAttentionState(
+  sessions: ChatSessionRecord[],
+  sessionId: string,
+  needsAttention: boolean,
+) {
+  return sessions.map((session) =>
+    session.sessionId === sessionId
+      ? { ...session, needsAttention }
+      : session,
+  );
+}
+
 export function getRunningResearchFolders(sessions: ChatSessionRecord[]) {
   return Array.from(
     new Set(
@@ -169,6 +183,26 @@ export function getRunningResearchFolders(sessions: ChatSessionRecord[]) {
 export function getRunningResearchChatIds(sessions: ChatSessionRecord[]) {
   return sessions
     .filter((session) => session.isRunning)
+    .map((session) => session.researchChatId);
+}
+
+export function getAttentionRequiredResearchFolders(
+  sessions: ChatSessionRecord[],
+) {
+  return Array.from(
+    new Set(
+      sessions
+        .filter((session) => session.needsAttention && session.researchFolder)
+        .map((session) => session.researchFolder as string),
+    ),
+  );
+}
+
+export function getAttentionRequiredResearchChatIds(
+  sessions: ChatSessionRecord[],
+) {
+  return sessions
+    .filter((session) => session.needsAttention)
     .map((session) => session.researchChatId);
 }
 
@@ -342,6 +376,20 @@ function AppInner() {
     [],
   );
 
+  const handleAttentionStateChange = useCallback(
+    (sessionId: string, needsAttention: boolean) => {
+      setChatSessionState((current) => ({
+        ...current,
+        sessions: updateChatSessionAttentionState(
+          current.sessions,
+          sessionId,
+          needsAttention,
+        ),
+      }));
+    },
+    [],
+  );
+
   if (loading) return null;
 
   const embeddingConfig = resolveEmbeddingConfig(settings);
@@ -406,6 +454,25 @@ function AppInner() {
   const handleSelectResearchFolder = async (folderName: string) => {
     setResearchChatsStatus("loading");
     switchToTab("main");
+
+    const waitingSession = chatSessionsRef.current.find(
+      (session) =>
+        session.researchFolder === folderName && session.needsAttention,
+    );
+    if (waitingSession) {
+      activateSession({
+        researchChatId: waitingSession.researchChatId,
+        researchFolder: folderName,
+      });
+      try {
+        setResearchChats(await listResearchChats(folderName));
+        setResearchChatsStatus("ready");
+      } catch {
+        setResearchChats([]);
+        setResearchChatsStatus("error");
+      }
+      return;
+    }
 
     try {
       const chats = await listResearchChats(folderName);
@@ -560,8 +627,13 @@ function AppInner() {
 
   const runningFolderNames = getRunningResearchFolders(chatSessions);
   const runningChatIds = getRunningResearchChatIds(chatSessions);
+  const attentionFolderNames = getAttentionRequiredResearchFolders(chatSessions);
+  const attentionChatIds = getAttentionRequiredResearchChatIds(chatSessions);
   const visibleChatSessions = chatSessions.filter(
-    (session) => session.sessionId === activeSessionId || session.isRunning,
+    (session) =>
+      session.sessionId === activeSessionId ||
+      session.isRunning ||
+      session.needsAttention,
   );
 
   return (
@@ -579,6 +651,8 @@ function AppInner() {
             chatsStatus={researchChatsStatus}
             runningFolderNames={runningFolderNames}
             runningChatIds={runningChatIds}
+            attentionFolderNames={attentionFolderNames}
+            attentionChatIds={attentionChatIds}
             onNewChat={handleNewChat}
             onSelectFolder={(folderName) => {
               void handleSelectResearchFolder(folderName);
@@ -613,6 +687,7 @@ function AppInner() {
                     initialMessages={session.initialMessages}
                     onResearchFolderChange={handleResearchFolderChange}
                     onRunStateChange={handleRunStateChange}
+                    onAttentionStateChange={handleAttentionStateChange}
                     onSelectedModelIdChange={handleSelectedModelChange}
                     searchKeys={searchKeys}
                     currency={settings.currency}

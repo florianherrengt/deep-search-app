@@ -96,6 +96,34 @@ describe("ResearchSidebar", () => {
     expect(html).toContain("Research running in pricing-review");
     expect(html).toContain("Research running in Pricing options");
   });
+
+  it("renders attention indicators before running indicators", () => {
+    const html = renderSidebar({
+      folders: [{ name: "pricing-review" }],
+      activeFolderName: "pricing-review",
+      chats: [
+        {
+          id: "2026-05-22T10-00-00.000Z",
+          title: "Pricing options",
+          createdAt: "2026-05-22T10:00:00.000Z",
+          updatedAt: "2026-05-22T10:30:00.000Z",
+          messageCount: 4,
+        },
+      ],
+      activeChatId: "2026-05-22T10-00-00.000Z",
+      chatsStatus: "ready" as const,
+      runningFolderNames: ["pricing-review"],
+      runningChatIds: ["2026-05-22T10-00-00.000Z"],
+      attentionFolderNames: ["pricing-review"],
+      attentionChatIds: ["2026-05-22T10-00-00.000Z"],
+    });
+
+    expect(html).toContain("md-sidebar-attention");
+    expect(html).toContain("Question waiting in pricing-review");
+    expect(html).toContain("Question waiting in Pricing options");
+    expect(html).not.toContain("Research running in pricing-review");
+    expect(html).not.toContain("Research running in Pricing options");
+  });
 });
 
 type ResearchSidebarProps = ComponentProps<typeof ResearchSidebar>;
