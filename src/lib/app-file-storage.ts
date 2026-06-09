@@ -68,45 +68,45 @@ export const SafeSubfolderSchema = z
     }
   });
 
-export const WriteAppFileInputSchema = z.object({
+const WriteAppFileInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
   filename: SafePathSegmentSchema,
   content: z.string(),
   emitChange: z.boolean().optional(),
 });
 
-export const ReadAppFileInputSchema = z.object({
+const ReadAppFileInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
   filename: SafePathSegmentSchema,
 });
 
-export const ListAppSubfoldersInputSchema = z.object({
+const ListAppSubfoldersInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
 });
 
-export const ListAppFilesInputSchema = z.object({
+const ListAppFilesInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
 });
 
-export const DeleteAppSubfolderInputSchema = z.object({
+const DeleteAppSubfolderInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
 });
 
-export const RenameAppSubfolderInputSchema = z.object({
+const RenameAppSubfolderInputSchema = z.object({
   oldSubfolder: SafeSubfolderSchema,
   newSubfolder: SafeSubfolderSchema,
 });
 
-export type WriteAppFileInput = z.infer<typeof WriteAppFileInputSchema>;
-export type ReadAppFileInput = z.infer<typeof ReadAppFileInputSchema>;
-export type ListAppSubfoldersInput = z.infer<
+type WriteAppFileInput = z.infer<typeof WriteAppFileInputSchema>;
+type ReadAppFileInput = z.infer<typeof ReadAppFileInputSchema>;
+type ListAppSubfoldersInput = z.infer<
   typeof ListAppSubfoldersInputSchema
 >;
-export type ListAppFilesInput = z.infer<typeof ListAppFilesInputSchema>;
-export type DeleteAppSubfolderInput = z.infer<
+type ListAppFilesInput = z.infer<typeof ListAppFilesInputSchema>;
+type DeleteAppSubfolderInput = z.infer<
   typeof DeleteAppSubfolderInputSchema
 >;
-export type RenameAppSubfolderInput = z.infer<
+type RenameAppSubfolderInput = z.infer<
   typeof RenameAppSubfolderInputSchema
 >;
 
