@@ -31,3 +31,4 @@ src-tauri/binaries/node-*
 visual-snapshots
 .playwright-mcp
 __vis__
+benchmarks/research-search/results/

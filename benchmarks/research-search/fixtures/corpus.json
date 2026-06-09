@@ -1,0 +1,170 @@
+{
+  "version": "1.0.0",
+  "description": "Hand-authored fixture corpus for local previous-research search benchmark",
+  "embedding_model": "qwen/qwen3-embedding-4b",
+  "embedding_dimensions": 1024,
+  "reranker_model": "cohere/rerank-4-pro",
+  "chunking_version": 1,
+  "indexing_version": 1,
+  "query_prefix": "Represent this sentence for searching relevant passages: ",
+  "folders": [
+    {
+      "name": "hammock-sleep-health",
+      "original_query": "health impact of sleeping in a hammock full time",
+      "files": {
+        "summary.md": "# Hammock Sleep Health Research\n\n## Key Findings\n\nSleeping full-time in a hammock can improve spinal alignment due to the diagonal lay position. A Brazilian-style hammock allows the sleeper to lie at approximately 30 degrees to the centerline, flattening the back. Studies from the University of Geneva suggest hammock rocking accelerates sleep onset and deep sleep phases. However, long-term full-time use may cause lower back issues if the hammock is not properly sized or hung.\n\n## Sources\n\n- University of Geneva sleep study (2011)\n- Brazilian hammock ergonomics paper (2018)\n- Mayo Clinic: Sleep posture guidelines",
+        "notes.md": "## Research Notes\n\n- Brazilian vs Mayan vs Nicaraguan hammock styles\n- Diagonal lay angle: 30 degrees optimal\n- Hammock width recommendations: 11ft for taller people, 9-10ft for average\n- Back pain reports from improper hang angles (< 30 degrees)\n- Rocking motion: 0.2 Hz frequency optimal for sleep induction\n- Temperature regulation: hammocks sleep cooler than beds"
+      }
+    },
+    {
+      "name": "hammock-sizing-guide",
+      "original_query": "what size hammock for tall person 6ft 5in",
+      "files": {
+        "findings.md": "# Hammock Sizing for Tall People\n\n## Recommendations\n\nFor someone 6ft 5in (196cm), an 11ft hammock is the minimum recommended length. A 12ft hammock provides even more comfort. The ridgeline length should be approximately 83% of the hammock length (9.1ft for an 11ft hammock).\n\n## Weight Considerations\n\n- Single layer: up to 250 lbs\n- Double layer: up to 400 lbs\n- For tall individuals, double-layer provides less stretch and more support.\n\n## Fabric\n\n- 1.6 oz HyperD for lightweight\n- 1.9 oz ripstop nylon for durability\n- 2.2 oz Hex70 for heavy-duty"
+      }
+    },
+    {
+      "name": "hammock-camping-gear",
+      "original_query": "best hammock camping setup for backpacking",
+      "files": {
+        "gear-list.md": "# Hammock Camping Gear List\n\n## Essential Gear\n\n- 11ft hammock with bug net (Dream Hammock Darien, Warbonnet Blackbird)\n- Underquilt rated to 20F (Hammock Gear Incubator)\n- Top quilt rated to 20F (Enlightened Equipment Revelation)\n- Tarp with doors (Warbonnet Superfly, Hammock Gear Journey)\n- Tree straps (1 inch minimum, 12ft length)\n- Whoopie slings or cinch buckles for suspension\n\n## Weight Breakdown\n\nTotal base weight: 3.2 lbs (hammock + tarp + quilts + suspension)"
+      }
+    },
+    {
+      "name": "standing-desk-ergonomics",
+      "original_query": "best standing desk setup for productivity and back health",
+      "files": {
+        "summary.md": "# Standing Desk Ergonomics\n\n## Key Recommendations\n\n- Desk height: elbows at 90 degrees when typing\n- Monitor: top of screen at eye level, 20-28 inches away\n- Anti-fatigue mat recommended for prolonged standing\n- Sit-stand ratio: 1:1 or 2:1 (sit:stand)\n- Standing duration: no more than 2 hours at a time initially\n\n## Health Benefits\n\n- Reduced lower back pain (52% improvement in studies)\n- Increased calorie burn: 170 extra calories per 3 hours standing\n- Improved posture and core engagement"
+      }
+    },
+    {
+      "name": "coffee-brewing-methods",
+      "original_query": "comparison of pour over vs french press vs espresso",
+      "files": {
+        "comparison.md": "# Coffee Brewing Methods Comparison\n\n## Pour Over (V60)\n- Grind: medium-fine (sea salt texture)\n- Brew time: 3-4 minutes\n- Flavor profile: clean, bright, highlights acidity\n- Best for: light to medium roasts\n\n## French Press\n- Grind: coarse (sea salt)\n- Brew time: 4 minutes\n- Flavor profile: full-bodied, rich, oils preserved\n- Best for: medium to dark roasts\n\n## Espresso\n- Grind: very fine\n- Brew time: 25-30 seconds\n- Flavor profile: concentrated, intense, crema layer\n- Best for: all roast levels (espresso-specific roasts)"
+      }
+    },
+    {
+      "name": "sleep-optimization",
+      "original_query": "how to optimize sleep quality with temperature light and schedule",
+      "files": {
+        "README.md": "# Sleep Optimization Research Plan\n\n## Goal\nResearch evidence-based methods for optimizing sleep quality through environmental and behavioral factors.\n\n## Research Questions\n1. What is the optimal bedroom temperature for sleep?\n2. How does blue light exposure affect melatonin and sleep onset?\n3. What sleep schedules are supported by circadian rhythm research?\n4. Does napping improve or impair nighttime sleep quality?\n\n## Passes\n1. Broad: temperature and sleep quality meta-analyses\n2. Primary: blue light and melatonin suppression studies\n3. Independent: circadian rhythm and shift work research\n4. Failure: limitations of sleep hygiene interventions",
+        "findings.md": "## Temperature\n\nOptimal bedroom temperature: 60-67 degrees F (15.5-19.4 C). Temperatures above 75 F (24 C) increase wakefulness and reduce REM sleep. A warm bath 1-2 hours before bed paradoxically lowers core body temperature and improves sleep onset.\n\n## Light\n\nBlue light (460-480 nm) suppresses melatonin by up to 50% with just 2 hours of evening exposure. Amber/red light after sunset preserves melatonin. Morning bright light exposure (10,000 lux for 30 min) anchors circadian rhythm.\n\n## Schedule\n\nConsistent wake time is more important than consistent bed time. The sleep-wake homeostat and circadian process interact: sleep pressure builds during wakefulness, while circadian alerting signal opposes it in the evening."
+      }
+    },
+    {
+      "name": "ergonomic-chair-buying-guide",
+      "original_query": "best ergonomic office chair under 1000 dollars",
+      "files": {
+        "recommendations.md": "# Ergonomic Chair Recommendations Under $1000\n\n## Top Picks\n\n1. **Steelcase Leap V2 (used/refurbished)** - $500-800\n   - LiveBack technology, adjustable lumbar, 4D armrests\n2. **Herman Miller Aeron (used)** - $600-900\n   - PostureFit SL, Pellicle mesh, three sizes (A/B/C)\n3. **Haworth Fern** - $800-1000\n   - Digital knit back, adjustable lumbar bubble\n\n## What to Look For\n\n- Adjustable seat depth\n- Lumbar support (adjustable height + firmness)\n- 4D armrests\n- Forward tilt for task work\n- Mesh or fabric (personal preference)"
+      }
+    },
+    {
+      "name": "protein-intake-muscle",
+      "original_query": "optimal daily protein intake for muscle growth per kg bodyweight",
+      "files": {
+        "notes.md": "## Protein Intake Research\n\n### Recommendations\n- 1.6-2.2 g/kg/day for muscle hypertrophy (ISSN position stand)\n- Upper end (2.2 g/kg) for cutting/caloric deficit\n- Lower end (1.6 g/kg) for maintenance/bulking\n\n### Timing\n- 20-40g protein per meal for maximal MPS stimulation\n- Leucine threshold: 2-3g per meal\n- Pre-sleep casein: 30-40g improves overnight MPS\n\n### Sources\n- Whey: fast absorption, high leucine\n- Casein: slow absorption, anti-catabolic\n- Plant: combine sources for complete EAA profile\n\n### Studies\n- Schoenfeld et al. (2018) meta-analysis: 1.6 g/kg plateau\n- Morton et al. (2018): 1.6 g/kg for lean mass gains\n- Phillips & Van Loon (2011): 1.2-1.7 g/kg for athletes"
+      }
+    }
+  ],
+  "queries": [
+    {
+      "id": "q1-exact-match",
+      "query": "health impact of sleeping in a hammock full time",
+      "expected_relevant": ["hammock-sleep-health"],
+      "expected_irrelevant": ["hammock-camping-gear", "standing-desk-ergonomics", "coffee-brewing-methods"],
+      "description": "Exact topic match: same query as the original research"
+    },
+    {
+      "id": "q2-paraphrased",
+      "query": "is it healthy to sleep every night in a hammock",
+      "expected_relevant": ["hammock-sleep-health"],
+      "expected_irrelevant": ["hammock-camping-gear", "hammock-sizing-guide"],
+      "description": "Paraphrased/related wording of the same topic"
+    },
+    {
+      "id": "q3-metadata-only",
+      "query": "hammock health research",
+      "expected_relevant": ["hammock-sleep-health"],
+      "expected_irrelevant": ["coffee-brewing-methods"],
+      "description": "Metadata-only match: folder name or query contains matching terms"
+    },
+    {
+      "id": "q4-distractor",
+      "query": "best hammock for sleeping comfort and back support",
+      "expected_relevant": ["hammock-sleep-health"],
+      "expected_irrelevant": ["hammock-camping-gear"],
+      "description": "Similar distractor folders: other hammock-related content exists"
+    },
+    {
+      "id": "q5-no-match",
+      "query": "best bicycle for commuting in rainy weather",
+      "expected_relevant": [],
+      "expected_irrelevant": [],
+      "description": "Unrelated/no-match query: nothing should be returned"
+    },
+    {
+      "id": "q6-multiple-relevant",
+      "query": "hammock recommendations for a tall person who cares about health",
+      "expected_relevant": ["hammock-sizing-guide", "hammock-sleep-health"],
+      "expected_irrelevant": ["coffee-brewing-methods"],
+      "description": "Multiple relevant folders expected"
+    },
+    {
+      "id": "q7-sparse-content",
+      "query": "hammock camping gear for backpacking",
+      "expected_relevant": ["hammock-camping-gear"],
+      "expected_irrelevant": ["standing-desk-ergonomics"],
+      "description": "Sparse folder content: single file, focused topic"
+    },
+    {
+      "id": "q8-cross-domain",
+      "query": "how to improve sleep quality and bedroom setup",
+      "expected_relevant": ["sleep-optimization", "hammock-sleep-health"],
+      "expected_irrelevant": ["protein-intake-muscle", "coffee-brewing-methods"],
+      "description": "Cross-domain: should match sleep-related folders but not unrelated health topics"
+    },
+    {
+      "id": "q9-chair-ergonomics",
+      "query": "what is the best ergonomic office chair for back pain under 1000",
+      "expected_relevant": ["ergonomic-chair-buying-guide", "standing-desk-ergonomics"],
+      "expected_irrelevant": ["hammock-sleep-health", "coffee-brewing-methods"],
+      "description": "Chair ergonomics: should match chair and desk folders"
+    },
+    {
+      "id": "q10-protein-no-match-deep",
+      "query": "what is the optimal protein intake per kg for muscle growth",
+      "expected_relevant": ["protein-intake-muscle"],
+      "expected_irrelevant": ["hammock-sleep-health", "standing-desk-ergonomics", "coffee-brewing-methods", "hammock-sizing-guide", "hammock-camping-gear"],
+      "description": "Protein intake query: should uniquely match the nutrition research"
+    },
+    {
+      "id": "q11-coffee",
+      "query": "differences between pour over and french press brewing",
+      "expected_relevant": ["coffee-brewing-methods"],
+      "expected_irrelevant": ["protein-intake-muscle", "standing-desk-ergonomics"],
+      "description": "Coffee query: should uniquely match coffee brewing research"
+    },
+    {
+      "id": "q12-no-match-gibberish",
+      "query": "zxcvbnm qwerty asdfgh",
+      "expected_relevant": [],
+      "expected_irrelevant": [],
+      "description": "No-match: gibberish query should return nothing"
+    },
+    {
+      "id": "q13-spinal-health",
+      "query": "effects on spinal alignment when lying at an angle",
+      "expected_relevant": ["hammock-sleep-health"],
+      "expected_irrelevant": ["protein-intake-muscle", "coffee-brewing-methods"],
+      "description": "Spinal alignment: should match hammock sleep health via diagonal lay content"
+    },
+    {
+      "id": "q14-temperature-sleep",
+      "query": "optimal temperature for sleep quality at night",
+      "expected_relevant": ["sleep-optimization"],
+      "expected_irrelevant": ["coffee-brewing-methods", "hammock-camping-gear"],
+      "description": "Temperature sleep: should match sleep optimization folder"
+    }
+  ]
+}

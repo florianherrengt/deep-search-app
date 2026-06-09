@@ -1,4 +1,4 @@
-mod research_search;
+pub mod research_search;
 
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;

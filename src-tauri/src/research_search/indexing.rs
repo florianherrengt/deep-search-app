@@ -104,10 +104,20 @@ struct PendingChunk {
 
 pub fn index_file(
     db: &Database,
-    embedding_config: &EmbeddingConfig,
+    _embedding_config: &EmbeddingConfig,
     folder: &str,
     filename: &str,
     content: &str,
+) -> Result<(), String> {
+    index_file_inner(db, folder, filename, content, None)
+}
+
+pub fn index_file_inner(
+    db: &Database,
+    folder: &str,
+    filename: &str,
+    content: &str,
+    cached_embeddings: Option<&std::collections::HashMap<String, Vec<f32>>>,
 ) -> Result<(), String> {
     let _index_guard = db.indexing.lock().map_err(|e| e.to_string())?;
     let (folder_id, new_or_changed, orphan_ids, new_chunk_count) = {
@@ -126,11 +136,16 @@ pub fn index_file(
             }
         };
 
-        let chunks = chunking::chunk_markdown(content);
+        let mut chunks = chunking::chunk_markdown(content);
 
         if chunks.is_empty() {
             delete_file_chunks(&conn, folder_id, filename)?;
             return Ok(());
+        }
+
+        let folder_metadata = format!("[From: '{}']", folder);
+        for chunk in &mut chunks {
+            chunk.content = format!("{}\n\n{}", folder_metadata, chunk.content);
         }
 
         let new_chunk_count = chunks.len() as i32;
@@ -172,9 +187,19 @@ pub fn index_file(
 
     let all_embeddings = if new_or_changed.is_empty() {
         Vec::new()
+    } else if let Some(cache) = cached_embeddings {
+        new_or_changed
+            .iter()
+            .map(|p| {
+                cache
+                    .get(&p.hash)
+                    .cloned()
+                    .ok_or_else(|| format!("Missing cached embedding for hash {}", &p.hash))
+            })
+            .collect::<Result<Vec<_>, _>>()?
     } else {
         let texts: Vec<String> = new_or_changed.iter().map(|p| p.content.clone()).collect();
-        embeddings::embed_texts(embedding_config, &texts, false)?
+        embeddings::embed_texts(&EmbeddingConfig::default(), &texts, false)?
     };
 
     let conn = db.conn.lock().map_err(|e| e.to_string())?;

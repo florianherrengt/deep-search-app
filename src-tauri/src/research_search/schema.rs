@@ -47,6 +47,17 @@ CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
   INSERT INTO chunks_fts(chunks_fts, rowid, content) VALUES('delete', old.id, old.content);
   INSERT INTO chunks_fts(rowid, content) VALUES (new.id, new.content);
 END;
+
+CREATE TABLE IF NOT EXISTS hype_questions (
+  id INTEGER PRIMARY KEY,
+  chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+  question TEXT NOT NULL,
+  created_at TEXT DEFAULT (DATETIME('now'))
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS hype_embeddings USING vec0(
+  embedding float[{dimensions}]
+);
 "#
     )
 }
@@ -105,7 +116,7 @@ SELECT rowid, distance
 FROM chunk_embeddings
 WHERE embedding MATCH ?
 ORDER BY distance
-LIMIT 50
+LIMIT 30
 "#;
 
 pub const FTS_SEARCH: &str = r#"
@@ -113,7 +124,7 @@ SELECT rowid, rank
 FROM chunks_fts
 WHERE chunks_fts MATCH ?
 ORDER BY rank
-LIMIT 50
+LIMIT 30
 "#;
 
 pub const GET_CHUNK_BY_ID: &str = r#"
@@ -144,6 +155,39 @@ pub const GET_CHUNK_IDS_ABOVE_INDEX: &str =
 
 pub const DELETE_CHUNKS_ABOVE_INDEX: &str =
     "DELETE FROM chunks WHERE folder_id = ?1 AND filename = ?2 AND chunk_index >= ?3";
+
+pub const HYPE_KNN_SEARCH: &str = r#"
+SELECT hq.chunk_id, MIN(distance) as distance
+FROM hype_embeddings he
+JOIN hype_questions hq ON hq.id = he.rowid
+WHERE he.embedding MATCH ?
+GROUP BY hq.chunk_id
+ORDER BY distance
+LIMIT 30
+"#;
+
+pub const INSERT_HYPE_QUESTION: &str =
+    "INSERT INTO hype_questions (chunk_id, question) VALUES (?1, ?2)";
+
+pub const INSERT_HYPE_EMBEDDING: &str =
+    "INSERT INTO hype_embeddings(rowid, embedding) VALUES (?1, ?2)";
+
+pub const DELETE_HYPE_FOR_CHUNK: &str =
+    "DELETE FROM hype_questions WHERE chunk_id = ?1";
+
+pub const DELETE_HYPE_EMBEDDING: &str =
+    "DELETE FROM hype_embeddings WHERE rowid = ?1";
+
+pub const GET_CHUNKS_WITHOUT_HYPE: &str = r#"
+SELECT c.id, c.content
+FROM chunks c
+WHERE c.folder_id = ?1
+AND c.id NOT IN (SELECT DISTINCT chunk_id FROM hype_questions)
+"#;
+
+pub const HYPE_TABLE_EXISTS: &str = r#"
+SELECT count(*) FROM sqlite_master WHERE type='table' AND name='hype_questions'
+"#;
 
 pub fn rebuild_vector_table(conn: &Connection, dimensions: usize) -> Result<(), String> {
     conn.execute("DROP TABLE IF EXISTS chunk_embeddings", [])

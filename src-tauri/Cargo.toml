@@ -17,6 +17,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[[bin]]
+name = "research-search-benchmark"
+path = "src/bin/research-search-benchmark.rs"
+
 [dependencies]
 tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-opener = "2"

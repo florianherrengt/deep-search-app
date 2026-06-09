@@ -1,7 +1,7 @@
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 const DEFAULT_CHUNK_TOKENS: usize = 512;
-const OVERLAP_RATIO: f32 = 0.15;
+const OVERLAP_RATIO: f32 = 0.20;
 const MIN_CHARS_PER_TOKEN: usize = 3;
 
 #[derive(Debug, Clone)]

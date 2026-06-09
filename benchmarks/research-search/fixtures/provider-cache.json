@@ -1,0 +1,17 @@
+{
+  "meta": {
+    "corpus_version": "1.0.0",
+    "embedding_model": "qwen/qwen3-embedding-4b",
+    "embedding_dimensions": 1024,
+    "reranker_model": "cohere/rerank-4-pro",
+    "chunking_version": 1,
+    "indexing_version": 1,
+    "query_prefix": "Represent this sentence for searching relevant passages: ",
+    "provider": "openrouter",
+    "created_at": null,
+    "description": "Provider cache for research-search benchmark. Run `npm run benchmark:research-search:refresh` to populate with real embeddings and reranker scores."
+  },
+  "document_embeddings": {},
+  "query_embeddings": {},
+  "reranker_scores": {}
+}

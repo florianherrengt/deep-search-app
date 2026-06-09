@@ -21,7 +21,9 @@
     "test:e2e": "npm test --prefix e2e-tests",
     "test:visual": "npm run build-storybook && node scripts/visual-snapshot-test.mjs",
     "test:visual:update": "npm run build-storybook && node scripts/visual-snapshot-test.mjs -- --update",
-    "test:visual:dev": "node scripts/visual-snapshot-test.mjs -- --url http://127.0.0.1:6006"
+    "test:visual:dev": "node scripts/visual-snapshot-test.mjs -- --url http://127.0.0.1:6006",
+    "benchmark:research-search": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark",
+    "benchmark:research-search:refresh": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --refresh"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.79",
