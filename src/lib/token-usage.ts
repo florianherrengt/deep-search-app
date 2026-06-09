@@ -15,7 +15,6 @@ function extractPartText(part: unknown): string {
   if (p.type === "text" && typeof p.text === "string") return p.text;
   if (p.type === "reasoning" && typeof p.text === "string") return p.text;
   if (
-    p.type === "string" &&
     typeof p.type === "string" &&
     (p.type as string).startsWith("tool-")
   ) {
