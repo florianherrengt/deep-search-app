@@ -8,6 +8,7 @@ export const searchResultSchema = z.object({
   title: z.string(),
   url: z.string(),
   description: z.string(),
+  snippet: z.string().optional(),
 });
 
 export type SearchResult = z.infer<typeof searchResultSchema>;
