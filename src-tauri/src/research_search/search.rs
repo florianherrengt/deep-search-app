@@ -48,12 +48,7 @@ fn classify_query(query: &str) -> QueryType {
 const RRF_K: f64 = 20.0;
 const MMR_SIMILARITY_THRESHOLD: f64 = 0.85;
 const FOLDER_METADATA_FILENAME: &str = "folder-metadata";
-const SEARCH_STOP_WORDS: &[&str] = &[
-    "about", "after", "also", "and", "are", "best", "but", "can", "did", "does", "for", "from",
-    "had", "has", "have", "how", "into", "not", "off", "or", "out", "the", "their", "then",
-    "there", "these", "this", "was", "what", "when", "where", "which", "who", "why", "with",
-    "you", "your",
-];
+const MIN_METADATA_OVERLAP_RATIO: f64 = 0.25;
 
 #[derive(Debug, Clone)]
 pub struct RankedItem {
@@ -246,7 +241,7 @@ pub fn search_inner(
             let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
             let t_meta = Instant::now();
-            let mut meta = folder_metadata_search(&conn, query, folder)?;
+            let mut meta = folder_metadata_search(&conn, query, folder, true)?;
             diag.metadata_match_count = meta.len();
             diag.latency_stage_ms.metadata_ms = t_meta.elapsed().as_millis() as u64;
             diag.final_result_count = meta.len();
@@ -283,7 +278,7 @@ pub fn search_inner(
         let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
         let t_meta = Instant::now();
-        let mut meta = folder_metadata_search(&conn, query, folder)?;
+        let mut meta = folder_metadata_search(&conn, query, folder, false)?;
         diag.metadata_match_count = meta.len();
         diag.latency_stage_ms.metadata_ms = t_meta.elapsed().as_millis() as u64;
 
@@ -531,6 +526,7 @@ fn folder_metadata_search(
     conn: &Connection,
     query: &str,
     folder: Option<&str>,
+    strict: bool,
 ) -> Result<Vec<SearchResult>, String> {
     let query_terms = tokenize_search_terms(query);
     if query_terms.is_empty() {
@@ -544,7 +540,17 @@ fn folder_metadata_search(
         .query(rusqlite::params![folder])
         .map_err(|e| e.to_string())?;
 
-    let mut matches = Vec::new();
+    struct FolderMeta {
+        id: i64,
+        name: String,
+        saved_query: Option<String>,
+        name_terms: HashSet<String>,
+        saved_query_terms: HashSet<String>,
+    }
+
+    let mut folders: Vec<FolderMeta> = Vec::new();
+    let mut term_df: HashMap<String, usize> = HashMap::new();
+
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let id: i64 = row.get(0).map_err(|e| e.to_string())?;
         let name: String = row.get(1).map_err(|e| e.to_string())?;
@@ -552,35 +558,75 @@ fn folder_metadata_search(
 
         let name_terms = metadata_term_set(&name);
         let saved_query_terms = metadata_term_set(saved_query.as_deref().unwrap_or(""));
-        let name_matches = count_matching_terms(&query_terms, &name_terms);
-        let query_matches = count_matching_terms(&query_terms, &saved_query_terms);
 
-        if name_matches == 0 && query_matches == 0 {
+        for qt in &query_terms {
+            if name_terms.contains(qt.as_str()) || saved_query_terms.contains(qt.as_str()) {
+                *term_df.entry(qt.clone()).or_insert(0) += 1;
+            }
+        }
+
+        folders.push(FolderMeta {
+            id,
+            name,
+            saved_query,
+            name_terms,
+            saved_query_terms,
+        });
+    }
+
+    let total_folders = folders.len() as f64;
+
+    let term_idf: HashMap<String, f64> = query_terms
+        .iter()
+        .map(|qt| {
+            let df = *term_df.get(qt).unwrap_or(&0) as f64;
+            let idf = (1.0 + total_folders / (1.0 + df)).ln();
+            (qt.clone(), idf)
+        })
+        .collect();
+
+    let total_idf: f64 = query_terms
+        .iter()
+        .map(|qt| term_idf.get(qt).unwrap_or(&0.0))
+        .sum();
+
+    let mut matches = Vec::new();
+    for fm in &folders {
+        let mut matched_idf = 0.0;
+
+        for qt in &query_terms {
+            if fm.name_terms.contains(qt.as_str()) || fm.saved_query_terms.contains(qt.as_str()) {
+                matched_idf += term_idf.get(qt).unwrap_or(&0.0);
+            }
+        }
+
+        if total_idf == 0.0 || matched_idf == 0.0 {
             continue;
         }
 
-        let matched_terms = (name_matches + query_matches).max(1) as f64;
-        let weighted_ratio =
-            ((name_matches as f64 * 1.25) + query_matches as f64) / query_terms.len() as f64;
-        let name_boost = if name_matches > 0 { 0.08 } else { 0.0 };
-        let score = (0.45 + weighted_ratio.min(1.0) * 0.45 + name_boost)
-            .max(0.55 + (matched_terms.min(3.0) * 0.03))
-            .min(0.98);
+        let ratio = matched_idf / total_idf;
 
-        let content = match saved_query
+        if strict && ratio < MIN_METADATA_OVERLAP_RATIO {
+            continue;
+        }
+
+        let score = (0.55 + ratio * 0.43).min(0.98);
+
+        let content = match fm
+            .saved_query
             .as_deref()
             .map(str::trim)
             .filter(|q| !q.is_empty())
         {
-            Some(saved_query) => format!("Folder: {}\nQuery: {}", name, saved_query),
-            None => format!("Folder: {}", name),
+            Some(saved_query) => format!("Folder: {}\nQuery: {}", fm.name, saved_query),
+            None => format!("Folder: {}", fm.name),
         };
 
         matches.push(SearchResult {
-            chunk_id: -id,
+            chunk_id: -fm.id,
             content,
             filename: FOLDER_METADATA_FILENAME.to_string(),
-            folder_name: name,
+            folder_name: fm.name.clone(),
             header_path: None,
             score,
             adjacent_chunks: None,
@@ -598,13 +644,6 @@ fn folder_metadata_search(
 
 fn metadata_term_set(text: &str) -> HashSet<String> {
     tokenize_search_terms(text).into_iter().collect()
-}
-
-fn count_matching_terms(query_terms: &[String], document_terms: &HashSet<String>) -> usize {
-    query_terms
-        .iter()
-        .filter(|term| document_terms.contains(*term))
-        .count()
 }
 
 fn tokenize_search_terms(text: &str) -> Vec<String> {
@@ -631,9 +670,6 @@ fn push_search_term(terms: &mut Vec<String>, seen: &mut HashSet<String>, current
 
     let term = std::mem::take(current);
     if term.len() < 3 && !term.chars().any(|ch| ch.is_ascii_digit()) {
-        return;
-    }
-    if SEARCH_STOP_WORDS.contains(&term.as_str()) {
         return;
     }
     if seen.insert(term.clone()) {
@@ -778,7 +814,7 @@ mod tests {
     fn fts_query_uses_search_terms_instead_of_an_exact_phrase() {
         assert_eq!(
             sanitize_fts_query("hammock size 11ft vs 12ft for tall person"),
-            "\"hammock\" OR \"size\" OR \"11ft\" OR \"12ft\" OR \"tall\" OR \"person\"",
+            "\"hammock\" OR \"size\" OR \"11ft\" OR \"12ft\" OR \"for\" OR \"tall\" OR \"person\"",
         );
     }
 
@@ -791,15 +827,17 @@ mod tests {
     #[test]
     fn tokenize_keeps_terms_exactly_3_chars() {
         let terms = tokenize_search_terms("the cat sat");
+        assert!(terms.contains(&"the".to_string()));
         assert!(terms.contains(&"cat".to_string()));
         assert!(terms.contains(&"sat".to_string()));
-        assert!(!terms.contains(&"the".to_string()));
     }
 
     #[test]
-    fn tokenize_filters_stop_words() {
+    fn tokenize_does_not_require_stop_word_list() {
         let terms = tokenize_search_terms("the and or but from with");
-        assert!(terms.is_empty());
+        assert_eq!(terms.len(), 5);
+        assert!(terms.contains(&"the".to_string()));
+        assert!(terms.contains(&"and".to_string()));
     }
 
     #[test]
@@ -923,7 +961,7 @@ mod tests {
         .expect("insert folder");
 
         let matches =
-            folder_metadata_search(&conn, "hammock size 11ft vs 12ft for tall person", None)
+            folder_metadata_search(&conn, "hammock size 11ft vs 12ft for tall person", None, false)
                 .expect("metadata search");
 
         assert_eq!(
@@ -947,7 +985,7 @@ mod tests {
         )
         .expect("insert second folder");
 
-        let matches = folder_metadata_search(&conn, "hammock size", Some("hammock-sizing"))
+        let matches = folder_metadata_search(&conn, "hammock size", Some("hammock-sizing"), false)
             .expect("metadata search");
 
         assert_eq!(matches.len(), 1);
