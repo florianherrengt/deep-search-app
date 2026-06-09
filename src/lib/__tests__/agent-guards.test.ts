@@ -290,9 +290,9 @@ describe("evaluateAssistantStep", () => {
     expect(decision).toMatchObject({ action: "accept" });
   });
 
-  it("retries when foreign currency mentions are found with target currency set", () => {
+  it("retries when foreign currency mentions are found for a monetary request", () => {
     const decision = evaluateAssistantStep({
-      messages: [userMessage("Tell me about pricing")],
+      messages: [userMessage("How much does the premium plan cost?")],
       responseMessage: assistantMessage(
         "The item costs $50 and €40 in different regions.",
       ),
@@ -311,6 +311,59 @@ describe("evaluateAssistantStep", () => {
     expect(decision.action === "retry" && decision.event.reason).toContain(
       "GBP",
     );
+    expect(decision.action === "retry" && decision.event.message).toContain(
+      "Convert",
+    );
+    expect(decision.action === "retry" && decision.event.message).toContain(
+      "$50",
+    );
+    expect(
+      decision.action === "retry" && decision.retryInstruction,
+    ).toContain("to GBP");
+  });
+
+  it("retries foreign currency mentions even without an explicit conversion request", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Summarize this note")],
+      responseMessage: assistantMessage(
+        "The note mentions a €40 fee as background context.",
+      ),
+      targetCurrency: "GBP",
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "currency_conversion",
+    });
+    expect(decision.action === "retry" && decision.event.message).toContain(
+      "€40",
+    );
+  });
+
+  it("retries prose currency amounts like a hundred dollars", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Tell me about pricing")],
+      responseMessage: assistantMessage("The plan costs a hundred dollars."),
+      targetCurrency: "GBP",
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "currency_conversion",
+    });
+    expect(decision.action === "retry" && decision.event.message).toContain(
+      "a hundred dollars",
+    );
+  });
+
+  it("does not treat single-letter product names as currency amounts", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Convert any EUR amounts to USD")],
+      responseMessage: assistantMessage("The laptop uses Apple's M3 chip."),
+      targetCurrency: "USD",
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
   });
 
   it("accepts when foreign currency mentions match target currency", () => {
@@ -323,14 +376,28 @@ describe("evaluateAssistantStep", () => {
     expect(decision).toMatchObject({ action: "accept" });
   });
 
-  it("accepts when currency_conversion tool already used with foreign mentions", () => {
+  it("retries when final text still contains foreign currency after conversion", () => {
     const decision = evaluateAssistantStep({
-      messages: [userMessage("Tell me about pricing")],
-      responseMessage: assistantWithCurrencyConversionTool(),
+      messages: [
+        userMessage("Tell me about pricing"),
+        assistantWithCurrencyConversionTool(),
+      ],
+      responseMessage: assistantMessage(
+        "The item costs $50, which is about £40.",
+      ),
       targetCurrency: "GBP",
     });
 
-    expect(decision).toMatchObject({ action: "accept" });
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "currency_conversion",
+    });
+    expect(decision.action === "retry" && decision).not.toHaveProperty(
+      "toolChoice",
+    );
+    expect(
+      decision.action === "retry" && decision.retryInstruction,
+    ).toContain("already used currency_conversion");
   });
 });
 

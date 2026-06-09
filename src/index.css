@@ -68,6 +68,127 @@ body,
   font-size: var(--mantine-font-size-sm);
 }
 
+.md-guardrail-card {
+  --md-guardrail-bg: var(--mantine-color-blue-0);
+  --md-guardrail-border: var(--mantine-color-blue-3);
+  --md-guardrail-fg: var(--mantine-color-blue-9);
+  --md-guardrail-muted: var(--mantine-color-blue-8);
+  --md-guardrail-icon: var(--mantine-color-blue-6);
+
+  background-color: var(--md-guardrail-bg);
+  border-color: var(--md-guardrail-border);
+  color: var(--md-guardrail-fg);
+}
+
+.md-guardrail-card[data-tone="warning"] {
+  --md-guardrail-bg: var(--mantine-color-yellow-0);
+  --md-guardrail-border: var(--mantine-color-yellow-3);
+  --md-guardrail-fg: var(--mantine-color-yellow-9);
+  --md-guardrail-muted: var(--mantine-color-yellow-8);
+  --md-guardrail-icon: var(--mantine-color-yellow-6);
+}
+
+.md-guardrail-card[data-tone="success"] {
+  --md-guardrail-bg: var(--mantine-color-green-0);
+  --md-guardrail-border: var(--mantine-color-green-3);
+  --md-guardrail-fg: var(--mantine-color-green-9);
+  --md-guardrail-muted: var(--mantine-color-green-8);
+  --md-guardrail-icon: var(--mantine-color-green-6);
+}
+
+[data-mantine-color-scheme="dark"] .md-guardrail-card {
+  --md-guardrail-bg: color-mix(in srgb, var(--mantine-color-blue-9) 18%, var(--mantine-color-dark-7));
+  --md-guardrail-border: var(--mantine-color-blue-7);
+  --md-guardrail-fg: var(--mantine-color-blue-1);
+  --md-guardrail-muted: var(--mantine-color-blue-2);
+  --md-guardrail-icon: var(--mantine-color-blue-4);
+}
+
+[data-mantine-color-scheme="dark"] .md-guardrail-card[data-tone="warning"] {
+  --md-guardrail-bg: color-mix(in srgb, var(--mantine-color-yellow-9) 18%, var(--mantine-color-dark-7));
+  --md-guardrail-border: var(--mantine-color-yellow-7);
+  --md-guardrail-fg: var(--mantine-color-yellow-1);
+  --md-guardrail-muted: var(--mantine-color-yellow-2);
+  --md-guardrail-icon: var(--mantine-color-yellow-4);
+}
+
+[data-mantine-color-scheme="dark"] .md-guardrail-card[data-tone="success"] {
+  --md-guardrail-bg: color-mix(in srgb, var(--mantine-color-green-9) 18%, var(--mantine-color-dark-7));
+  --md-guardrail-border: var(--mantine-color-green-7);
+  --md-guardrail-fg: var(--mantine-color-green-1);
+  --md-guardrail-muted: var(--mantine-color-green-2);
+  --md-guardrail-icon: var(--mantine-color-green-4);
+}
+
+.md-guardrail-card__icon {
+  color: var(--md-guardrail-icon);
+}
+
+.md-guardrail-card__message {
+  color: var(--md-guardrail-muted);
+}
+
+.md-question-tool {
+  --md-question-bg: var(--mantine-color-gray-0);
+  --md-question-border: var(--mantine-color-gray-3);
+  --md-question-fg: var(--mantine-color-text);
+  --md-question-muted: var(--mantine-color-dimmed);
+  --md-question-icon: var(--mantine-color-blue-6);
+  --md-question-choice-fg: var(--mantine-color-blue-9);
+  --md-question-choice-border: var(--mantine-color-blue-8);
+  --md-question-choice-hover: var(--mantine-color-blue-0);
+  --md-question-action-bg: var(--mantine-color-blue-8);
+  --md-question-action-hover: var(--mantine-color-blue-9);
+  --md-question-action-fg: var(--mantine-color-white);
+
+  background-color: var(--md-question-bg);
+  border-color: var(--md-question-border);
+  color: var(--md-question-fg);
+}
+
+.md-question-tool[data-state="completed"] {
+  --md-question-bg: var(--mantine-color-green-0);
+  --md-question-border: var(--mantine-color-green-8);
+  --md-question-fg: #1f6f35;
+  --md-question-muted: #1b6b2c;
+  --md-question-icon: var(--mantine-color-green-8);
+}
+
+[data-mantine-color-scheme="dark"] .md-question-tool {
+  --md-question-bg: var(--mantine-color-dark-6);
+  --md-question-border: var(--mantine-color-dark-4);
+  --md-question-fg: var(--mantine-color-text);
+  --md-question-muted: var(--mantine-color-dimmed);
+  --md-question-icon: var(--mantine-color-blue-4);
+  --md-question-choice-fg: var(--mantine-color-blue-3);
+  --md-question-choice-border: var(--mantine-color-blue-5);
+  --md-question-choice-hover: color-mix(in srgb, var(--mantine-color-blue-9) 22%, var(--mantine-color-dark-6));
+  --md-question-action-bg: var(--mantine-color-blue-8);
+  --md-question-action-hover: var(--mantine-color-blue-9);
+  --md-question-action-fg: var(--mantine-color-white);
+}
+
+[data-mantine-color-scheme="dark"] .md-question-tool[data-state="completed"] {
+  --md-question-bg: color-mix(in srgb, var(--mantine-color-green-9) 18%, var(--mantine-color-dark-7));
+  --md-question-border: var(--mantine-color-green-7);
+  --md-question-fg: var(--mantine-color-green-1);
+  --md-question-muted: var(--mantine-color-green-2);
+  --md-question-icon: var(--mantine-color-green-4);
+}
+
+.md-question-tool__icon {
+  color: var(--md-question-icon);
+}
+
+.md-question-tool__muted {
+  color: var(--md-question-muted);
+}
+
+.md-question-tool__answer-question {
+  color: var(--md-question-fg);
+  font-weight: 500;
+}
+
 .md-divider-top {
   border-top: 1px solid var(--mantine-color-default-border);
 }

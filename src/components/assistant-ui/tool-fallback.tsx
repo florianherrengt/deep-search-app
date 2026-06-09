@@ -1,6 +1,6 @@
 import { ChevronDownIcon, WrenchIcon } from "lucide-react";
 import { Collapse, Box, Text, UnstyledButton } from "@mantine/core";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 function formatValue(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -20,6 +20,16 @@ export function ToolFallback({
   status: "running" | "complete" | "error";
 }) {
   const [opened, setOpened] = useState(false);
+  const formattedDetails = useMemo(() => {
+    if (!opened) {
+      return { args: undefined, result: undefined };
+    }
+
+    return {
+      args: formatValue(args),
+      result: formatValue(result),
+    };
+  }, [args, opened, result]);
 
   return (
     <Box my={8} className="md-surface md-card-sm">
@@ -58,20 +68,26 @@ export function ToolFallback({
         />
       </UnstyledButton>
       <Collapse in={opened}>
-        <Box className="md-divider-top" p="8px 12px">
-          {formatValue(args) && (
-            <Box mb="xs">
-              <Text size="xs" fw={500} c="dimmed" mb={4}>Input</Text>
-              <pre className="md-code-bg md-code-block">{formatValue(args)}</pre>
-            </Box>
-          )}
-          {formatValue(result) && (
-            <Box>
-              <Text size="xs" fw={500} c="dimmed" mb={4}>Result</Text>
-              <pre className="md-code-bg md-code-block">{formatValue(result)}</pre>
-            </Box>
-          )}
-        </Box>
+        {opened && (
+          <Box className="md-divider-top" p="8px 12px">
+            {formattedDetails.args && (
+              <Box mb="xs">
+                <Text size="xs" fw={500} c="dimmed" mb={4}>Input</Text>
+                <pre className="md-code-bg md-code-block">
+                  {formattedDetails.args}
+                </pre>
+              </Box>
+            )}
+            {formattedDetails.result && (
+              <Box>
+                <Text size="xs" fw={500} c="dimmed" mb={4}>Result</Text>
+                <pre className="md-code-bg md-code-block">
+                  {formattedDetails.result}
+                </pre>
+              </Box>
+            )}
+          </Box>
+        )}
       </Collapse>
     </Box>
   );

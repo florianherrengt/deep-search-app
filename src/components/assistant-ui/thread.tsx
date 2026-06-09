@@ -5,14 +5,21 @@ import {
   ActionBarPrimitive,
   ErrorPrimitive,
   AuiIf,
+  MessagePartPrimitive,
   useAuiState,
   type PartState,
 } from "@assistant-ui/react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import { CopyIcon, CheckIcon, RefreshCwIcon, ArrowDownIcon } from "lucide-react";
 import {
   ModelSelector,
   type ModelOption,
 } from "@/components/assistant-ui/model-selector";
+import {
+  canRenderQuestionsTool,
+  QuestionsToolView,
+  type QuestionResult,
+} from "@/components/assistant-ui/questions-tool";
 import { formatTokenCount } from "@/lib/context-window";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
@@ -33,6 +40,11 @@ const groupBy = (
 ) => {
   if (part.type === "reasoning") return ["group-reasoning"] as const;
   return null;
+};
+
+type EnrichedToolCallPart = Extract<PartState, { type: "tool-call" }> & {
+  toolUI?: ReactNode;
+  addResult?: (result: QuestionResult) => void;
 };
 
 interface ThreadProps {
@@ -89,21 +101,7 @@ export function Thread({
           <ArrowDownIcon style={{ width: 16, height: 16 }} />
         </ThreadPrimitive.ScrollToBottom>
         <ComposerPrimitive.Root style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <ComposerPrimitive.Input
-            placeholder="Ask something..."
-            rows={1}
-            autoFocus
-            style={{
-              width: "100%",
-              resize: "none",
-              borderRadius: 12,
-              border: "1px solid var(--mantine-color-default-border)",
-              background: "var(--mantine-color-body)",
-              padding: "12px 16px",
-              fontSize: 14,
-              outline: "none",
-            }}
-          />
+          <ComposerInput />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={{ display: "flex", minWidth: 0, alignItems: "center", gap: 8 }}>
               <ModelSelector
@@ -134,6 +132,54 @@ export function Thread({
         </ComposerPrimitive.Root>
       </ThreadPrimitive.ViewportFooter>
     </ThreadPrimitive.Root>
+  );
+}
+
+function ComposerInput() {
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [hasVerticalOverflow, setHasVerticalOverflow] = useState(false);
+
+  const refreshOverflow = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    window.requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (!input) return;
+
+      setHasVerticalOverflow(input.scrollHeight > input.clientHeight + 1);
+    });
+  }, []);
+
+  const setInputRef = useCallback(
+    (node: HTMLTextAreaElement | null) => {
+      inputRef.current = node;
+      refreshOverflow();
+    },
+    [refreshOverflow],
+  );
+
+  return (
+    <ComposerPrimitive.Input
+      ref={setInputRef}
+      placeholder="Ask something..."
+      minRows={1}
+      maxRows={8}
+      autoFocus
+      onChange={refreshOverflow}
+      onHeightChange={refreshOverflow}
+      style={{
+        width: "100%",
+        resize: "none",
+        overflowY: hasVerticalOverflow ? "auto" : "hidden",
+        borderRadius: 12,
+        border: "1px solid var(--mantine-color-default-border)",
+        background: "var(--mantine-color-body)",
+        padding: "12px 16px",
+        fontSize: 14,
+        lineHeight: "20px",
+        outline: "none",
+      }}
+    />
   );
 }
 
@@ -217,8 +263,8 @@ function ThreadMessage() {
       }
     >
       {role === "user" ? (
-        <div style={{ maxWidth: "70%", whiteSpace: "pre-wrap", borderRadius: 16, borderBottomRightRadius: 4, backgroundColor: "var(--mantine-color-blue-filled)", padding: "8px 16px", color: "var(--mantine-color-white)" }}>
-          <MessagePrimitive.Parts />
+        <div style={{ maxWidth: "70%", whiteSpace: "pre-wrap", borderRadius: 14, borderBottomRightRadius: 4, backgroundColor: "var(--mantine-color-blue-filled)", padding: "6px 12px", color: "var(--mantine-color-white)", lineHeight: "20px" }}>
+          <MessagePrimitive.Parts components={{ Text: UserMessageText }} />
         </div>
       ) : (
         <>
@@ -234,8 +280,18 @@ function ThreadMessage() {
                     (part.status as { type: string }).type === "running";
                   return (
                     <ReasoningRoot defaultOpen={!!running}>
-                      <ReasoningTrigger active={!!running} />
-                      <ReasoningContent>{children}</ReasoningContent>
+                      {({ open, onToggle }) => (
+                        <>
+                          <ReasoningTrigger
+                            active={!!running}
+                            open={open}
+                            onClick={onToggle}
+                          />
+                          <ReasoningContent open={open}>
+                            {children}
+                          </ReasoningContent>
+                        </>
+                      )}
                     </ReasoningRoot>
                   );
                 }
@@ -249,13 +305,29 @@ function ThreadMessage() {
                   );
                 }
                 case "tool-call": {
-                  if (part.toolUI) return part.toolUI;
-                  const toolPart = part as {
+                  const toolPart = part as EnrichedToolCallPart & {
                     toolName: string;
                     args?: unknown;
                     result?: unknown;
                     status?: { type: string };
                   };
+                  if (
+                    toolPart.toolName === "ask_questions" &&
+                    canRenderQuestionsTool({
+                      args: toolPart.args,
+                      result: toolPart.result,
+                      canSubmit: typeof toolPart.addResult === "function",
+                    })
+                  ) {
+                    return (
+                      <QuestionsToolView
+                        args={toolPart.args}
+                        result={toolPart.result}
+                        onSubmit={toolPart.addResult}
+                      />
+                    );
+                  }
+                  if (toolPart.toolUI) return toolPart.toolUI;
                   return (
                     <ToolFallback
                       toolName={toolPart.toolName}
@@ -299,4 +371,8 @@ function ThreadMessage() {
       )}
     </MessagePrimitive.Root>
   );
+}
+
+function UserMessageText() {
+  return <MessagePartPrimitive.Text smooth={false} />;
 }

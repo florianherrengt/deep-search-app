@@ -12,7 +12,9 @@ export type ReasoningRootProps = {
   defaultOpen?: boolean;
   variant?: "outline" | "ghost" | "muted";
   className?: string;
-  children?: React.ReactNode;
+  children?:
+    | React.ReactNode
+    | ((props: { open: boolean; onToggle: () => void }) => React.ReactNode);
 };
 
 function ReasoningRoot({
@@ -67,18 +69,20 @@ function ReasoningRoot({
 function ReasoningTrigger({
   active,
   duration,
+  open = false,
   onClick,
 }: {
   active?: boolean;
   duration?: number;
+  open?: boolean;
   className?: string;
   onClick?: () => void;
 }) {
   const durationText = duration ? ` (${duration}s)` : "";
   return (
-    <UnstyledButton onClick={onClick} aria-label="Thinking process" style={{ display: "flex", width: "100%", alignItems: "center", gap: 6, fontSize: 14, color: "var(--mantine-color-dimmed)" }}>
+    <UnstyledButton onClick={onClick} aria-expanded={open} aria-label="Thinking process" style={{ display: "flex", width: "100%", alignItems: "center", gap: 6, fontSize: 14, color: "var(--mantine-color-dimmed)" }}>
       <BrainIcon style={{ width: 16, height: 16 }} />
-      <ChevronDownIcon style={{ width: 12, height: 12, transition: "transform 0.2s" }} />
+      <ChevronDownIcon style={{ width: 12, height: 12, transition: "transform 0.2s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }} />
       <span>Thinking{durationText}</span>
       {active ? (
         <span style={{ display: "inline-block", marginLeft: 4, width: 12, height: 12, borderRadius: "50%", backgroundColor: "var(--mantine-color-blue-5)", animation: "pulse 1.5s ease-in-out infinite" }} />
@@ -88,11 +92,17 @@ function ReasoningTrigger({
 }
 
 function ReasoningContent({
+  open = true,
   children,
 }: {
+  open?: boolean;
   className?: string;
   children?: React.ReactNode;
 }) {
+  if (!open) {
+    return null;
+  }
+
   return (
     <Box mt="xs">{children}</Box>
   );

@@ -327,7 +327,11 @@ export function ResearchSidebar({
                         }}
                         classNames={{ root: active ? "md-code-bg" : undefined }}
                         aria-current={active ? "page" : undefined}
-                        onClick={() => onSelectFolder(folder.name)}
+                        onMouseDown={(e: ReactMouseEvent) => {
+                          if (e.button === 0) {
+                            onSelectFolder(folder.name);
+                          }
+                        }}
                         onContextMenu={(e: ReactMouseEvent) => {
                           e.preventDefault();
                           setContextMenu({ folder, x: e.clientX, y: e.clientY });
@@ -510,7 +514,11 @@ function ResearchChatList({
                 root: { minHeight: 28, height: "auto", padding: "3px 8px" },
               }}
               aria-current={active ? "page" : undefined}
-              onClick={() => onSelectChat(folderName, chat.id)}
+              onMouseDown={(e: ReactMouseEvent) => {
+                if (e.button === 0) {
+                  onSelectChat(folderName, chat.id);
+                }
+              }}
               title={chat.title}
               leftSection={<MessageSquareIcon size={14} style={{ marginTop: 2 }} />}
               rightSection={

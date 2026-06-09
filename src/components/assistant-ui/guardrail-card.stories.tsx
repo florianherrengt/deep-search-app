@@ -36,6 +36,18 @@ export const Retrying: Story = {
   },
 };
 
+export const CurrencyRetrying: Story = {
+  args: {
+    event: {
+      kind: "currency_conversion",
+      status: "retrying",
+      title: "Currency conversion enforced",
+      message: "Prompted the agent to convert foreign currency amounts.",
+      attempt: 1,
+    },
+  },
+};
+
 export const Passed: Story = {
   args: {
     event: {

@@ -42,7 +42,7 @@ const currencyConversionOutputSchema = z.string();
 
 export function createCurrencyConversionTool(targetCurrency: Currency) {
   return tool({
-    description: `Convert an amount from any currency to ${targetCurrency} using current exchange rates. Rates are cached for the session.`,
+    description: `Convert a foreign price, cost, fee, or other monetary amount to ${targetCurrency}. Use before final answers that would otherwise show a foreign currency; report only ${targetCurrency} unless the user asks for original currencies.`,
     strict: true,
     inputSchema: zodSchema(currencyConversionInputSchema),
     outputSchema: zodSchema(currencyConversionOutputSchema),

@@ -18,29 +18,31 @@ export function GuardrailCard({ event }: { event: unknown }) {
 function GuardrailCardContent({ event }: { event: GuardrailEvent }) {
   const warning = event.status === "warning";
   const passed = event.status === "passed";
+  const tone = warning ? "warning" : passed ? "success" : "info";
   const Icon = warning
     ? AlertTriangleIcon
     : passed
       ? CheckCircleIcon
       : ShieldCheckIcon;
 
-  const colorStyles: React.CSSProperties = warning
-    ? { borderColor: "var(--mantine-color-yellow-3)", backgroundColor: "var(--mantine-color-yellow-0)", color: "var(--mantine-color-yellow-text)" }
-    : passed
-      ? { borderColor: "var(--mantine-color-green-3)", backgroundColor: "var(--mantine-color-green-0)", color: "var(--mantine-color-green-text)" }
-      : { borderColor: "var(--mantine-color-blue-3)", backgroundColor: "var(--mantine-color-blue-0)", color: "var(--mantine-color-blue-text)" };
-
   return (
     <Box
       my="sm"
-      className="md-card-sm"
-      style={{ maxWidth: 576, ...colorStyles }}
+      className="md-card-sm md-guardrail-card"
+      data-tone={tone}
+      style={{ maxWidth: 576 }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-        <Icon style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }} />
+        <Icon
+          className="md-guardrail-card__icon"
+          style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }}
+        />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 500 }}>{event.title}</div>
-          <div style={{ marginTop: 2, fontSize: 12, opacity: 0.8 }}>
+          <div
+            className="md-guardrail-card__message"
+            style={{ marginTop: 2, fontSize: 12 }}
+          >
             {event.message}
             {event.attempt ? ` Attempt ${event.attempt}.` : ""}
           </div>

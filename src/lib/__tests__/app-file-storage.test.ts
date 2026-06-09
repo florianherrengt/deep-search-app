@@ -114,6 +114,39 @@ describe("app file storage", () => {
     }
   });
 
+  it("can write research metadata without notifying listeners", async () => {
+    const events: Event[] = [];
+    const target = new EventTarget();
+    target.addEventListener("research-library-changed", (event) => {
+      events.push(event);
+    });
+    vi.stubGlobal("window", target);
+    vi.stubGlobal(
+      "CustomEvent",
+      class TestCustomEvent<T> extends Event {
+        detail: T;
+
+        constructor(type: string, init: CustomEventInit<T>) {
+          super(type);
+          this.detail = init.detail as T;
+        }
+      },
+    );
+
+    try {
+      await writeAppFile({
+        subfolder: "search-results/apartment-dogs/chats",
+        filename: "index.json",
+        content: "{}",
+        emitChange: false,
+      });
+
+      expect(events).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("reads existing text files from app data", async () => {
     fsMocks.exists.mockResolvedValueOnce(true);
     fsMocks.readTextFile.mockResolvedValueOnce("# Example");

@@ -20,17 +20,16 @@ function ReasoningExample({ active, duration, ...args }: ReasoningStoryArgs) {
       <ReasoningTrigger
         active={active}
         duration={duration}
+        open={open}
         onClick={() => setOpen((current) => !current)}
       />
-      {open ? (
-        <ReasoningContent>
-          <Text size="sm" c="dimmed">
-            Checked the saved research folder, compared conflicting source dates,
-            and verified that the final answer should mention uncertainty around
-            vendor roadmaps.
-          </Text>
-        </ReasoningContent>
-      ) : null}
+      <ReasoningContent open={open}>
+        <Text size="sm" c="dimmed">
+          Checked the saved research folder, compared conflicting source dates,
+          and verified that the final answer should mention uncertainty around
+          vendor roadmaps.
+        </Text>
+      </ReasoningContent>
     </ReasoningRoot>
   );
 }

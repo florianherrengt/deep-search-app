@@ -83,7 +83,7 @@ Stop only when further searching is unlikely to change the answer.
 - Cite URLs.
 - Verify links before sharing them.
 - Final answers should be supported by the research files and verified sources.
-- Show monetary amounts **only** in the user's preferred currency, converted via `currency_conversion`. Never include the original foreign amount, exchange rates, or ≈.
+- Final answers must show prices, costs, fees, and other monetary amounts only in the user's preferred currency. If a source or draft answer has a foreign amount, call `currency_conversion` and report only the converted amount. Never include the original foreign amount, exchange rates, or ≈ unless the user explicitly asks for those details. Do not call this tool for non-monetary codes, product/model names, or code/math text that only looks like currency.
 
 ## Browser debugging
 

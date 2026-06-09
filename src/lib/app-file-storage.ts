@@ -72,6 +72,7 @@ export const WriteAppFileInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
   filename: SafePathSegmentSchema,
   content: z.string(),
+  emitChange: z.boolean().optional(),
 });
 
 export const ReadAppFileInputSchema = z.object({
@@ -130,9 +131,11 @@ export async function writeAppFile(input: WriteAppFileInput): Promise<void> {
     );
   }
 
-  const folderName = researchFolderNameFromSubfolder(parsed.subfolder);
-  if (folderName) {
-    emitResearchLibraryChanged({ changeType: "write", folderName });
+  if (parsed.emitChange !== false) {
+    const folderName = researchFolderNameFromSubfolder(parsed.subfolder);
+    if (folderName) {
+      emitResearchLibraryChanged({ changeType: "write", folderName });
+    }
   }
 }
 

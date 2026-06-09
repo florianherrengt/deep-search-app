@@ -134,44 +134,32 @@ describe("research history", () => {
         parts: [{ type: "text", text: "Hi" }],
       },
     ];
-    fsMocks.exists
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false);
-    fsMocks.readDir.mockResolvedValueOnce([
-      {
-        name: "2026-05-21T10-00-00.000Z.json",
-        isDirectory: false,
-        isFile: true,
-        isSymlink: false,
+    mockAppStorage({
+      directories: {
+        "search-results/market-map/chats": [
+          fileEntry("2026-05-21T10-00-00.000Z.json"),
+          fileEntry("2026-05-22T10-00-00.000Z.json"),
+        ],
       },
-      {
-        name: "2026-05-22T10-00-00.000Z.json",
-        isDirectory: false,
-        isFile: true,
-        isSymlink: false,
+      files: {
+        "search-results/market-map/chats/2026-05-21T10-00-00.000Z.json":
+          JSON.stringify({
+            id: "2026-05-21T10-00-00.000Z",
+            title: "Older chat",
+            createdAt: "2026-05-21T10:00:00.000Z",
+            updatedAt: "2026-05-21T10:30:00.000Z",
+            messages,
+          }),
+        "search-results/market-map/chats/2026-05-22T10-00-00.000Z.json":
+          JSON.stringify({
+            id: "2026-05-22T10-00-00.000Z",
+            title: "Newer chat",
+            createdAt: "2026-05-22T10:00:00.000Z",
+            updatedAt: "2026-05-22T10:30:00.000Z",
+            messages,
+          }),
       },
-    ]);
-    fsMocks.readTextFile
-      .mockResolvedValueOnce(
-        JSON.stringify({
-          id: "2026-05-21T10-00-00.000Z",
-          title: "Older chat",
-          createdAt: "2026-05-21T10:00:00.000Z",
-          updatedAt: "2026-05-21T10:30:00.000Z",
-          messages,
-        }),
-      )
-      .mockResolvedValueOnce(
-        JSON.stringify({
-          id: "2026-05-22T10-00-00.000Z",
-          title: "Newer chat",
-          createdAt: "2026-05-22T10:00:00.000Z",
-          updatedAt: "2026-05-22T10:30:00.000Z",
-          messages,
-        }),
-      );
+    });
 
     await expect(listResearchChats("market-map")).resolves.toEqual([
       {
@@ -180,7 +168,6 @@ describe("research history", () => {
         createdAt: "2026-05-22T10:00:00.000Z",
         updatedAt: "2026-05-22T10:30:00.000Z",
         messageCount: 2,
-        legacy: false,
       },
       {
         id: "2026-05-21T10-00-00.000Z",
@@ -188,7 +175,6 @@ describe("research history", () => {
         createdAt: "2026-05-21T10:00:00.000Z",
         updatedAt: "2026-05-21T10:30:00.000Z",
         messageCount: 2,
-        legacy: false,
       },
     ]);
   });
@@ -433,8 +419,9 @@ describe("research history", () => {
         parts: [{ type: "text", text: "Hello" }],
       },
     ];
-    fsMocks.exists.mockResolvedValueOnce(false);
-    fsMocks.exists.mockResolvedValueOnce(true);
+    fsMocks.exists.mockImplementation(async (path: string) => {
+      return path === "search-results/provisional-folder";
+    });
 
     await moveResearchChatToFolder({
       fromFolderName: "provisional-folder",
@@ -529,3 +516,238 @@ function fileEntry(name: string) {
     isSymlink: false,
   };
 }
+
+describe("chat history metadata index", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    tauriMocks.invoke.mockResolvedValue(undefined);
+  });
+  const folderName = "perf-test";
+  const chatId = "2026-06-08T10-00-00.000Z";
+
+  function generateLargeConversation({
+    researchSteps = 30,
+    avgToolResultsPerStep = 6,
+    avgExtractChars = 8000,
+  } = {}) {
+    const messages: Array<Record<string, unknown>> = [];
+    let msgIndex = 0;
+
+    for (let step = 0; step < researchSteps; step++) {
+      const stepLetter = String.fromCharCode(97 + (step % 26));
+
+      messages.push({
+        id: `user-${++msgIndex}`,
+        role: "user",
+        parts: [
+          { type: "text", text: `Find information about topic ${stepLetter} for my research on AI infrastructure step ${step + 1}.` },
+        ],
+      });
+
+      messages.push({
+        id: `assistant-tool-${++msgIndex}`,
+        role: "assistant",
+        parts: [
+          ...Array.from({ length: 3 }, (_, i) => ({
+            type: "tool-call",
+            toolCallId: `call-${step}-${i}`,
+            toolName: i === 0 ? "web_search" : i === 1 ? "extract_page_content" : "search_research",
+            args: { query: `research topic ${stepLetter} part ${i}` },
+          })),
+        ],
+      });
+
+      for (let t = 0; t < avgToolResultsPerStep; t++) {
+        const isExtract = t % 3 === 0;
+        const resultText = isExtract
+          ? "Extracted page content:\n\n" + "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(avgExtractChars / 56)
+          : `Search result ${t + 1} for topic ${stepLetter}: found relevant data with key insights about ${stepLetter}-related technologies. `.repeat(30);
+
+        messages.push({
+          id: `tool-result-${++msgIndex}`,
+          role: "user",
+          parts: [
+            {
+              type: "tool-result",
+              toolCallId: `call-${step}-${t % 3}`,
+              toolName: t % 3 === 0 ? "web_search" : t % 3 === 1 ? "extract_page_content" : "search_research",
+              result: isExtract ? { success: true, content: resultText, url: `https://example.com/page-${step}-${t}` } : { success: true, results: [{ title: `Result ${t}`, url: `https://example.com/${step}-${t}` }] },
+            },
+          ],
+        });
+      }
+
+      messages.push({
+        id: `assistant-${++msgIndex}`,
+        role: "assistant",
+        parts: [
+          { type: "text", text: `Based on the research for topic ${stepLetter}, here's what I found. `.repeat(20) },
+        ],
+      });
+    }
+
+    return messages;
+  }
+
+  function serializedForm(
+    messages: Array<Record<string, unknown>>,
+    overrides: Record<string, unknown> = {},
+  ) {
+    return JSON.stringify({
+      id: chatId,
+      title: "Large performance test conversation",
+      createdAt: "2026-06-08T10:00:00.000Z",
+      updatedAt: "2026-06-08T11:00:00.000Z",
+      messages,
+      ...overrides,
+    });
+  }
+
+  function serializedIndex(chats: Array<Record<string, unknown>>) {
+    return JSON.stringify({ version: 1, chats });
+  }
+
+  it("lists chats from the metadata index without reading transcripts", async () => {
+    const messages = generateLargeConversation({ researchSteps: 30 });
+    const json = serializedForm(messages);
+    const index = serializedIndex([
+      {
+        id: chatId,
+        title: "Large performance test conversation",
+        createdAt: "2026-06-08T10:00:00.000Z",
+        updatedAt: "2026-06-08T11:00:00.000Z",
+        messageCount: messages.length,
+      },
+    ]);
+
+    mockAppStorage({
+      directories: {
+        [`search-results/${folderName}`]: [directoryEntry("chats")],
+        [`search-results/${folderName}/chats`]: [
+          fileEntry("index.json"),
+          fileEntry(`${chatId}.json`),
+        ],
+      },
+      files: {
+        [`search-results/${folderName}/chats/index.json`]: index,
+        [`search-results/${folderName}/chats/${chatId}.json`]: json,
+      },
+    });
+
+    await expect(listResearchChats(folderName)).resolves.toEqual([
+      {
+        id: chatId,
+        title: "Large performance test conversation",
+        createdAt: "2026-06-08T10:00:00.000Z",
+        updatedAt: "2026-06-08T11:00:00.000Z",
+        messageCount: messages.length,
+      },
+    ]);
+
+    expect(fsMocks.readTextFile).toHaveBeenCalledWith(
+      `search-results/${folderName}/chats/index.json`,
+      { baseDir: BaseDirectory.AppData },
+    );
+    expect(fsMocks.readTextFile).not.toHaveBeenCalledWith(
+      `search-results/${folderName}/chats/${chatId}.json`,
+      { baseDir: BaseDirectory.AppData },
+    );
+  });
+
+  it("rebuilds and writes the metadata index for transcript-only folders", async () => {
+    const messages = generateLargeConversation({ researchSteps: 3 });
+    const olderChatId = "2026-06-07T10-00-00.000Z";
+    const dirs: Record<string, Array<Record<string, unknown>>> = {
+      [`search-results/${folderName}`]: [directoryEntry("chats")],
+      [`search-results/${folderName}/chats`]: [
+        fileEntry(`${olderChatId}.json`),
+        fileEntry(`${chatId}.json`),
+      ],
+    };
+    const files: Record<string, string> = {
+      [`search-results/${folderName}/chats/${olderChatId}.json`]:
+        serializedForm(messages, {
+          id: olderChatId,
+          title: "Older chat",
+          createdAt: "2026-06-07T10:00:00.000Z",
+          updatedAt: "2026-06-07T11:00:00.000Z",
+        }),
+      [`search-results/${folderName}/chats/${chatId}.json`]: serializedForm(
+        messages,
+        { title: "Newer chat" },
+      ),
+    };
+
+    mockAppStorage({ directories: dirs, files });
+
+    const result = await listResearchChats(folderName);
+
+    expect(result.map((chat) => chat.title)).toEqual([
+      "Newer chat",
+      "Older chat",
+    ]);
+
+    const indexWrite = fsMocks.writeTextFile.mock.calls.find(
+      ([path]) => path === `search-results/${folderName}/chats/index.json`,
+    );
+    expect(indexWrite).toBeDefined();
+    expect(JSON.parse(indexWrite?.[1] as string)).toEqual({
+      version: 1,
+      chats: [
+        {
+          id: chatId,
+          title: "Newer chat",
+          createdAt: "2026-06-08T10:00:00.000Z",
+          updatedAt: "2026-06-08T11:00:00.000Z",
+          messageCount: messages.length,
+        },
+        {
+          id: olderChatId,
+          title: "Older chat",
+          createdAt: "2026-06-07T10:00:00.000Z",
+          updatedAt: "2026-06-07T11:00:00.000Z",
+          messageCount: messages.length,
+        },
+      ],
+    });
+  });
+
+  it("reads only the selected transcript after resolving the latest chat from the index", async () => {
+    const messages = generateLargeConversation({ researchSteps: 2 });
+
+    mockAppStorage({
+      directories: {
+        [`search-results/${folderName}`]: [directoryEntry("chats")],
+        [`search-results/${folderName}/chats`]: [
+          fileEntry("index.json"),
+          fileEntry(`${chatId}.json`),
+        ],
+      },
+      files: {
+        [`search-results/${folderName}/chats/index.json`]: serializedIndex([
+          {
+            id: chatId,
+            title: "Latest chat",
+            createdAt: "2026-06-08T10:00:00.000Z",
+            updatedAt: "2026-06-08T11:00:00.000Z",
+            messageCount: messages.length,
+          },
+        ]),
+        [`search-results/${folderName}/chats/${chatId}.json`]:
+          serializedForm(messages),
+      },
+    });
+
+    await expect(readResearchChatMessages(folderName)).resolves.toEqual(
+      messages,
+    );
+    expect(fsMocks.readTextFile).toHaveBeenCalledWith(
+      `search-results/${folderName}/chats/index.json`,
+      { baseDir: BaseDirectory.AppData },
+    );
+    expect(fsMocks.readTextFile).toHaveBeenCalledWith(
+      `search-results/${folderName}/chats/${chatId}.json`,
+      { baseDir: BaseDirectory.AppData },
+    );
+  });
+});

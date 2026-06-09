@@ -67,7 +67,7 @@ describe("GuardrailCard", () => {
 
     expect(html).toContain("Research checkpoint passed");
     expect(html).toContain("The agent completed the research checkpoint");
-    expect(html).toContain("--mantine-color-green-3");
+    expect(html).toContain('data-tone="success"');
   });
 
   it("renders tool_call_requirement events", () => {
@@ -97,15 +97,15 @@ describe("GuardrailCard", () => {
             kind: "currency_conversion",
             status: "retrying",
             title: "Currency conversion enforced",
-            message: "Prompted the agent to convert foreign currency amounts.",
-            reason: "Foreign currency amounts found: $100 (USD). Target currency: EUR. Do not display foreign currencies.",
+            message: "Convert $100 (USD) to EUR.",
+            reason: "Foreign currency amounts found: $100 (USD). Target currency: EUR. Convert $100 (USD) to EUR.",
           }}
         />,
       ),
     );
 
     expect(html).toContain("Currency conversion enforced");
-    expect(html).toContain("convert foreign currency amounts");
+    expect(html).toContain("Convert $100 (USD) to EUR");
   });
 
   it("renders nothing for invalid guardrail events", () => {

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { UIMessage } from "ai";
 import { SettingsProvider, useSettings } from "@/hooks/use-settings";
 import { PromptTemplatesProvider } from "@/hooks/use-prompt-templates";
@@ -10,7 +18,6 @@ import {
   getDefaultChatModelId,
 } from "@/lib/chat-provider-settings";
 import { type ChatModelConfig, type ChatProvider } from "@/lib/chat-providers";
-import { Chat } from "@/components/chat";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ToolsPanel } from "@/components/tools-panel";
 import { PromptTemplatesSection } from "@/components/prompt-templates-section";
@@ -33,6 +40,10 @@ import {
 } from "@/lib/research-history";
 import type { ResearchFolderChangeOptions } from "@/lib/transport";
 import { resolveEmbeddingConfig, resolveRerankerConfig } from "@/lib/settings-store";
+
+const LazyChat = lazy(() =>
+  import("@/components/chat").then((m) => ({ default: m.Chat })),
+);
 
 declare global {
   interface Window {
@@ -426,13 +437,13 @@ function AppInner() {
     folderName: string,
     chatId: string,
   ) => {
+    switchToTab("main");
     const messages = await readResearchChatMessages(folderName, chatId);
     activateSession({
       researchChatId: chatId,
       researchFolder: folderName,
       initialMessages: messages,
     });
-    switchToTab("main");
   };
 
   const handleNewResearchChat = (folderName: string) => {
@@ -586,32 +597,34 @@ function AppInner() {
                 style={{ height: "100%" }}
                 hidden={session.sessionId !== activeSessionId}
               >
-                <Chat
-                  sessionId={session.sessionId}
-                  runtimeChatId={session.runtimeChatId}
-                  researchChatId={session.researchChatId}
-                  modelOptions={chatModelOptions}
-                  defaultModelId={defaultChatModelId}
-                  researchApiKey={settings.openrouter_api_key}
-                  researchFolder={session.researchFolder}
-                  isProvisionalResearchFolder={
-                    session.isProvisionalResearchFolder
-                  }
-                  selectedModelId={effectiveSelectedModelId}
-                  initialMessages={session.initialMessages}
-                  onResearchFolderChange={handleResearchFolderChange}
-                  onRunStateChange={handleRunStateChange}
-                  onSelectedModelIdChange={handleSelectedModelChange}
-                  searchKeys={searchKeys}
-                  currency={settings.currency}
-                  embeddingConfig={embeddingConfig}
-                  rerankerConfig={rerankerConfig}
-                  onResearchChatSaved={(folderName) => {
-                    if (folderName === activeResearchFolderRef.current) {
-                      void refreshResearchChats(folderName);
+                <Suspense fallback={<div style={{ height: "100%" }} />}>
+                  <LazyChat
+                    sessionId={session.sessionId}
+                    runtimeChatId={session.runtimeChatId}
+                    researchChatId={session.researchChatId}
+                    modelOptions={chatModelOptions}
+                    defaultModelId={defaultChatModelId}
+                    researchApiKey={settings.openrouter_api_key}
+                    researchFolder={session.researchFolder}
+                    isProvisionalResearchFolder={
+                      session.isProvisionalResearchFolder
                     }
-                  }}
-                />
+                    selectedModelId={effectiveSelectedModelId}
+                    initialMessages={session.initialMessages}
+                    onResearchFolderChange={handleResearchFolderChange}
+                    onRunStateChange={handleRunStateChange}
+                    onSelectedModelIdChange={handleSelectedModelChange}
+                    searchKeys={searchKeys}
+                    currency={settings.currency}
+                    embeddingConfig={embeddingConfig}
+                    rerankerConfig={rerankerConfig}
+                    onResearchChatSaved={(folderName) => {
+                      if (folderName === activeResearchFolderRef.current) {
+                        void refreshResearchChats(folderName);
+                      }
+                    }}
+                  />
+                </Suspense>
               </div>
             ))}
           </div>

@@ -179,6 +179,43 @@ const CURRENCY_CODE_PATTERN = new RegExp(
   "gi",
 );
 
+const AMOUNT_WORD_PATTERN =
+  "(?:\\d[\\d,.]*|(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)(?:[-\\s]+(?:and\\s+)?(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion))*)";
+
+const CURRENCY_NAME_PATTERNS: Array<{
+  pattern: string;
+  codes: Currency[];
+}> = [
+  {
+    pattern:
+      "(?:(?:u\\.?s\\.?|american|canadian|australian|new zealand|singapore|hong kong)\\s+)?dollars?",
+    codes: ["USD", "CAD", "AUD", "NZD", "SGD", "HKD"],
+  },
+  { pattern: "euros?", codes: ["EUR"] },
+  { pattern: "(?:british\\s+pounds?|pounds?\\s+sterling|sterling)", codes: ["GBP"] },
+  { pattern: "yen", codes: ["JPY"] },
+  { pattern: "yuan", codes: ["CNY"] },
+  { pattern: "rupees?", codes: ["INR"] },
+  { pattern: "francs?", codes: ["CHF"] },
+];
+
+function currencySymbolPattern(symbol: string): RegExp | null {
+  if (/^[A-Za-z]$/.test(symbol)) return null;
+
+  const escaped = escapeRegex(symbol);
+  if (/^[A-Za-z0-9]+$/.test(symbol)) {
+    return new RegExp(
+      `\\b${escaped}\\s+[\\d,.]+\\b|\\b[\\d,.]+\\s+${escaped}\\b`,
+      "g",
+    );
+  }
+
+  return new RegExp(
+    `${escaped}\\s*[\\d,.]+\\b|\\b[\\d,.]+\\s*${escaped}`,
+    "g",
+  );
+}
+
 function detectForeignCurrencyMentions(
   text: string,
   targetCurrency: Currency,
@@ -187,11 +224,8 @@ function detectForeignCurrencyMentions(
 
   for (const [symbol, codes] of Object.entries(CURRENCY_SYMBOL_TO_CODES)) {
     if (codes.split(", ").includes(targetCurrency)) continue;
-    const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const symbolPattern = new RegExp(
-      `${escaped}\\s*[\\d,.]+\\b|\\b[\\d,.]+\\s*${escaped}`,
-      "g",
-    );
+    const symbolPattern = currencySymbolPattern(symbol);
+    if (!symbolPattern) continue;
     for (const m of text.matchAll(symbolPattern)) {
       matches.add(`${m[0]} (${codes})`);
     }
@@ -201,6 +235,17 @@ function detectForeignCurrencyMentions(
     const code = (m[1] || m[2]).toUpperCase();
     if (code !== targetCurrency) {
       matches.add(m[0]);
+    }
+  }
+
+  for (const { pattern, codes } of CURRENCY_NAME_PATTERNS) {
+    if (codes.includes(targetCurrency)) continue;
+    const currencyNamePattern = new RegExp(
+      `\\b${AMOUNT_WORD_PATTERN}\\s+(?:${pattern})\\b`,
+      "gi",
+    );
+    for (const m of text.matchAll(currencyNamePattern)) {
+      matches.add(`${m[0]} (${codes.join(", ")})`);
     }
   }
 
@@ -341,6 +386,8 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
 
   const text = getMessageText(responseMessage);
   if (!text) return { action: "accept" };
+  const userText = getLatestUserText(messages);
+  const currentTurnMessages = getCurrentTurnMessages(messages, responseMessage);
 
   if (
     !hasToolCall(responseMessage, "ask_questions") &&
@@ -365,12 +412,22 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
     };
   }
 
-  if (targetCurrency && !hasToolCall(responseMessage, "currency_conversion")) {
+  if (
+    targetCurrency &&
+    !hasToolCall(responseMessage, "currency_conversion")
+  ) {
     const foreignMentions = detectForeignCurrencyMentions(
       stripCodeBlocksAndQuotes(text),
       targetCurrency,
     );
     if (foreignMentions.length > 0) {
+      const conversionNeed = formatCurrencyConversionNeed(
+        foreignMentions,
+        targetCurrency,
+      );
+      const currencyToolAlreadyCalled = currentTurnMessages.some((message) =>
+        hasToolCall(message, "currency_conversion"),
+      );
       return {
         action: "retry",
         guard: "currency_conversion",
@@ -378,11 +435,15 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
           kind: "currency_conversion",
           status: "retrying",
           title: "Currency conversion enforced",
-          message: "Prompted the agent to convert foreign currency amounts.",
-          reason: `Foreign currency amounts found: ${foreignMentions.join(", ")}. Target currency: ${targetCurrency}. Do not display foreign currencies.`,
+          message: conversionNeed,
+          reason: `Foreign currency amounts found: ${foreignMentions.join(", ")}. Target currency: ${targetCurrency}. ${conversionNeed}`,
         },
-        retryInstruction: `Your response contains amounts in a foreign currency (${foreignMentions.join(", ")}). Use the currency_conversion tool to convert them to ${targetCurrency} before responding.`,
-        toolChoice: "required" as ToolChoice<TOOLS>,
+        retryInstruction: currencyToolAlreadyCalled
+          ? `Your response still contains foreign currency amounts. ${conversionNeed} You have already used currency_conversion in this turn; rewrite the answer using only ${targetCurrency} amounts. Do not include the original foreign amounts, exchange rates, or ≈.`
+          : `Your response contains foreign currency amounts. ${conversionNeed} Use the currency_conversion tool before responding. In the final answer, show only ${targetCurrency} amounts; do not include the original foreign amounts, exchange rates, or ≈.`,
+        ...(currencyToolAlreadyCalled
+          ? {}
+          : { toolChoice: "required" as ToolChoice<TOOLS> }),
       };
     }
   }
@@ -391,10 +452,7 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
     return { action: "accept" };
   }
 
-  const userText = getLatestUserText(messages);
   if (!isResearchLikeRequest(userText)) return { action: "accept" };
-
-  const currentTurnMessages = getCurrentTurnMessages(messages, responseMessage);
 
   if (currentTurnMessages.some(hasResearchCheckpoint)) {
     return { action: "accept" };
@@ -461,6 +519,19 @@ function toolRequirementRetry<TOOLS extends ToolSet>(
       toolName: nextTool,
     } as ToolChoice<TOOLS>,
   };
+}
+
+function formatCurrencyConversionNeed(
+  mentions: string[],
+  targetCurrency: Currency,
+) {
+  return `Convert ${formatList(mentions)} to ${targetCurrency}.`;
+}
+
+function formatList(items: string[]) {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
 function getCurrentTurnMessages(

@@ -259,7 +259,10 @@ export function Chat({
   }, [isRunning, onRunStateChange, sessionId]);
 
   const runtime = useAISDKRuntime(chat);
-  const tokenCount = getCurrentTokenCount(chat.messages);
+  const tokenCount = useMemo(
+    () => getCurrentTokenCount(chat.messages),
+    [chat.messages],
+  );
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>

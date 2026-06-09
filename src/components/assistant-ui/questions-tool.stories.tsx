@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ThreadMessageLike } from "@assistant-ui/react";
-import { Box } from "@mantine/core";
+import { Box, SimpleGrid, Stack, Text } from "@mantine/core";
 import { PromptTemplatesProvider } from "@/hooks/use-prompt-templates";
 import {
   AssistantRuntimeStoryProvider,
   setStorybookTauriStores,
 } from "@/lib/storybook";
-import { QuestionsToolUI } from "./questions-tool";
+import { QuestionsToolUI, QuestionsToolView } from "./questions-tool";
 import { Thread } from "./thread";
 
 const pendingQuestionMessages: readonly ThreadMessageLike[] = [
@@ -66,6 +66,10 @@ const completedQuestionMessages: readonly ThreadMessageLike[] = [
               answer: "Empty states and errors",
               custom: true,
             },
+            {
+              question: "Should completed answers remain visible?",
+              answer: "yes",
+            },
           ],
         },
       },
@@ -122,4 +126,79 @@ export const Completed: Story = {
   args: {
     initialMessages: completedQuestionMessages,
   },
+};
+
+const visualReviewArgs = {
+  questions: [
+    {
+      question: "Which area should the review prioritize?",
+      candidates: [
+        { label: "A11y", value: "a11y" },
+        { label: "Responsive states", value: "responsive" },
+        { label: "Tool output", value: "tool-output" },
+      ],
+    },
+    {
+      question: "How broad should the component inventory be?",
+      candidates: [
+        { label: "Core panels", value: "core-panels" },
+        { label: "Everything reusable", value: "all-reusable" },
+      ],
+    },
+  ],
+};
+
+const visualReviewResult = {
+  answers: [
+    {
+      question: "Which area should the review prioritize?",
+      answer: "Tool output",
+    },
+    {
+      question: "How broad should the component inventory be?",
+      answer: "Settings, assistant thread, and reusable cards",
+      custom: true,
+    },
+  ],
+};
+
+function VisualStatesStory() {
+  const schemes = ["light", "dark"] as const;
+
+  return (
+    <SimpleGrid cols={{ base: 1, md: 2 }} spacing={0}>
+      {schemes.map((scheme) => (
+        <Box
+          key={scheme}
+          data-mantine-color-scheme={scheme}
+          p="md"
+          mih="100vh"
+          style={{
+            backgroundColor:
+              scheme === "dark"
+                ? "var(--mantine-color-dark-7)"
+                : "var(--mantine-color-gray-0)",
+          }}
+        >
+          <Stack gap="sm">
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+              {scheme}
+            </Text>
+            <QuestionsToolView
+              args={visualReviewArgs}
+              onSubmit={() => undefined}
+            />
+            <QuestionsToolView
+              args={visualReviewArgs}
+              result={visualReviewResult}
+            />
+          </Stack>
+        </Box>
+      ))}
+    </SimpleGrid>
+  );
+}
+
+export const VisualStates: Story = {
+  render: () => <VisualStatesStory />,
 };

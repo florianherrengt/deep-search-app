@@ -20,6 +20,8 @@ const CHATS_SUBFOLDER = "chats";
 const LEGACY_CHAT_TRANSCRIPT_ID = "legacy-chat";
 const LEGACY_CHAT_TRANSCRIPT_FILENAME = "chat.json";
 const CHAT_FILE_EXTENSION = ".json";
+const CHAT_INDEX_FILENAME = "index.json";
+const CHAT_INDEX_VERSION = 1;
 
 export interface ResearchFolder {
   name: string;
@@ -55,6 +57,22 @@ const StoredResearchChatSchema = z
   })
   .passthrough();
 
+const ResearchChatSummarySchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    createdAt: z.string().nullable(),
+    updatedAt: z.string().nullable(),
+    messageCount: z.number().int().nonnegative(),
+    legacy: z.boolean().optional(),
+  })
+  .passthrough();
+
+const ResearchChatIndexSchema = z.object({
+  version: z.literal(CHAT_INDEX_VERSION),
+  chats: z.array(ResearchChatSummarySchema),
+});
+
 interface StoredResearchChat {
   id: string;
   title: string;
@@ -82,12 +100,49 @@ export async function listResearchChats(
   folderName: string,
 ): Promise<ResearchChatSummary[]> {
   const parsedFolderName = SafePathSegmentSchema.parse(folderName);
+  const indexedChats = await readResearchChatIndex(parsedFolderName);
+
+  if (indexedChats) {
+    return indexedChats.sort(compareResearchChats);
+  }
+
+  return rebuildResearchChatIndex(parsedFolderName);
+}
+
+export async function readResearchChatMessages(
+  folderName: string,
+  chatId?: string | null,
+): Promise<UIMessage[]> {
+  const parsedFolderName = SafePathSegmentSchema.parse(folderName);
+
+  if (!chatId) {
+    const [latestChat] = await listResearchChats(parsedFolderName);
+    if (!latestChat) {
+      return [];
+    }
+
+    return readResearchChatMessages(parsedFolderName, latestChat.id);
+  }
+
+  if (chatId === LEGACY_CHAT_TRANSCRIPT_ID) {
+    return readLegacyResearchChatMessages(parsedFolderName);
+  }
+
+  const parsedChatId = SafePathSegmentSchema.parse(chatId);
+  const chat = await readStoredResearchChat(parsedFolderName, parsedChatId);
+  return chat?.messages ?? [];
+}
+
+async function rebuildResearchChatIndex(
+  folderName: string,
+): Promise<ResearchChatSummary[]> {
+  const parsedFolderName = SafePathSegmentSchema.parse(folderName);
   const subfolder = researchChatsSubfolder(parsedFolderName);
   const filenames = await listAppFiles({ subfolder });
 
   const storedChats = await Promise.all(
     filenames
-      .filter((filename) => filename.endsWith(CHAT_FILE_EXTENSION))
+      .filter(isResearchChatTranscriptFilename)
       .map(async (filename) => {
         const chatId = filename.slice(0, -CHAT_FILE_EXTENSION.length);
         const parsedChatId = SafePathSegmentSchema.safeParse(chatId);
@@ -115,33 +170,15 @@ export async function listResearchChats(
         })
       : null;
 
-  return [...storedChats, legacyChat]
+  const chats = [...storedChats, legacyChat]
     .filter((chat): chat is ResearchChatSummary => chat !== null)
     .sort(compareResearchChats);
-}
 
-export async function readResearchChatMessages(
-  folderName: string,
-  chatId?: string | null,
-): Promise<UIMessage[]> {
-  const parsedFolderName = SafePathSegmentSchema.parse(folderName);
-
-  if (!chatId) {
-    const [latestChat] = await listResearchChats(parsedFolderName);
-    if (!latestChat) {
-      return [];
-    }
-
-    return readResearchChatMessages(parsedFolderName, latestChat.id);
+  if (chats.length > 0) {
+    await writeResearchChatIndex(parsedFolderName, chats).catch(() => {});
   }
 
-  if (chatId === LEGACY_CHAT_TRANSCRIPT_ID) {
-    return readLegacyResearchChatMessages(parsedFolderName);
-  }
-
-  const parsedChatId = SafePathSegmentSchema.parse(chatId);
-  const chat = await readStoredResearchChat(parsedFolderName, parsedChatId);
-  return chat?.messages ?? [];
+  return chats;
 }
 
 export async function saveResearchChatMessages(
@@ -157,17 +194,32 @@ export async function saveResearchChatMessages(
       filename: LEGACY_CHAT_TRANSCRIPT_FILENAME,
       content: JSON.stringify(messages, null, 2),
     });
+    await upsertResearchChatSummary(parsedFolderName, {
+      id: LEGACY_CHAT_TRANSCRIPT_ID,
+      title: createChatTitle(messages),
+      createdAt: null,
+      updatedAt: null,
+      messageCount: messages.length,
+      legacy: true,
+    }).catch(() => {});
     return;
   }
 
   const parsedChatId = SafePathSegmentSchema.parse(chatId);
-  const existingChat = await readStoredResearchChat(
+  const existingSummary = await readExistingResearchChatSummary(
     parsedFolderName,
     parsedChatId,
   );
   const now = new Date().toISOString();
   const createdAt =
-    existingChat?.createdAt ?? dateFromResearchChatId(parsedChatId) ?? now;
+    existingSummary?.createdAt ?? dateFromResearchChatId(parsedChatId) ?? now;
+  const summary: ResearchChatSummary = {
+    id: parsedChatId,
+    title: createChatTitle(messages),
+    createdAt,
+    updatedAt: now,
+    messageCount: messages.length,
+  };
 
   await writeAppFile({
     subfolder: researchChatsSubfolder(parsedFolderName),
@@ -175,7 +227,7 @@ export async function saveResearchChatMessages(
     content: JSON.stringify(
       {
         id: parsedChatId,
-        title: createChatTitle(messages),
+        title: summary.title,
         createdAt,
         updatedAt: now,
         messages,
@@ -184,6 +236,8 @@ export async function saveResearchChatMessages(
       2,
     ),
   });
+
+  await upsertResearchChatSummary(parsedFolderName, summary).catch(() => {});
 }
 
 export async function createProvisionalResearchFolder(
@@ -235,26 +289,6 @@ export function createTimestampResearchFolderName(date = new Date()): string {
   const seconds = padDatePart(date.getSeconds());
 
   return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
-}
-
-async function readLegacyResearchChatMessages(
-  folderName: string,
-): Promise<UIMessage[]> {
-  const content = await readAppFile({
-    subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${folderName}`,
-    filename: LEGACY_CHAT_TRANSCRIPT_FILENAME,
-  });
-
-  if (!content) {
-    return [];
-  }
-
-  try {
-    const parsed = StoredChatMessagesSchema.parse(tryParseJson(content));
-    return parsed as UIMessage[];
-  } catch {
-    return [];
-  }
 }
 
 async function readStoredResearchChat(
@@ -348,6 +382,96 @@ function researchChatFilename(chatId: string) {
   return `${chatId}${CHAT_FILE_EXTENSION}`;
 }
 
+async function readLegacyResearchChatMessages(
+  folderName: string,
+): Promise<UIMessage[]> {
+  const content = await readAppFile({
+    subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${folderName}`,
+    filename: LEGACY_CHAT_TRANSCRIPT_FILENAME,
+  });
+
+  if (!content) {
+    return [];
+  }
+
+  try {
+    const parsed = StoredChatMessagesSchema.parse(tryParseJson(content));
+    return parsed as UIMessage[];
+  } catch {
+    return [];
+  }
+}
+
+async function readResearchChatIndex(
+  folderName: string,
+): Promise<ResearchChatSummary[] | null> {
+  const content = await readAppFile({
+    subfolder: researchChatsSubfolder(folderName),
+    filename: CHAT_INDEX_FILENAME,
+  });
+
+  if (!content) {
+    return null;
+  }
+
+  try {
+    const parsed = ResearchChatIndexSchema.parse(tryParseJson(content));
+    return parsed.chats
+      .map(normalizeResearchChatSummary)
+      .filter((chat): chat is ResearchChatSummary => chat !== null);
+  } catch {
+    return null;
+  }
+}
+
+async function writeResearchChatIndex(
+  folderName: string,
+  chats: ResearchChatSummary[],
+): Promise<void> {
+  await writeAppFile({
+    subfolder: researchChatsSubfolder(folderName),
+    filename: CHAT_INDEX_FILENAME,
+    emitChange: false,
+    content: JSON.stringify(
+      {
+        version: CHAT_INDEX_VERSION,
+        chats: chats.map(normalizeResearchChatSummary).filter(Boolean),
+      },
+      null,
+      2,
+    ),
+  });
+}
+
+async function upsertResearchChatSummary(
+  folderName: string,
+  summary: ResearchChatSummary,
+): Promise<void> {
+  const existingChats =
+    (await readResearchChatIndex(folderName)) ??
+    (await rebuildResearchChatIndex(folderName));
+  const nextChats = [
+    summary,
+    ...existingChats.filter((chat) => chat.id !== summary.id),
+  ].sort(compareResearchChats);
+
+  await writeResearchChatIndex(folderName, nextChats);
+}
+
+async function readExistingResearchChatSummary(
+  folderName: string,
+  chatId: string,
+): Promise<ResearchChatSummary | null> {
+  const indexedChats = await readResearchChatIndex(folderName);
+  const indexedChat = indexedChats?.find((chat) => chat.id === chatId);
+  if (indexedChat) {
+    return indexedChat;
+  }
+
+  const chat = await readStoredResearchChat(folderName, chatId);
+  return chat ? toResearchChatSummary(chat) : null;
+}
+
 function toResearchChatSummary(chat: StoredResearchChat): ResearchChatSummary {
   return {
     id: chat.id,
@@ -355,8 +479,37 @@ function toResearchChatSummary(chat: StoredResearchChat): ResearchChatSummary {
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
     messageCount: chat.messages.length,
-    legacy: chat.id === LEGACY_CHAT_TRANSCRIPT_ID,
+    ...(chat.id === LEGACY_CHAT_TRANSCRIPT_ID ? { legacy: true } : {}),
   };
+}
+
+async function getResearchFolderUpdatedAt(folderName: string) {
+  const [latestChat] = await listResearchChats(folderName);
+  return latestChat?.updatedAt ?? latestChat?.createdAt ?? null;
+}
+
+function normalizeResearchChatSummary(
+  chat: ResearchChatSummary,
+): ResearchChatSummary | null {
+  const parsedId = SafePathSegmentSchema.safeParse(chat.id);
+  if (!parsedId.success) {
+    return null;
+  }
+
+  return {
+    id: parsedId.data,
+    title: chat.title.trim() || "Untitled chat",
+    createdAt: chat.createdAt,
+    updatedAt: chat.updatedAt,
+    messageCount: chat.messageCount,
+    ...(chat.legacy ? { legacy: true } : {}),
+  };
+}
+
+function isResearchChatTranscriptFilename(filename: string) {
+  return (
+    filename !== CHAT_INDEX_FILENAME && filename.endsWith(CHAT_FILE_EXTENSION)
+  );
 }
 
 function compareResearchChats(
@@ -369,11 +522,6 @@ function compareResearchChats(
 function sortableChatDate(chat: ResearchChatSummary) {
   const value = chat.updatedAt ?? chat.createdAt;
   return sortableDate(value);
-}
-
-async function getResearchFolderUpdatedAt(folderName: string) {
-  const [latestChat] = await listResearchChats(folderName);
-  return latestChat?.updatedAt ?? latestChat?.createdAt ?? null;
 }
 
 function sortableDate(value?: string | null) {
