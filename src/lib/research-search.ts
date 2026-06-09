@@ -156,10 +156,6 @@ export async function deleteResearchFileIndex(
   return invoke("delete_research_file_index", { folder, filename });
 }
 
-export async function listResearchFoldersDb(): Promise<ResearchFolderInfo[]> {
-  return invoke<ResearchFolderInfo[]>("list_research_folders_db");
-}
-
 export async function backfillIndex(
   embeddingConfig: EmbeddingConfig,
   dimensions?: number,
