@@ -3,6 +3,7 @@ name = "deep-search-app"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
+default-run = "deep-search-app"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -38,6 +39,7 @@ sqlite-vec = "0.1"
 sha2 = "0.10"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 base64 = "0.22"
+tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 pulldown-cmark = { version = "0.13", default-features = false }

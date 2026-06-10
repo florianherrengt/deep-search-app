@@ -32,6 +32,7 @@ interface FolderScore {
   mrr: number;
   rank_of_first_expected: number | null;
   irrelevant_appeared: string[];
+  irrelevant_appeared_top_3: string[];
   no_match_correct: boolean;
   best_score_per_folder: Record<string, number>;
   chunks_per_folder: Record<string, number>;
@@ -73,6 +74,7 @@ interface AggregateReport {
   no_match_queries: number;
   no_match_correct: number;
   false_positives: string[];
+  false_positives_top_3: string[];
   cache_metadata: CacheMeta;
   query_results: QueryResult[];
 }
@@ -92,7 +94,7 @@ function makeDiagnostics(overrides: Partial<SearchDiagnostics> = {}): SearchDiag
     reranked_candidate_count: 5,
     metadata_match_count: 2,
     final_result_count: 7,
-    reranker_threshold: 0.5,
+    reranker_threshold: 0.55,
     latency_stage_ms: {
       total_ms: 10,
       embedding_ms: 2,
@@ -125,6 +127,7 @@ function makeQueryResult(overrides: Partial<QueryResult> = {}): QueryResult {
       mrr: 1.0,
       rank_of_first_expected: 1,
       irrelevant_appeared: [],
+      irrelevant_appeared_top_3: [],
       no_match_correct: true,
       best_score_per_folder: { "folder-a": 0.95 },
       chunks_per_folder: { "folder-a": 1 },
@@ -151,6 +154,9 @@ function computeAggregate(results: QueryResult[], cacheMeta: CacheMeta): Aggrega
   const falsePositives = results
     .filter((r) => r.scoring.irrelevant_appeared.length > 0)
     .map((r) => `${r.query_id}: ${r.scoring.irrelevant_appeared.join(", ")}`);
+  const falsePositivesTop3 = results
+    .filter((r) => r.scoring.irrelevant_appeared_top_3.length > 0)
+    .map((r) => `${r.query_id}: ${r.scoring.irrelevant_appeared_top_3.join(", ")}`);
 
   return {
     recall_at_1: total > 0 ? recall1Sum / total : 0,
@@ -162,6 +168,7 @@ function computeAggregate(results: QueryResult[], cacheMeta: CacheMeta): Aggrega
     no_match_queries: noMatchQueries,
     no_match_correct: noMatchCorrect,
     false_positives: falsePositives,
+    false_positives_top_3: falsePositivesTop3,
     cache_metadata: cacheMeta,
     query_results: results,
   };
@@ -226,6 +233,7 @@ describe("Report generation", () => {
         mrr: 1.0,
         rank_of_first_expected: null,
         irrelevant_appeared: [],
+        irrelevant_appeared_top_3: [],
         no_match_correct: true,
         best_score_per_folder: {},
         chunks_per_folder: {},
@@ -244,12 +252,32 @@ describe("Report generation", () => {
         scoring: {
           ...makeQueryResult().scoring,
           irrelevant_appeared: ["bad-folder"],
+          irrelevant_appeared_top_3: ["bad-folder"],
         },
       }),
     ];
     const agg = computeAggregate(results, defaultCacheMeta);
     expect(agg.false_positives.length).toBe(1);
     expect(agg.false_positives[0]).toContain("bad-folder");
+    expect(agg.false_positives_top_3.length).toBe(1);
+    expect(agg.false_positives_top_3[0]).toContain("bad-folder");
+  });
+
+  it("does not count lower-ranked false positives as top-3 failures", () => {
+    const results = [
+      makeQueryResult({
+        query_id: "q1",
+        expected_irrelevant: ["bad-folder"],
+        scoring: {
+          ...makeQueryResult().scoring,
+          irrelevant_appeared: ["bad-folder"],
+          irrelevant_appeared_top_3: [],
+        },
+      }),
+    ];
+    const agg = computeAggregate(results, defaultCacheMeta);
+    expect(agg.false_positives).toEqual(["q1: bad-folder"]);
+    expect(agg.false_positives_top_3).toEqual([]);
   });
 
   it("empty results produces zero aggregates", () => {
@@ -299,6 +327,6 @@ describe("Diagnostics output", () => {
 
   it("reranker_threshold is recorded", () => {
     const d = makeDiagnostics();
-    expect(d.reranker_threshold).toBe(0.5);
+    expect(d.reranker_threshold).toBe(0.55);
   });
 });

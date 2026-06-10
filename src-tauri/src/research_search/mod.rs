@@ -45,6 +45,12 @@ pub struct SearchDiagnostics {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchWithDiagnostics {
+    pub results: Vec<SearchResult>,
+    pub diagnostics: Vec<SearchDiagnostics>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StageLatencies {
     pub total_ms: u64,

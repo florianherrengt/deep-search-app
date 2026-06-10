@@ -54,7 +54,7 @@ describe("shouldContinueAfterToolResult", () => {
           userMessage("Verify this"),
           assistantMessage([
             { type: "step-start" },
-            toolPart("verified_research_is_good"),
+            toolPart("facts_check"),
             {
               type: "text",
               text: "Verification found no high-risk factual errors.",

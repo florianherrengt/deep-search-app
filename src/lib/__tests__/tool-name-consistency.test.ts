@@ -41,6 +41,7 @@ const NOT_TOOL_NAMES = new Set([
   "new",
   "folder_name",
   "query",
+  "relevant_memories",
 ]);
 
 describe("tool name consistency", () => {
@@ -100,11 +101,10 @@ describe("tool name consistency", () => {
     const essential = [
       TOOL_NAMES.ask_questions,
       TOOL_NAMES.create_research_plan,
-      TOOL_NAMES.rename_research_folder,
       TOOL_NAMES.search_research,
       TOOL_NAMES.extract_page_content,
       TOOL_NAMES.research_checkpoint,
-      TOOL_NAMES.verified_research_is_good,
+      TOOL_NAMES.facts_check,
     ];
     for (const toolName of essential) {
       expect(

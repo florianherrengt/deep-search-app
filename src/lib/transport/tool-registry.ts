@@ -13,10 +13,9 @@ import { createSequentialThinkingTool } from "@/tools/sequential-thinking-tool";
 import { createLoadSkillTool } from "@/tools/load-skill-tool";
 import { createSearchResearchTool } from "@/tools/search-research-tool";
 import { createSwitchResearchFolderTool } from "@/tools/switch-research-folder-tool";
-import { createRenameResearchFolderTool } from "@/tools/rename-research-folder-tool";
 import { createResearchPlanTool } from "@/tools/research-plan-tool";
 import { createCurrencyConversionTool } from "@/tools/currency-conversion-tool";
-import { createVerifiedResearchIsGoodTool } from "@/tools/verified-research-tool";
+import { createFactsCheckTool } from "@/tools/facts-check-tool";
 import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
 import { isValidServiceUrl } from "@/lib/url-validation";
 import type { Currency } from "@/lib/settings-store";
@@ -37,7 +36,6 @@ export async function createTools({
   model,
   getResearchFolder,
   switchResearchFolder,
-  onFolderRenamed,
   embeddingConfig,
   rerankerConfig,
   searchKeys,
@@ -45,7 +43,6 @@ export async function createTools({
   model: LanguageModel;
   getResearchFolder: () => Promise<string>;
   switchResearchFolder: (folderName: string) => void | Promise<void>;
-  onFolderRenamed: (newName: string) => void | Promise<void>;
   embeddingConfig: EmbeddingConfig;
   rerankerConfig: RerankerConfig;
   searchKeys?: SearchToolKeys;
@@ -73,13 +70,8 @@ export async function createTools({
     load_skill: createLoadSkillTool(),
     search_research: createSearchResearchTool(embeddingConfig, rerankerConfig, model),
     switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
-    rename_research_folder: createRenameResearchFolderTool({
-      getResearchFolder,
-      onFolderRenamed,
-      embeddingConfig,
-    }),
     create_research_plan: createResearchPlanTool(model),
-    verified_research_is_good: createVerifiedResearchIsGoodTool(model, searchKeys),
+    facts_check: createFactsCheckTool(model),
     currency_conversion: createCurrencyConversionTool(searchKeys?.currency ?? "USD"),
     ...chromeDevToolsTools,
   } as const satisfies ToolSet;

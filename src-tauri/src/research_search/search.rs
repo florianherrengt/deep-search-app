@@ -49,6 +49,9 @@ const RRF_K: f64 = 20.0;
 const MMR_SIMILARITY_THRESHOLD: f64 = 0.85;
 const FOLDER_METADATA_FILENAME: &str = "folder-metadata";
 const MIN_METADATA_OVERLAP_RATIO: f64 = 0.25;
+const RERANKER_THRESHOLD: f64 = 0.55;
+const RERANKER_RETRIEVAL_FALLBACK_THRESHOLD: f64 = 0.25;
+const RERANKER_RETRIEVAL_FALLBACK_TOP_N: usize = 2;
 
 #[derive(Debug, Clone)]
 pub struct RankedItem {
@@ -59,11 +62,26 @@ pub struct RankedItem {
 pub struct ChunkInfo {
     pub id: i64,
     pub content: String,
+    pub content_hash: String,
     pub filename: String,
     pub header_path: Option<String>,
     pub chunk_index: i32,
     pub folder_id: i64,
     pub folder_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RerankCandidate {
+    pub chunk_id: i64,
+    pub content: String,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CachedRerankScore {
+    pub index: usize,
+    pub chunk_hash: String,
+    pub score: f64,
 }
 
 pub fn search_multi(
@@ -72,6 +90,7 @@ pub fn search_multi(
     reranker_config: &RerankerConfig,
     queries: &[String],
     folder: Option<&str>,
+    filenames: Option<&[String]>,
     limit: Option<u32>,
 ) -> Result<Vec<SearchResult>, String> {
     let limit = limit.unwrap_or(8) as usize;
@@ -80,7 +99,15 @@ pub fn search_multi(
     let mut seen_chunk_ids: HashSet<i64> = HashSet::new();
 
     for query in queries {
-        let results = search(db, embedding_config, reranker_config, query, folder, Some(limit as u32))?;
+        let results = search(
+            db,
+            embedding_config,
+            reranker_config,
+            query,
+            folder,
+            filenames,
+            Some(limit as u32),
+        )?;
         for result in results {
             if seen_chunk_ids.insert(result.chunk_id) {
                 all_results.push(result);
@@ -98,12 +125,56 @@ pub fn search_multi(
     Ok(all_results)
 }
 
+pub fn search_multi_with_diagnostics(
+    db: &Database,
+    embedding_config: &EmbeddingConfig,
+    reranker_config: &RerankerConfig,
+    queries: &[String],
+    folder: Option<&str>,
+    filenames: Option<&[String]>,
+    limit: Option<u32>,
+) -> Result<(Vec<SearchResult>, Vec<SearchDiagnostics>), String> {
+    let limit = limit.unwrap_or(8) as usize;
+
+    let mut all_results: Vec<SearchResult> = Vec::new();
+    let mut diagnostics: Vec<SearchDiagnostics> = Vec::new();
+    let mut seen_chunk_ids: HashSet<i64> = HashSet::new();
+
+    for query in queries {
+        let (results, diag) = search_with_diagnostics(
+            db,
+            embedding_config,
+            reranker_config,
+            query,
+            folder,
+            filenames,
+            Some(limit as u32),
+        )?;
+        diagnostics.push(diag);
+        for result in results {
+            if seen_chunk_ids.insert(result.chunk_id) {
+                all_results.push(result);
+            }
+        }
+    }
+
+    all_results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    all_results.truncate(limit);
+
+    Ok((all_results, diagnostics))
+}
+
 pub fn search(
     db: &Database,
     embedding_config: &EmbeddingConfig,
     reranker_config: &RerankerConfig,
     query: &str,
     folder: Option<&str>,
+    filenames: Option<&[String]>,
     limit: Option<u32>,
 ) -> Result<Vec<SearchResult>, String> {
     let t0 = Instant::now();
@@ -113,7 +184,66 @@ pub fn search(
     let mut diag = SearchDiagnostics::new(query);
     diag.latency_stage_ms.embedding_ms = embedding_ms;
 
-    search_inner(db, &query_bytes, &query_embedding, query, folder, limit, None, Some(reranker_config), &mut diag)
+    search_inner(
+        db,
+        &query_bytes,
+        &query_embedding,
+        query,
+        folder,
+        filenames,
+        limit,
+        None,
+        Some(reranker_config),
+        &mut diag,
+    )
+}
+
+pub fn search_with_diagnostics(
+    db: &Database,
+    embedding_config: &EmbeddingConfig,
+    reranker_config: &RerankerConfig,
+    query: &str,
+    folder: Option<&str>,
+    filenames: Option<&[String]>,
+    limit: Option<u32>,
+) -> Result<(Vec<SearchResult>, SearchDiagnostics), String> {
+    let t_total = Instant::now();
+    let mut diag = SearchDiagnostics::new(query);
+
+    let t_embedding = Instant::now();
+    let query_embedding = match embeddings::embed_query(embedding_config, query) {
+        Ok(embedding) => embedding,
+        Err(e) => {
+            diag.error = Some(e);
+            diag.latency_stage_ms.embedding_ms = t_embedding.elapsed().as_millis() as u64;
+            diag.latency_stage_ms.total_ms = t_total.elapsed().as_millis() as u64;
+            return Ok((Vec::new(), diag));
+        }
+    };
+    diag.latency_stage_ms.embedding_ms = t_embedding.elapsed().as_millis() as u64;
+    let query_bytes = serialize_f32_vec(&query_embedding);
+
+    let results = match search_inner(
+        db,
+        &query_bytes,
+        &query_embedding,
+        query,
+        folder,
+        filenames,
+        limit,
+        None,
+        Some(reranker_config),
+        &mut diag,
+    ) {
+        Ok(results) => results,
+        Err(e) => {
+            diag.error = Some(e);
+            Vec::new()
+        }
+    };
+
+    diag.latency_stage_ms.total_ms = t_total.elapsed().as_millis() as u64;
+    Ok((results, diag))
 }
 
 pub fn search_inner(
@@ -122,118 +252,64 @@ pub fn search_inner(
     query_embedding: &[f32],
     query: &str,
     folder: Option<&str>,
+    filenames: Option<&[String]>,
     limit: Option<u32>,
-    reranker_scores: Option<&[(usize, f64)]>,
+    reranker_scores: Option<&[CachedRerankScore]>,
     fallback_reranker_config: Option<&RerankerConfig>,
     diag: &mut SearchDiagnostics,
 ) -> Result<Vec<SearchResult>, String> {
     let limit = limit.unwrap_or(8) as usize;
     let t_total = Instant::now();
 
-    let query_type = classify_query(query);
-
-    let (vec_weight, fts_weight) = match query_type {
-        QueryType::Keyword => (0.7, 1.3),
-        QueryType::Conceptual => (1.3, 0.7),
-        QueryType::ExactPhrase(_) => (0.0, 2.0),
-    };
-
-    let (_fused, diverse_candidates, snippets) = {
-        let conn = db.conn.lock().map_err(|e| e.to_string())?;
-
-        let t_knn = Instant::now();
-        let mut vec_results = if matches!(query_type, QueryType::ExactPhrase(_)) {
-            Vec::new()
-        } else {
-            knn_search(&conn, query_bytes)?
-        };
-        let hype_results = hype::hype_search(&conn, query_bytes)?;
-        if !hype_results.is_empty() {
-            let mut seen: HashSet<i64> = vec_results.iter().map(|r| r.chunk_id).collect();
-            for (chunk_id, _distance) in &hype_results {
-                if seen.insert(*chunk_id) {
-                    vec_results.push(RankedItem {
-                        chunk_id: *chunk_id,
-                        rank: seen.len() - 1,
-                    });
-                }
-            }
-        }
-        diag.knn_candidate_count = vec_results.len();
-        diag.latency_stage_ms.knn_ms = t_knn.elapsed().as_millis() as u64;
-
-        let t_fts = Instant::now();
-        let fts_query = match &query_type {
-            QueryType::ExactPhrase(phrase) => sanitize_fts_phrase_query(phrase),
-            _ => sanitize_fts_query(query),
-        };
-        let fts_results = fts_search_with_query(&conn, &fts_query)?;
-        diag.fts_candidate_count = fts_results.len();
-        diag.latency_stage_ms.fts_ms = t_fts.elapsed().as_millis() as u64;
-
-        let t_rrf = Instant::now();
-        let mut fused = adaptive_rrf(&vec_results, &fts_results, vec_weight, fts_weight);
-        diag.fused_candidate_count = fused.len();
-        diag.latency_stage_ms.rrf_ms = t_rrf.elapsed().as_millis() as u64;
-
-        if let Some(folder_name) = folder {
-            filter_by_folder(&conn, &mut fused, folder_name)?;
-            diag.fused_candidate_count = fused.len();
-        }
-
-        let t_mmr = Instant::now();
-        let diverse = mmr_dedup(&conn, &fused, query_embedding)?;
-        diag.mmr_candidate_count = diverse.len();
-        diag.latency_stage_ms.mmr_ms = t_mmr.elapsed().as_millis() as u64;
-
-        let snippets: HashMap<i64, String> = diverse
-            .iter()
-            .take(15)
-            .filter_map(|id| get_fts_snippet(&conn, *id, &fts_query).ok().map(|s| (*id, s)))
-            .collect();
-
-        let candidates: Vec<(i64, String)> = diverse
-            .iter()
-            .take(15)
-            .filter_map(|id| {
-                let info = get_chunk_info(&conn, *id).ok()?;
-                Some((*id, info.content))
-            })
-            .collect();
-
-        (fused, candidates, snippets)
-    };
+    let (diverse_candidates, snippets) =
+        collect_rerank_candidates(db, query_bytes, query_embedding, query, folder, filenames, diag)?;
+    let allow_retrieval_fallback = diag.fts_candidate_count > 0;
 
     let mut chunk_results = Vec::new();
     if !diverse_candidates.is_empty() {
-        let (ids, docs): (Vec<i64>, Vec<String>) = diverse_candidates.into_iter().unzip();
+        let docs: Vec<String> = diverse_candidates
+            .iter()
+            .map(|candidate| candidate.content.clone())
+            .collect();
 
         let t_rerank = Instant::now();
         let scored: Vec<(i64, f64)> = if let Some(scores) = reranker_scores {
-            scores
-                .iter()
-                .filter(|(_, s)| *s >= 0.5)
-                .take(limit)
-                .filter_map(|(idx, score)| ids.get(*idx).map(|id| (*id, *score)))
-                .collect()
+            apply_cached_reranker_scores(
+                scores,
+                &diverse_candidates,
+                limit,
+                allow_retrieval_fallback,
+            )?
         } else if let Some(config) = fallback_reranker_config {
             let reranked = reranker::rerank(config, query, &docs)?;
             reranked
                 .into_iter()
-                .filter(|item| item.score >= 0.5)
+                .filter(|item| {
+                    passes_reranker_threshold(item.index, item.score, allow_retrieval_fallback)
+                })
                 .take(limit)
-                .map(|item| (ids[item.index], item.score))
+                .filter_map(|item| {
+                    diverse_candidates
+                        .get(item.index)
+                        .map(|candidate| (candidate.chunk_id, item.score))
+                })
                 .collect()
         } else {
             let reranked = reranker::rerank(&RerankerConfig::default(), query, &docs)?;
             reranked
                 .into_iter()
-                .filter(|item| item.score >= 0.5)
+                .filter(|item| {
+                    passes_reranker_threshold(item.index, item.score, allow_retrieval_fallback)
+                })
                 .take(limit)
-                .map(|item| (ids[item.index], item.score))
+                .filter_map(|item| {
+                    diverse_candidates
+                        .get(item.index)
+                        .map(|candidate| (candidate.chunk_id, item.score))
+                })
                 .collect()
         };
-        diag.reranker_threshold = 0.5;
+        diag.reranker_threshold = RERANKER_THRESHOLD;
         diag.reranked_candidate_count = scored.len();
         diag.latency_stage_ms.reranker_ms = t_rerank.elapsed().as_millis() as u64;
 
@@ -244,8 +320,8 @@ pub fn search_inner(
             let mut meta = folder_metadata_search(&conn, query, folder, true)?;
             diag.metadata_match_count = meta.len();
             diag.latency_stage_ms.metadata_ms = t_meta.elapsed().as_millis() as u64;
-            diag.final_result_count = meta.len();
             meta.truncate(limit);
+            diag.final_result_count = meta.len();
             diag.latency_stage_ms.total_ms = t_total.elapsed().as_millis() as u64;
             return Ok(meta);
         }
@@ -255,9 +331,13 @@ pub fn search_inner(
             chunk_results = Vec::with_capacity(scored.len());
             for (id, score) in scored {
                 if let Ok(info) = get_chunk_info(&conn, id) {
-                    let adjacent =
-                        get_adjacent_chunks(&conn, info.folder_id, &info.filename, info.chunk_index)
-                            .ok();
+                    let adjacent = get_adjacent_chunks(
+                        &conn,
+                        info.folder_id,
+                        &info.filename,
+                        info.chunk_index,
+                    )
+                    .ok();
 
                     chunk_results.push(SearchResult {
                         chunk_id: info.id,
@@ -274,27 +354,176 @@ pub fn search_inner(
         }
     }
 
-    let results = {
+    let results = if chunk_results.is_empty() {
         let conn = db.conn.lock().map_err(|e| e.to_string())?;
-
         let t_meta = Instant::now();
-        let mut meta = folder_metadata_search(&conn, query, folder, false)?;
+        let mut meta = folder_metadata_search(&conn, query, folder, true)?;
         diag.metadata_match_count = meta.len();
         diag.latency_stage_ms.metadata_ms = t_meta.elapsed().as_millis() as u64;
-
-        meta.extend(chunk_results);
-        meta.sort_by(|a, b| {
+        meta.truncate(limit);
+        diag.final_result_count = meta.len();
+        meta
+    } else {
+        chunk_results.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        meta.truncate(limit);
-        diag.final_result_count = meta.len();
-        meta
+        chunk_results.truncate(limit);
+        diag.final_result_count = chunk_results.len();
+        chunk_results
     };
 
     diag.latency_stage_ms.total_ms = t_total.elapsed().as_millis() as u64;
     Ok(results)
+}
+
+pub fn collect_rerank_candidates(
+    db: &Database,
+    query_bytes: &[u8],
+    query_embedding: &[f32],
+    query: &str,
+    folder: Option<&str>,
+    filenames: Option<&[String]>,
+    diag: &mut SearchDiagnostics,
+) -> Result<(Vec<RerankCandidate>, HashMap<i64, String>), String> {
+    let query_type = classify_query(query);
+    let (vec_weight, fts_weight) = query_weights(&query_type);
+
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let t_knn = Instant::now();
+    let mut vec_results = if matches!(query_type, QueryType::ExactPhrase(_)) {
+        Vec::new()
+    } else {
+        knn_search(&conn, query_bytes)?
+    };
+    let hype_results = hype::hype_search(&conn, query_bytes)?;
+    if !hype_results.is_empty() {
+        let mut seen: HashSet<i64> = vec_results.iter().map(|r| r.chunk_id).collect();
+        for (chunk_id, _distance) in &hype_results {
+            if seen.insert(*chunk_id) {
+                vec_results.push(RankedItem {
+                    chunk_id: *chunk_id,
+                    rank: seen.len() - 1,
+                });
+            }
+        }
+    }
+    diag.knn_candidate_count = vec_results.len();
+    diag.latency_stage_ms.knn_ms = t_knn.elapsed().as_millis() as u64;
+
+    let t_fts = Instant::now();
+    let fts_query = match &query_type {
+        QueryType::ExactPhrase(phrase) => sanitize_fts_phrase_query(phrase),
+        _ => sanitize_fts_query(query),
+    };
+    let fts_results = fts_search_with_query(&conn, &fts_query)?;
+    diag.fts_candidate_count = fts_results.len();
+    diag.latency_stage_ms.fts_ms = t_fts.elapsed().as_millis() as u64;
+
+    let t_rrf = Instant::now();
+    let mut fused = adaptive_rrf(&vec_results, &fts_results, vec_weight, fts_weight);
+    diag.fused_candidate_count = fused.len();
+    diag.latency_stage_ms.rrf_ms = t_rrf.elapsed().as_millis() as u64;
+
+    if let Some(folder_name) = folder {
+        filter_by_folder(&conn, &mut fused, folder_name)?;
+        diag.fused_candidate_count = fused.len();
+    }
+
+    if let Some(names) = filenames {
+        filter_by_filenames(&conn, &mut fused, names)?;
+        diag.fused_candidate_count = fused.len();
+    }
+
+    let t_mmr = Instant::now();
+    let diverse = mmr_dedup(&conn, &fused, query_embedding)?;
+    diag.mmr_candidate_count = diverse.len();
+    diag.latency_stage_ms.mmr_ms = t_mmr.elapsed().as_millis() as u64;
+
+    let snippets: HashMap<i64, String> = diverse
+        .iter()
+        .take(15)
+        .filter_map(|id| {
+            get_fts_snippet(&conn, *id, &fts_query)
+                .ok()
+                .map(|s| (*id, s))
+        })
+        .collect();
+
+    let candidates = diverse
+        .iter()
+        .take(15)
+        .filter_map(|id| {
+            let info = get_chunk_info(&conn, *id).ok()?;
+            Some(RerankCandidate {
+                chunk_id: *id,
+                content: info.content,
+                content_hash: info.content_hash,
+            })
+        })
+        .collect();
+
+    Ok((candidates, snippets))
+}
+
+fn query_weights(query_type: &QueryType) -> (f64, f64) {
+    match query_type {
+        QueryType::Keyword => (0.7, 1.3),
+        QueryType::Conceptual => (1.3, 0.7),
+        QueryType::ExactPhrase(_) => (0.0, 2.0),
+    }
+}
+
+fn apply_cached_reranker_scores(
+    scores: &[CachedRerankScore],
+    candidates: &[RerankCandidate],
+    limit: usize,
+    allow_retrieval_fallback: bool,
+) -> Result<Vec<(i64, f64)>, String> {
+    for score in scores {
+        let candidate = candidates.get(score.index).ok_or_else(|| {
+            format!(
+                "Cached reranker score index {} is out of range for {} candidates. Refresh the benchmark provider cache.",
+                score.index,
+                candidates.len(),
+            )
+        })?;
+
+        if candidate.content_hash != score.chunk_hash {
+            return Err(format!(
+                "Cached reranker score for candidate {} has chunk hash {}, but the current candidate hash is {}. Refresh the benchmark provider cache.",
+                score.index,
+                score.chunk_hash,
+                candidate.content_hash,
+            ));
+        }
+    }
+
+    Ok(scores
+        .iter()
+        .filter(|score| {
+            passes_reranker_threshold(score.index, score.score, allow_retrieval_fallback)
+        })
+        .take(limit)
+        .filter_map(|score| {
+            candidates
+                .get(score.index)
+                .map(|candidate| (candidate.chunk_id, score.score))
+        })
+        .collect())
+}
+
+fn passes_reranker_threshold(
+    candidate_index: usize,
+    score: f64,
+    allow_retrieval_fallback: bool,
+) -> bool {
+    score >= RERANKER_THRESHOLD
+        || (allow_retrieval_fallback
+            && candidate_index < RERANKER_RETRIEVAL_FALLBACK_TOP_N
+            && score >= RERANKER_RETRIEVAL_FALLBACK_THRESHOLD)
 }
 
 impl SearchDiagnostics {
@@ -391,9 +620,7 @@ fn fts_search_with_query(conn: &Connection, query: &str) -> Result<Vec<RankedIte
     let mut stmt = conn
         .prepare(schema::FTS_SEARCH)
         .map_err(|e| e.to_string())?;
-    let mut rows = stmt
-        .query([query])
-        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([query]).map_err(|e| e.to_string())?;
 
     let mut results = Vec::new();
     let mut rank = 0;
@@ -417,11 +644,7 @@ fn sanitize_fts_phrase_query(phrase: &str) -> String {
     format!("\"{}\"", phrase)
 }
 
-fn get_fts_snippet(
-    conn: &Connection,
-    chunk_id: i64,
-    fts_query: &str,
-) -> Result<String, String> {
+fn get_fts_snippet(conn: &Connection, chunk_id: i64, fts_query: &str) -> Result<String, String> {
     if fts_query.is_empty() {
         let content: String = conn
             .query_row(
@@ -522,13 +745,31 @@ fn filter_by_folder(
     Ok(())
 }
 
+fn filter_by_filenames(
+    conn: &Connection,
+    fused: &mut Vec<(i64, f64)>,
+    filenames: &[String],
+) -> Result<(), String> {
+    let name_set: HashSet<&str> = filenames.iter().map(|s| s.as_str()).collect();
+    let mut valid_ids = HashSet::new();
+    for (chunk_id, _) in fused.iter() {
+        if let Ok(info) = get_chunk_info(conn, *chunk_id) {
+            if name_set.contains(info.filename.as_str()) {
+                valid_ids.insert(*chunk_id);
+            }
+        }
+    }
+    fused.retain(|(id, _)| valid_ids.contains(id));
+    Ok(())
+}
+
 fn folder_metadata_search(
     conn: &Connection,
     query: &str,
     folder: Option<&str>,
     strict: bool,
 ) -> Result<Vec<SearchResult>, String> {
-    let query_terms = tokenize_search_terms(query);
+    let query_terms = metadata_terms(query);
     if query_terms.is_empty() {
         return Ok(Vec::new());
     }
@@ -643,7 +884,51 @@ fn folder_metadata_search(
 }
 
 fn metadata_term_set(text: &str) -> HashSet<String> {
-    tokenize_search_terms(text).into_iter().collect()
+    metadata_terms(text).into_iter().collect()
+}
+
+fn metadata_terms(text: &str) -> Vec<String> {
+    tokenize_search_terms(text)
+        .into_iter()
+        .filter(|term| !is_metadata_stopword(term))
+        .collect()
+}
+
+fn is_metadata_stopword(term: &str) -> bool {
+    matches!(
+        term,
+        "the"
+            | "and"
+            | "for"
+            | "from"
+            | "with"
+            | "what"
+            | "how"
+            | "why"
+            | "when"
+            | "where"
+            | "which"
+            | "who"
+            | "is"
+            | "are"
+            | "was"
+            | "were"
+            | "this"
+            | "that"
+            | "best"
+            | "under"
+            | "over"
+            | "into"
+            | "onto"
+            | "than"
+            | "then"
+            | "can"
+            | "should"
+            | "would"
+            | "could"
+            | "does"
+            | "did"
+    )
 }
 
 fn tokenize_search_terms(text: &str) -> Vec<String> {
@@ -748,11 +1033,12 @@ fn get_chunk_info(conn: &Connection, chunk_id: i64) -> Result<ChunkInfo, String>
         Ok(ChunkInfo {
             id: row.get(0)?,
             content: row.get(1)?,
-            filename: row.get(2)?,
-            header_path: row.get(3)?,
-            chunk_index: row.get(4)?,
-            folder_id: row.get(5)?,
-            folder_name: row.get(6)?,
+            content_hash: row.get(2)?,
+            filename: row.get(3)?,
+            header_path: row.get(4)?,
+            chunk_index: row.get(5)?,
+            folder_id: row.get(6)?,
+            folder_name: row.get(7)?,
         })
     })
     .map_err(|e| e.to_string())
@@ -841,6 +1127,12 @@ mod tests {
     }
 
     #[test]
+    fn metadata_terms_filter_common_words() {
+        let terms = metadata_terms("what is the best chair for back pain under 1000");
+        assert_eq!(terms, vec!["chair", "back", "pain", "1000"]);
+    }
+
+    #[test]
     fn tokenize_filters_short_terms_no_digits() {
         let terms = tokenize_search_terms("a bc de fg hi");
         assert!(terms.is_empty());
@@ -905,7 +1197,10 @@ mod tests {
 
     #[test]
     fn adaptive_rrf_only_vector_results() {
-        let items = vec![RankedItem { chunk_id: 1, rank: 0 }];
+        let items = vec![RankedItem {
+            chunk_id: 1,
+            rank: 0,
+        }];
         let result = adaptive_rrf(&items, &[], 1.0, 1.0);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, 1);
@@ -913,7 +1208,10 @@ mod tests {
 
     #[test]
     fn adaptive_rrf_only_fts_results() {
-        let items = vec![RankedItem { chunk_id: 2, rank: 0 }];
+        let items = vec![RankedItem {
+            chunk_id: 2,
+            rank: 0,
+        }];
         let result = adaptive_rrf(&[], &items, 1.0, 1.0);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, 2);
@@ -921,8 +1219,14 @@ mod tests {
 
     #[test]
     fn adaptive_rrf_both_sources_overlapping() {
-        let vec_items = vec![RankedItem { chunk_id: 1, rank: 0 }];
-        let fts_items = vec![RankedItem { chunk_id: 1, rank: 0 }];
+        let vec_items = vec![RankedItem {
+            chunk_id: 1,
+            rank: 0,
+        }];
+        let fts_items = vec![RankedItem {
+            chunk_id: 1,
+            rank: 0,
+        }];
         let result = adaptive_rrf(&vec_items, &fts_items, 1.0, 1.0);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, 1);
@@ -931,8 +1235,14 @@ mod tests {
     #[test]
     fn adaptive_rrf_higher_rank_gets_lower_score() {
         let items = vec![
-            RankedItem { chunk_id: 10, rank: 0 },
-            RankedItem { chunk_id: 20, rank: 5 },
+            RankedItem {
+                chunk_id: 10,
+                rank: 0,
+            },
+            RankedItem {
+                chunk_id: 20,
+                rank: 5,
+            },
         ];
         let result = adaptive_rrf(&items, &[], 1.0, 1.0);
         assert_eq!(result.len(), 2);
@@ -941,8 +1251,14 @@ mod tests {
 
     #[test]
     fn adaptive_rrf_respects_weights() {
-        let vec_items = vec![RankedItem { chunk_id: 1, rank: 0 }];
-        let fts_items = vec![RankedItem { chunk_id: 1, rank: 0 }];
+        let vec_items = vec![RankedItem {
+            chunk_id: 1,
+            rank: 0,
+        }];
+        let fts_items = vec![RankedItem {
+            chunk_id: 1,
+            rank: 0,
+        }];
         let result_weighted = adaptive_rrf(&vec_items, &fts_items, 2.0, 1.0);
         let result_unweighted = adaptive_rrf(&vec_items, &fts_items, 1.0, 1.0);
         assert!(result_weighted[0].1 > result_unweighted[0].1);
@@ -960,9 +1276,13 @@ mod tests {
         )
         .expect("insert folder");
 
-        let matches =
-            folder_metadata_search(&conn, "hammock size 11ft vs 12ft for tall person", None, false)
-                .expect("metadata search");
+        let matches = folder_metadata_search(
+            &conn,
+            "hammock size 11ft vs 12ft for tall person",
+            None,
+            false,
+        )
+        .expect("metadata search");
 
         assert_eq!(
             matches[0].folder_name,

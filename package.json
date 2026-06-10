@@ -23,7 +23,13 @@
     "test:visual:update": "npm run build-storybook && node scripts/visual-snapshot-test.mjs -- --update",
     "test:visual:dev": "node scripts/visual-snapshot-test.mjs -- --url http://127.0.0.1:6006",
     "benchmark:research-search": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark",
-    "benchmark:research-search:refresh": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --refresh"
+    "benchmark:research-search:refresh": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --refresh",
+    "benchmark:research-search:validate-chunking": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --validate-chunking",
+    "benchmark:research-search:real:generate": "node scripts/generate-research-search-corpus.mjs",
+    "benchmark:research-search:real:regenerate": "node scripts/generate-research-search-corpus.mjs --force",
+    "benchmark:research-search:real": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --corpus benchmarks/research-search/fixtures/real-corpus.json --cache benchmarks/research-search/fixtures/real-provider-cache.json --report-dir benchmarks/research-search/results-real",
+    "benchmark:research-search:real:validate-chunking": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --validate-chunking --corpus benchmarks/research-search/fixtures/real-corpus.json --cache benchmarks/research-search/fixtures/real-provider-cache.json --report-dir benchmarks/research-search/results-real",
+    "benchmark:research-search:real:refresh": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --refresh --corpus benchmarks/research-search/fixtures/real-corpus.json --cache benchmarks/research-search/fixtures/real-provider-cache.json --report-dir benchmarks/research-search/results-real"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.79",
@@ -39,6 +45,7 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-http": "^2.5.9",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",

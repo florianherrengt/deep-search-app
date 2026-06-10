@@ -54,10 +54,6 @@ import {
   createSwitchResearchFolderTool,
   switchResearchFolderInputSchema,
 } from "@/tools/switch-research-folder-tool";
-import {
-  createRenameResearchFolderTool,
-  renameResearchFolderInputSchema,
-} from "@/tools/rename-research-folder-tool";
 import { createResearchCheckpointTool } from "@/tools/research-checkpoint-tool";
 import {
   createSequentialThinkingTool,
@@ -68,9 +64,9 @@ import {
   researchPlanInputSchema,
 } from "@/tools/research-plan-tool";
 import {
-  createVerifiedResearchIsGoodTool,
-  verifiedResearchInputSchema,
-} from "@/tools/verified-research-tool";
+  createFactsCheckTool,
+  factsCheckInputSchema,
+} from "@/tools/facts-check-tool";
 import { researchCheckpointInputSchema } from "@/lib/agent-guards";
 import { isValidServiceUrl } from "@/lib/url-validation";
 
@@ -149,14 +145,8 @@ export function getAvailableTools(
     : undefined;
   const checkpointTool = model ? createResearchCheckpointTool(model) : undefined;
   const planTool = model ? createResearchPlanTool(model) : undefined;
-  const verifiedResearchTool = model
-    ? createVerifiedResearchIsGoodTool(model, {
-        braveApiKey,
-        exaApiKey,
-        serperApiKey,
-        tavilyApiKey,
-        searxngBaseUrl,
-      })
+  const factsCheckTool = model
+    ? createFactsCheckTool(model)
     : undefined;
 
   return [
@@ -240,18 +230,6 @@ export function getAvailableTools(
     ),
 
     describeOptionalTool(
-      TOOL_NAMES.rename_research_folder,
-      getResearchFolder && embeddingConfig
-        ? createRenameResearchFolderTool({
-            getResearchFolder,
-            onFolderRenamed: async () => {},
-            embeddingConfig,
-          })
-        : undefined,
-      renameResearchFolderInputSchema,
-    ),
-
-    describeOptionalTool(
       TOOL_NAMES.research_checkpoint,
       checkpointTool,
       researchCheckpointInputSchema,
@@ -264,9 +242,9 @@ export function getAvailableTools(
     ),
 
     describeOptionalTool(
-      TOOL_NAMES.verified_research_is_good,
-      verifiedResearchTool,
-      verifiedResearchInputSchema,
+      TOOL_NAMES.facts_check,
+      factsCheckTool,
+      factsCheckInputSchema,
     ),
   ];
 }

@@ -84,6 +84,7 @@ const meta = {
     onSelectChat: fn(),
     onRenameFolder: async () => undefined,
     onDeleteFolder: async () => undefined,
+    onReindexFolder: async () => undefined,
   },
   parameters: {
     layout: "fullscreen",

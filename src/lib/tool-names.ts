@@ -18,9 +18,8 @@ export const TOOL_NAMES = {
   load_skill: "load_skill",
   search_research: "search_research",
   switch_research_folder: "switch_research_folder",
-  rename_research_folder: "rename_research_folder",
   create_research_plan: "create_research_plan",
-  verified_research_is_good: "verified_research_is_good",
+  facts_check: "facts_check",
   currency_conversion: "currency_conversion",
 } as const;
 

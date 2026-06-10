@@ -15,14 +15,12 @@ describe("tool call requirements", () => {
 
     expect(activeTools).toContain("ask_questions");
     expect(activeTools).toContain("disambiguate");
-    expect(activeTools).toContain("rename_research_folder");
     expect(activeTools).not.toContain("create_research_plan");
   });
 
-  it("still hides create_research_plan when only ask_questions was called", () => {
+  it("still hides create_research_plan when no previous tool calls exist", () => {
     const activeTools = getActiveToolNamesForMessages(fakeTools(), [
       userMessage("Research the market"),
-      assistantToolCallMessage("ask_questions"),
     ]);
 
     expect(activeTools).not.toContain("create_research_plan");
@@ -32,7 +30,6 @@ describe("tool call requirements", () => {
     const activeTools = getActiveToolNamesForMessages(fakeTools(), [
       userMessage("Research the market"),
       assistantToolCallMessage("ask_questions"),
-      assistantToolCallMessage("rename_research_folder"),
     ]);
 
     expect(activeTools).toContain("create_research_plan");
@@ -42,7 +39,6 @@ describe("tool call requirements", () => {
     const activeTools = getActiveToolNamesForMessages(fakeTools(), [
       userMessage("Research the market"),
       assistantToolCallMessage("ask_questions"),
-      assistantToolCallMessage("rename_research_folder"),
       userMessage("Now research a different market"),
     ]);
 
@@ -79,7 +75,6 @@ describe("tool call requirements", () => {
       executeTool(tools, "create_research_plan", [
         { role: "user", content: "Research the market" },
         modelToolCallMessage("ask_questions"),
-        modelToolCallMessage("rename_research_folder"),
       ]),
     ).toBe("plan");
     expect(execute).toHaveBeenCalledOnce();
@@ -88,10 +83,10 @@ describe("tool call requirements", () => {
   it("formatToolCallRequirementViolation formats a single missing tool", () => {
     const message = formatToolCallRequirementViolation({
       toolName: "create_research_plan",
-      requiredPreviousTools: ["ask_questions", "rename_research_folder"],
+      requiredPreviousTools: ["ask_questions"],
       missingPreviousTools: ["ask_questions"],
       instruction:
-        "Call ask_questions first, then rename_research_folder to name the research folder, then retry create_research_plan.",
+        "Call ask_questions first to clarify the research scope, then retry create_research_plan.",
     });
 
     expect(message).toContain("create_research_plan");
@@ -103,16 +98,16 @@ describe("tool call requirements", () => {
   it("formatToolCallRequirementViolation formats multiple missing tools with plural", () => {
     const message = formatToolCallRequirementViolation({
       toolName: "create_research_plan",
-      requiredPreviousTools: ["ask_questions", "rename_research_folder"],
-      missingPreviousTools: ["ask_questions", "rename_research_folder"],
+      requiredPreviousTools: ["ask_questions", "other_tool"],
+      missingPreviousTools: ["ask_questions", "other_tool"],
       instruction:
-        "Call ask_questions first, then rename_research_folder to name the research folder, then retry create_research_plan.",
+        "Call ask_questions and other_tool first, then retry create_research_plan.",
     });
 
     expect(message).toContain("create_research_plan");
     expect(message).toContain("Missing required previous tool calls:");
     expect(message).toContain("`ask_questions`");
-    expect(message).toContain("`rename_research_folder`");
+    expect(message).toContain("`other_tool`");
   });
 
   it("appends prerequisite description to gated tools via applyToolCallRequirementSafeguards", () => {
@@ -133,7 +128,7 @@ describe("tool call requirements", () => {
       "Prerequisite: before calling this tool, call",
     );
     expect(tools.create_research_plan.description).toContain("`ask_questions`");
-    expect(tools.create_research_plan.description).toContain(
+    expect(tools.create_research_plan.description).not.toContain(
       "`rename_research_folder`",
     );
   });
@@ -143,7 +138,6 @@ function fakeTools() {
   return {
     ask_questions: {},
     disambiguate: {},
-    rename_research_folder: {},
     create_research_plan: {},
   } as unknown as ToolSet;
 }

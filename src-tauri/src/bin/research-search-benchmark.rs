@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use deep_search_app_lib::research_search::{
-    self, embeddings::EmbeddingConfig, indexing, reranker::RerankerConfig, serialize_f32_vec,
-    Database, SearchDiagnostics, SearchResult,
+    self, embeddings::EmbeddingConfig, indexing, reranker::RerankerConfig,
+    search::CachedRerankScore, serialize_f32_vec, Database, SearchDiagnostics, SearchResult,
 };
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +38,14 @@ struct CorpusQuery {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ProviderCache {
+    meta: CacheMeta,
+    document_embeddings: HashMap<String, Vec<f32>>,
+    query_embeddings: HashMap<String, Vec<f32>>,
+    reranker_scores: HashMap<String, Vec<CachedRerankScore>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LegacyProviderCache {
     meta: CacheMeta,
     document_embeddings: HashMap<String, Vec<f32>>,
     query_embeddings: HashMap<String, Vec<f32>>,
@@ -80,6 +88,7 @@ struct FolderScore {
     mrr: f64,
     rank_of_first_expected: Option<usize>,
     irrelevant_appeared: Vec<String>,
+    irrelevant_appeared_top_3: Vec<String>,
     no_match_correct: bool,
     best_score_per_folder: HashMap<String, f64>,
     chunks_per_folder: HashMap<String, usize>,
@@ -96,6 +105,7 @@ struct AggregateReport {
     no_match_queries: usize,
     no_match_correct: usize,
     false_positives: Vec<String>,
+    false_positives_top_3: Vec<String>,
     cache_metadata: CacheMeta,
     query_results: Vec<QueryResult>,
 }
@@ -106,33 +116,56 @@ struct BenchReport {
     aggregate: AggregateReport,
 }
 
+#[derive(Debug, Clone)]
+struct BenchmarkArgs {
+    refresh: bool,
+    migrate_legacy_cache: bool,
+    validate_chunking: bool,
+    corpus_path: String,
+    cache_path: String,
+    report_dir: String,
+}
+
 fn main() {
     dotenvy::dotenv().ok();
     let args: Vec<String> = std::env::args().collect();
-    let refresh = args.iter().any(|a| a == "--refresh");
-
-    let corpus_path = "benchmarks/research-search/fixtures/corpus.json";
-    let cache_path = "benchmarks/research-search/fixtures/provider-cache.json";
-    let report_dir = "benchmarks/research-search/results";
+    let args = parse_args(&args);
 
     let corpus: Corpus = serde_json::from_str(
-        &std::fs::read_to_string(corpus_path).expect("Failed to read corpus.json"),
+        &std::fs::read_to_string(&args.corpus_path).expect("Failed to read corpus.json"),
     )
     .expect("Failed to parse corpus.json");
 
-    let cache = if refresh {
+    if args.validate_chunking {
+        validate_corpus_chunking(&corpus);
+        return;
+    }
+
+    if args.migrate_legacy_cache {
+        eprintln!("Migrating legacy reranker score tuples to chunk-hash-bound entries...");
+        let legacy_cache = load_legacy_cache(&args.cache_path);
+        let migrated_cache = migrate_legacy_cache_entries(&corpus, legacy_cache);
+        let json =
+            serde_json::to_string_pretty(&migrated_cache).expect("Failed to serialize cache");
+        std::fs::write(&args.cache_path, &json).expect("Failed to write provider-cache.json");
+        eprintln!("Provider cache migrated at {}", args.cache_path);
+        return;
+    }
+
+    let cache = if args.refresh {
         eprintln!("Refreshing provider cache with live API calls...");
         let fresh_cache = build_cache(&corpus);
         let json = serde_json::to_string_pretty(&fresh_cache).expect("Failed to serialize cache");
-        std::fs::write(cache_path, &json).expect("Failed to write provider-cache.json");
-        eprintln!("Provider cache saved to {}", cache_path);
+        std::fs::write(&args.cache_path, &json).expect("Failed to write provider-cache.json");
+        eprintln!("Provider cache saved to {}", args.cache_path);
         fresh_cache
     } else {
-        let cache = load_or_empty_cache(cache_path);
-        validate_cache(&corpus, &cache, cache_path);
+        let cache = load_or_empty_cache(&args.cache_path);
+        validate_cache(&corpus, &cache, &args.cache_path);
         if cache.document_embeddings.is_empty() {
             eprintln!(
-                "Provider cache is empty. Run `npm run benchmark:research-search:refresh` first."
+                "Provider cache is empty. Run with `--refresh` first for cache path {}.",
+                args.cache_path
             );
             std::process::exit(1);
         }
@@ -160,19 +193,19 @@ fn main() {
 
     let aggregate = compute_aggregate(&query_results, &cache.meta);
 
-    std::fs::create_dir_all(report_dir).expect("Failed to create report directory");
+    std::fs::create_dir_all(&args.report_dir).expect("Failed to create report directory");
 
     let bench_report = BenchReport {
         timestamp: chrono_now(),
         aggregate,
     };
 
-    let json_path = format!("{}/report.json", report_dir);
+    let json_path = format!("{}/report.json", args.report_dir);
     let json = serde_json::to_string_pretty(&bench_report).expect("Failed to serialize report");
     std::fs::write(&json_path, &json).expect("Failed to write report.json");
     eprintln!("JSON report written to {}", json_path);
 
-    let md_path = format!("{}/report.md", report_dir);
+    let md_path = format!("{}/report.md", args.report_dir);
     let md = generate_markdown_report(&bench_report);
     std::fs::write(&md_path, &md).expect("Failed to write report.md");
     eprintln!("Markdown report written to {}", md_path);
@@ -193,16 +226,99 @@ fn main() {
         eprintln!(
             "{} queries FAILED. See {}/report.md for details.",
             total - passed,
-            report_dir
+            args.report_dir
         );
         std::process::exit(1);
     }
 }
 
+fn parse_args(args: &[String]) -> BenchmarkArgs {
+    let mut parsed = BenchmarkArgs {
+        refresh: false,
+        migrate_legacy_cache: false,
+        validate_chunking: false,
+        corpus_path: "benchmarks/research-search/fixtures/corpus.json".to_string(),
+        cache_path: "benchmarks/research-search/fixtures/provider-cache.json".to_string(),
+        report_dir: "benchmarks/research-search/results".to_string(),
+    };
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--refresh" => parsed.refresh = true,
+            "--migrate-legacy-cache" => parsed.migrate_legacy_cache = true,
+            "--validate-chunking" => parsed.validate_chunking = true,
+            "--corpus" => {
+                i += 1;
+                parsed.corpus_path = required_arg(args, i, "--corpus");
+            }
+            "--cache" => {
+                i += 1;
+                parsed.cache_path = required_arg(args, i, "--cache");
+            }
+            "--report-dir" => {
+                i += 1;
+                parsed.report_dir = required_arg(args, i, "--report-dir");
+            }
+            "--help" | "-h" => {
+                print_usage();
+                std::process::exit(0);
+            }
+            unknown => {
+                eprintln!("Unknown argument: {}", unknown);
+                print_usage();
+                std::process::exit(2);
+            }
+        }
+        i += 1;
+    }
+
+    parsed
+}
+
+fn required_arg(args: &[String], index: usize, flag: &str) -> String {
+    args.get(index).cloned().unwrap_or_else(|| {
+        eprintln!("{} requires a value", flag);
+        print_usage();
+        std::process::exit(2);
+    })
+}
+
+fn print_usage() {
+    eprintln!(
+        "Usage: research-search-benchmark [--refresh] [--migrate-legacy-cache] [--validate-chunking] [--corpus PATH] [--cache PATH] [--report-dir PATH]"
+    );
+}
+
+fn validate_corpus_chunking(corpus: &Corpus) {
+    let mut file_count = 0_usize;
+    let mut chunk_count = 0_usize;
+    for folder in &corpus.folders {
+        for content in folder.files.values() {
+            file_count += 1;
+            chunk_count += research_search::chunking::chunk_markdown(content).len();
+        }
+    }
+    eprintln!(
+        "Chunking validated for {} folders, {} files, {} chunks.",
+        corpus.folders.len(),
+        file_count,
+        chunk_count
+    );
+}
+
 fn load_or_empty_cache(path: &str) -> ProviderCache {
     if Path::new(path).exists() {
-        serde_json::from_str(&std::fs::read_to_string(path).expect("Failed to read cache"))
-            .expect("Failed to parse provider-cache.json")
+        let raw = std::fs::read_to_string(path).expect("Failed to read cache");
+        let value: serde_json::Value =
+            serde_json::from_str(&raw).expect("Failed to parse provider-cache.json");
+        if cache_uses_legacy_reranker_scores(&value) {
+            eprintln!(
+                "provider-cache.json uses legacy reranker score tuples. Run `npm run benchmark:research-search:refresh` or `cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --migrate-legacy-cache` so scores are bound to chunk hashes."
+            );
+            std::process::exit(1);
+        }
+        serde_json::from_value(value).expect("Failed to parse provider-cache.json")
     } else {
         ProviderCache {
             meta: CacheMeta {
@@ -222,6 +338,109 @@ fn load_or_empty_cache(path: &str) -> ProviderCache {
             reranker_scores: HashMap::new(),
         }
     }
+}
+
+fn load_legacy_cache(path: &str) -> LegacyProviderCache {
+    let raw = std::fs::read_to_string(path).expect("Failed to read cache");
+    serde_json::from_str(&raw).expect("Failed to parse legacy provider-cache.json")
+}
+
+fn migrate_legacy_cache_entries(
+    corpus: &Corpus,
+    legacy_cache: LegacyProviderCache,
+) -> ProviderCache {
+    let LegacyProviderCache {
+        meta,
+        document_embeddings,
+        query_embeddings,
+        reranker_scores: legacy_reranker_scores,
+    } = legacy_cache;
+
+    let mut migrated_cache = ProviderCache {
+        meta: CacheMeta {
+            description: Some(
+                "Migrated legacy tuple reranker scores to chunk-hash-bound score objects"
+                    .to_string(),
+            ),
+            ..meta
+        },
+        document_embeddings,
+        query_embeddings,
+        reranker_scores: HashMap::new(),
+    };
+
+    research_search::register_sqlite_vec_extension();
+    let db = research_search::init_database_memory(corpus.embedding_dimensions)
+        .expect("Failed to init db for cache migration");
+
+    for folder in &corpus.folders {
+        index_folder(&db, folder, &migrated_cache);
+    }
+
+    for q in &corpus.queries {
+        let q_hash = compute_hash(&q.query);
+        let Some(legacy_scores) = legacy_reranker_scores.get(&q_hash) else {
+            continue;
+        };
+        let query_emb = migrated_cache
+            .query_embeddings
+            .get(&q_hash)
+            .unwrap_or_else(|| panic!("Missing cached embedding for query '{}'", q.id));
+        let query_bytes = serialize_f32_vec(query_emb);
+        let mut diag = SearchDiagnostics::new(&q.query);
+        let (candidates, _) = research_search::search::collect_rerank_candidates(
+            &db,
+            &query_bytes,
+            query_emb,
+            &q.query,
+            None,
+            None,
+            &mut diag,
+        )
+        .expect("Failed to collect reranker candidates for cache migration");
+
+        let migrated_scores: Vec<CachedRerankScore> = legacy_scores
+            .iter()
+            .map(|(index, score)| {
+                let candidate = candidates.get(*index).unwrap_or_else(|| {
+                    panic!(
+                        "Legacy reranker score index {} is out of range for query '{}'",
+                        index, q.id
+                    )
+                });
+                CachedRerankScore {
+                    index: *index,
+                    chunk_hash: candidate.content_hash.clone(),
+                    score: *score,
+                }
+            })
+            .collect();
+        migrated_cache
+            .reranker_scores
+            .insert(q_hash, migrated_scores);
+    }
+
+    migrated_cache
+}
+
+fn cache_uses_legacy_reranker_scores(value: &serde_json::Value) -> bool {
+    value
+        .get("reranker_scores")
+        .and_then(|scores| scores.as_object())
+        .map(|scores| {
+            scores.values().any(|query_scores| {
+                query_scores.as_array().is_some_and(|items| {
+                    items.iter().any(|item| {
+                        item.as_array().is_some_and(|tuple| {
+                            tuple.len() == 2
+                                && tuple[0].as_u64().is_some()
+                                && tuple[1].as_f64().is_some()
+                        })
+                    })
+                })
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn validate_cache(corpus: &Corpus, cache: &ProviderCache, _cache_path: &str) {
@@ -274,6 +493,19 @@ fn validate_cache(corpus: &Corpus, cache: &ProviderCache, _cache_path: &str) {
         eprintln!("Cache chunking version mismatch. Run refresh.");
         std::process::exit(1);
     }
+    for (query_hash, scores) in &cache.reranker_scores {
+        for score in scores {
+            if score.chunk_hash.len() != 64
+                || !score.chunk_hash.chars().all(|c| c.is_ascii_hexdigit())
+            {
+                eprintln!(
+                    "Cache reranker score for query hash {} has invalid chunk_hash '{}'. Run refresh.",
+                    query_hash, score.chunk_hash
+                );
+                std::process::exit(1);
+            }
+        }
+    }
     eprintln!(
         "Provider cache validated (version={}, model={}, {} doc embeddings, {} query embeddings).",
         cache.meta.corpus_version,
@@ -284,8 +516,8 @@ fn validate_cache(corpus: &Corpus, cache: &ProviderCache, _cache_path: &str) {
 }
 
 fn build_cache(corpus: &Corpus) -> ProviderCache {
-    let api_key =
-        std::env::var("OPENROUTER_API_KEY").expect("OPENROUTER_API_KEY environment variable not set");
+    let api_key = std::env::var("OPENROUTER_API_KEY")
+        .expect("OPENROUTER_API_KEY environment variable not set");
 
     let embed_config = EmbeddingConfig {
         api_key: api_key.clone(),
@@ -303,41 +535,64 @@ fn build_cache(corpus: &Corpus) -> ProviderCache {
 
     eprintln!("Building document embeddings...");
     let mut document_embeddings: HashMap<String, Vec<f32>> = HashMap::new();
+    let mut document_texts: Vec<(String, String)> = Vec::new();
 
     for folder in &corpus.folders {
         for (_filename, content) in &folder.files {
             let chunks = research_search::chunking::chunk_markdown(content);
             let folder_prefix = format!("[From: '{}']\n\n", folder.name);
-            let texts: Vec<String> = chunks
-                .iter()
-                .map(|c| format!("{}{}", folder_prefix, c.content))
-                .collect();
-            if texts.is_empty() {
-                continue;
+            for chunk in &chunks {
+                let text = format!("{}{}", folder_prefix, chunk.content);
+                let hash = compute_hash(&text);
+                if !document_embeddings.contains_key(&hash)
+                    && !document_texts
+                        .iter()
+                        .any(|(existing_hash, _)| existing_hash == &hash)
+                {
+                    document_texts.push((hash, text));
+                }
             }
-            let embeddings = research_search::embeddings::embed_texts(&embed_config, &texts, false)
-                .expect("Failed to get document embeddings");
-            for (i, emb) in embeddings.into_iter().enumerate() {
-                let hash = compute_hash(&texts[i]);
-                document_embeddings.insert(hash, emb);
-            }
+        }
+    }
+    if !document_texts.is_empty() {
+        let texts: Vec<String> = document_texts
+            .iter()
+            .map(|(_, text)| text.clone())
+            .collect();
+        let embeddings = research_search::embeddings::embed_texts(&embed_config, &texts, false)
+            .expect("Failed to get document embeddings");
+        for ((hash, _), emb) in document_texts.into_iter().zip(embeddings.into_iter()) {
+            document_embeddings.insert(hash, emb);
         }
     }
     eprintln!("  {} document embeddings built.", document_embeddings.len());
 
     eprintln!("Building query embeddings...");
     let mut query_embeddings: HashMap<String, Vec<f32>> = HashMap::new();
+    let mut query_texts: Vec<(String, String)> = Vec::new();
 
     for q in &corpus.queries {
         let hash = compute_hash(&q.query);
-        let emb = research_search::embeddings::embed_query(&embed_config, &q.query)
-            .expect("Failed to get query embedding");
-        query_embeddings.insert(hash, emb);
+        if !query_embeddings.contains_key(&hash)
+            && !query_texts
+                .iter()
+                .any(|(existing_hash, _)| existing_hash == &hash)
+        {
+            query_texts.push((hash, q.query.clone()));
+        }
+    }
+    if !query_texts.is_empty() {
+        let texts: Vec<String> = query_texts.iter().map(|(_, text)| text.clone()).collect();
+        let embeddings = research_search::embeddings::embed_texts(&embed_config, &texts, true)
+            .expect("Failed to get query embeddings");
+        for ((hash, _), emb) in query_texts.into_iter().zip(embeddings.into_iter()) {
+            query_embeddings.insert(hash, emb);
+        }
     }
     eprintln!("  {} query embeddings built.", query_embeddings.len());
 
     eprintln!("Building reranker scores (requires indexed DB)...");
-    let mut reranker_scores: HashMap<String, Vec<(usize, f64)>> = HashMap::new();
+    let mut reranker_scores: HashMap<String, Vec<CachedRerankScore>> = HashMap::new();
 
     let db = research_search::init_database_memory(corpus.embedding_dimensions)
         .expect("Failed to init db for cache building");
@@ -371,59 +626,37 @@ fn build_cache(corpus: &Corpus) -> ProviderCache {
             .expect("Query embedding not found");
         let query_bytes = serialize_f32_vec(query_emb);
 
-        let conn = db.conn.lock().unwrap();
-        let mut vec_results_raw =
-            research_search::search::knn_search_pub(&conn, &query_bytes).unwrap_or_default();
-        let hype_results =
-            research_search::hype::hype_search(&conn, &query_bytes).unwrap_or_default();
-        if !hype_results.is_empty() {
-            let mut seen: std::collections::HashSet<i64> =
-                vec_results_raw.iter().map(|r| r.chunk_id).collect();
-            for (chunk_id, _distance) in &hype_results {
-                if seen.insert(*chunk_id) {
-                    vec_results_raw.push(research_search::search::RankedItem {
-                        chunk_id: *chunk_id,
-                        rank: seen.len() - 1,
-                    });
-                }
-            }
-        }
-        let fts_results_raw =
-            research_search::search::fts_search_pub(&conn, &q.query).unwrap_or_default();
-        drop(conn);
-
-        let query_type = research_search::search::classify_query_pub(&q.query);
-        let (vec_weight, fts_weight) = match query_type {
-            research_search::search::QueryType::Keyword => (0.7, 1.3),
-            research_search::search::QueryType::Conceptual => (1.3, 0.7),
-            research_search::search::QueryType::ExactPhrase(_) => (0.0, 2.0),
-        };
-        let fused = research_search::search::adaptive_rrf_weighted(
-            &vec_results_raw,
-            &fts_results_raw,
-            vec_weight,
-            fts_weight,
-        );
-
-        let conn = db.conn.lock().unwrap();
-        let diverse = research_search::search::mmr_dedup_pub(&conn, &fused, query_emb)
-            .unwrap_or_default();
-        let candidates: Vec<(i64, String)> = diverse
-            .iter()
-            .take(15)
-            .filter_map(|id| {
-                let info = research_search::search::get_chunk_info_pub(&conn, *id).ok()?;
-                Some((*id, info.content))
-            })
-            .collect();
-        drop(conn);
+        let mut diag = SearchDiagnostics::new(&q.query);
+        let (candidates, _) = research_search::search::collect_rerank_candidates(
+            &db,
+            &query_bytes,
+            query_emb,
+            &q.query,
+            None,
+            None,
+            &mut diag,
+        )
+        .expect("Failed to collect reranker candidates");
 
         if !candidates.is_empty() {
-            let docs: Vec<String> = candidates.iter().map(|(_, d)| d.clone()).collect();
+            let docs: Vec<String> = candidates
+                .iter()
+                .map(|candidate| candidate.content.clone())
+                .collect();
             let reranked = research_search::reranker::rerank(&reranker_config, &q.query, &docs)
                 .expect("Failed to get reranker scores");
-            let scores: Vec<(usize, f64)> =
-                reranked.into_iter().map(|item| (item.index, item.score)).collect();
+            let scores: Vec<CachedRerankScore> = reranked
+                .into_iter()
+                .filter_map(|item| {
+                    candidates
+                        .get(item.index)
+                        .map(|candidate| CachedRerankScore {
+                            index: item.index,
+                            chunk_hash: candidate.content_hash.clone(),
+                            score: item.score,
+                        })
+                })
+                .collect();
             reranker_scores.insert(q_hash, scores);
         }
 
@@ -450,6 +683,8 @@ fn build_cache(corpus: &Corpus) -> ProviderCache {
 }
 
 fn index_folder(db: &Database, folder: &CorpusFolder, cache: &ProviderCache) {
+    let embedding_config = cache_embedding_config(cache);
+
     {
         let conn = db.conn.lock().unwrap();
         indexing::register_folder(&conn, &folder.name, &folder.original_query)
@@ -457,18 +692,28 @@ fn index_folder(db: &Database, folder: &CorpusFolder, cache: &ProviderCache) {
     }
 
     for (filename, content) in &folder.files {
-        indexing::index_file_inner(db, &folder.name, filename, content, Some(&cache.document_embeddings))
-            .unwrap_or_else(|e| {
-                panic!("Failed to index {}/{}: {}", folder.name, filename, e)
-            });
+        indexing::index_file_inner(
+            db,
+            &embedding_config,
+            &folder.name,
+            filename,
+            content,
+            Some(&cache.document_embeddings),
+        )
+        .unwrap_or_else(|e| panic!("Failed to index {}/{}: {}", folder.name, filename, e));
     }
 }
 
-fn run_benchmark_query(
-    db: &Database,
-    q: &CorpusQuery,
-    cache: &ProviderCache,
-) -> QueryResult {
+fn cache_embedding_config(cache: &ProviderCache) -> EmbeddingConfig {
+    EmbeddingConfig {
+        model: cache.meta.embedding_model.clone(),
+        dimensions: cache.meta.embedding_dimensions,
+        query_prefix: cache.meta.query_prefix.clone(),
+        ..Default::default()
+    }
+}
+
+fn run_benchmark_query(db: &Database, q: &CorpusQuery, cache: &ProviderCache) -> QueryResult {
     let q_hash = compute_hash(&q.query);
     let query_embedding = cache
         .query_embeddings
@@ -483,6 +728,7 @@ fn run_benchmark_query(
         &query_bytes,
         query_embedding,
         &q.query,
+        None,
         None,
         Some(8),
         reranker_scores.map(|v| v.as_slice()),
@@ -500,13 +746,15 @@ fn run_benchmark_query(
 
     let scoring = score_folder_level(q, &results);
 
-    let passed = if q.expected_relevant.is_empty() {
+    let passed_by_recall = if q.expected_relevant.is_empty() {
         scoring.no_match_correct
     } else if q.expected_relevant.len() == 1 {
         scoring.recall_at_1 >= 1.0
     } else {
         scoring.recall_at_3 >= 1.0
     };
+    let passed =
+        diag.error.is_none() && passed_by_recall && scoring.irrelevant_appeared_top_3.is_empty();
 
     QueryResult {
         query_id: q.id.clone(),
@@ -599,6 +847,12 @@ fn score_folder_level(q: &CorpusQuery, results: &[SearchResult]) -> FolderScore 
         .filter(|f| q.expected_irrelevant.contains(f))
         .cloned()
         .collect();
+    let irrelevant_appeared_top_3: Vec<String> = seen_folders
+        .iter()
+        .take(3)
+        .filter(|f| q.expected_irrelevant.contains(f))
+        .cloned()
+        .collect();
 
     FolderScore {
         recall_at_1,
@@ -607,6 +861,7 @@ fn score_folder_level(q: &CorpusQuery, results: &[SearchResult]) -> FolderScore 
         mrr,
         rank_of_first_expected,
         irrelevant_appeared,
+        irrelevant_appeared_top_3,
         no_match_correct,
         best_score_per_folder,
         chunks_per_folder,
@@ -642,6 +897,17 @@ fn compute_aggregate(results: &[QueryResult], cache_meta: &CacheMeta) -> Aggrega
             )
         })
         .collect();
+    let false_positives_top_3: Vec<String> = results
+        .iter()
+        .filter(|r| !r.scoring.irrelevant_appeared_top_3.is_empty())
+        .map(|r| {
+            format!(
+                "{}: {}",
+                r.query_id,
+                r.scoring.irrelevant_appeared_top_3.join(", ")
+            )
+        })
+        .collect();
 
     AggregateReport {
         recall_at_1: if total > 0 {
@@ -669,6 +935,7 @@ fn compute_aggregate(results: &[QueryResult], cache_meta: &CacheMeta) -> Aggrega
         no_match_queries,
         no_match_correct,
         false_positives,
+        false_positives_top_3,
         cache_metadata: cache_meta.clone(),
         query_results: results.to_vec(),
     }
@@ -706,6 +973,14 @@ fn generate_markdown_report(report: &BenchReport) -> String {
     if !agg.false_positives.is_empty() {
         md.push_str("## False Positives\n\n");
         for fp in &agg.false_positives {
+            md.push_str(&format!("- {}\n", fp));
+        }
+        md.push('\n');
+    }
+
+    if !agg.false_positives_top_3.is_empty() {
+        md.push_str("## Top-3 False Positives (Failing)\n\n");
+        for fp in &agg.false_positives_top_3 {
             md.push_str(&format!("- {}\n", fp));
         }
         md.push('\n');
@@ -754,6 +1029,12 @@ fn generate_markdown_report(report: &BenchReport) -> String {
                 r.scoring.irrelevant_appeared.join(", ")
             ));
         }
+        if !r.scoring.irrelevant_appeared_top_3.is_empty() {
+            md.push_str(&format!(
+                "| Irrelevant in top 3 | {} |\n",
+                r.scoring.irrelevant_appeared_top_3.join(", ")
+            ));
+        }
 
         md.push_str("\n**Stage Diagnostics:**\n\n");
         md.push_str("| Stage | Count | Latency (ms) |\n");
@@ -780,8 +1061,7 @@ fn generate_markdown_report(report: &BenchReport) -> String {
         ));
         md.push_str(&format!(
             "| Reranker | {} | {} |\n",
-            r.diagnostics.reranked_candidate_count,
-            r.diagnostics.latency_stage_ms.reranker_ms
+            r.diagnostics.reranked_candidate_count, r.diagnostics.latency_stage_ms.reranker_ms
         ));
         md.push_str(&format!(
             "| Metadata | {} | {} |\n",

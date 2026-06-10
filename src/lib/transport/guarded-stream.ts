@@ -20,10 +20,9 @@ import {
   type GuardDecision,
 } from "@/lib/agent-guards";
 import { getActiveToolNamesForMessages } from "@/lib/tool-call-requirements";
-import { TOOL_NAMES } from "@/lib/tool-names";
 import systemPrompt from "../system-prompt.md?raw";
 import { createTools, type AppToolSet, type SearchToolKeys } from "./tool-registry";
-import type { EmbeddingConfig, RerankerConfig, SearchResult } from "@/lib/research-search";
+import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import { skillsStore } from "@/lib/skills-store";
@@ -70,10 +69,7 @@ export function createGuardedStream({
   messages,
   abortSignal,
   onResearchFolderChange,
-  onProvisionalFolderRenamed,
   searchKeys,
-  upfrontSearchResults,
-  folderContext,
 }: {
   model: LanguageModel;
   researchFolder: string | null;
@@ -82,10 +78,7 @@ export function createGuardedStream({
   messages: UIMessage[];
   abortSignal: AbortSignal | undefined;
   onResearchFolderChange?: (folderName: string) => void | Promise<void>;
-  onProvisionalFolderRenamed?: (newName: string) => void | Promise<void>;
   searchKeys?: SearchToolKeys;
-  upfrontSearchResults?: SearchResult[];
-  folderContext?: ResearchFolderContext;
 }): ReadableStream<UIMessageChunk> {
   return new ReadableStream<UIMessageChunk>({
     async start(controller) {
@@ -113,17 +106,13 @@ export function createGuardedStream({
             activeResearchFolder = SafePathSegmentSchema.parse(folderName);
             await onResearchFolderChange?.(activeResearchFolder);
           },
-          onFolderRenamed: async (newName) => {
-            activeResearchFolder = newName;
-            await onProvisionalFolderRenamed?.(newName);
-          },
           embeddingConfig,
           rerankerConfig,
           searchKeys,
         });
 
         const skillsData = await skillsStore.get();
-        const effectiveSystemPrompt = buildSystemPrompt(upfrontSearchResults, folderContext, skillsData.skills);
+        const effectiveSystemPrompt = buildSystemPrompt(skillsData.skills);
 
         let currentModelMessages = await convertToModelMessages(
           currentUiMessages,
@@ -470,36 +459,9 @@ function maxRetryWarning(
 }
 
 function buildSystemPrompt(
-  upfrontSearchResults?: SearchResult[],
-  folderContext?: ResearchFolderContext,
   skills?: { slug: string; whenToUse: string }[],
 ): string {
   let prompt = systemPrompt;
-
-  if (folderContext) {
-    const fileList = folderContext.files.length > 0
-      ? folderContext.files.map((f) => `- ${f}`).join("\n")
-      : "(empty — no files yet)";
-    let section = `\n\n## Active research folder\n\nYou are continuing work in the research folder "${folderContext.folderName}". Previous research files exist in this folder.\n\nFiles:\n${fileList}`;
-    if (folderContext.readmeContent) {
-      section += `\n\nREADME.md:\n${folderContext.readmeContent}`;
-    }
-    section += `\n\nUse \`${TOOL_NAMES.read_file}\` to read any file's full contents, or \`${TOOL_NAMES.list_files}\` to re-check the file listing. You can continue adding to or updating these files with \`${TOOL_NAMES.update_file}\`.`;
-    prompt += section;
-  }
-
-  if (upfrontSearchResults && upfrontSearchResults.length > 0) {
-    const uniqueFolders = [...new Set(upfrontSearchResults.map((r) => r.folder_name))];
-    const folderList = uniqueFolders
-      .map((name) => {
-        const matches = upfrontSearchResults.filter((r) => r.folder_name === name);
-        const topSnippet = matches[0]?.content.slice(0, 200) ?? "";
-        return `- "${name}" (score: ${matches[0].score.toFixed(3)}, snippet: "${topSnippet}...")`;
-      })
-      .join("\n");
-
-    prompt += `\n\n## Previous research found\n\nAn upfront search found ${uniqueFolders.length} existing research folder(s) related to this topic:\n\n${folderList}\n\nYou MUST ask the user whether to continue one of these existing research folders or start fresh. Use \`ask_questions\` with options like \`continue:<folder-name>\` for each match and \`new\` to start fresh. Do this BEFORE calling \`create_file\` or \`extract_page_content\`.`;
-  }
 
   if (skills && skills.length > 0) {
     const skillList = skills

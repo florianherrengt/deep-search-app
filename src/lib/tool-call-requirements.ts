@@ -21,9 +21,9 @@ export interface ToolCallRequirementViolation {
 
 export const TOOL_CALL_REQUIREMENTS = {
   [TOOL_NAMES.create_research_plan]: {
-    requiredPreviousTools: [TOOL_NAMES.ask_questions, TOOL_NAMES.rename_research_folder],
+    requiredPreviousTools: [TOOL_NAMES.ask_questions],
     instruction:
-      "Call ask_questions first, then rename_research_folder to name the research folder, then retry create_research_plan.",
+      "Call ask_questions first to clarify the research scope, then retry create_research_plan.",
   },
 } as const satisfies Record<string, ToolCallRequirement>;
 

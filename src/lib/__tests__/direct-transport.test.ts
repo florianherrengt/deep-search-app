@@ -50,9 +50,19 @@ vi.mock("@/lib/chat-providers", async (importOriginal) => {
   };
 });
 
+vi.mock("@/lib/memory-agent", () => ({
+  extractAndStoreMemories: vi.fn().mockResolvedValue({ memoriesStored: 0 }),
+}));
+
+vi.mock("@/lib/retrieval-agent", () => ({
+  runRetrievalAgent: vi.fn().mockResolvedValue({
+    relevant_folders: [],
+    relevant_memories: [],
+  }),
+}));
+
 import {
   DirectTransport,
-  type ResearchFolderChangeOptions,
 } from "@/lib/transport";
 
 describe("DirectTransport research folder lifecycle", () => {
@@ -73,12 +83,12 @@ describe("DirectTransport research folder lifecycle", () => {
     vi.useRealTimers();
   });
 
-  it("creates a timestamp folder before previous-research lookup and keeps it provisional when no match exists", async () => {
+  it("names the folder from the user message before creating it", async () => {
     tauriMocks.invoke.mockImplementation(async (command: string) => {
       if (command === "search_research") return [];
       return undefined;
     });
-    const model = createModel();
+    const model = createModel("acme-earnings-calls");
     chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
     const onFolderChange = vi.fn();
     const transport = createTransport(onFolderChange);
@@ -92,24 +102,16 @@ describe("DirectTransport research folder lifecycle", () => {
     });
     await stream.cancel();
 
-    const firstWritePath = fsMocks.writeTextFile.mock.calls[0]?.[0];
-    expect(firstWritePath).toBe(
-      "search-results/2026-05-22_10-11-12/chats/2026-05-22T10-11-12.123Z.json",
-    );
-
-    const searchOrder = tauriMocks.invoke.mock.invocationCallOrder[
-      tauriMocks.invoke.mock.calls.findIndex(([command]) => command === "search_research")
-    ];
-    expect(fsMocks.writeTextFile.mock.invocationCallOrder[0]).toBeLessThan(
-      searchOrder,
+    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
+      "search-results/acme-earnings-calls/chats/2026-05-22T10-11-12.123Z.json",
+      expect.any(String),
+      expect.any(Object),
     );
     expect(fsMocks.rename).not.toHaveBeenCalled();
-    expect(onFolderChange).toHaveBeenCalledWith("2026-05-22_10-11-12", {
-      isProvisional: true,
-    });
+    expect(onFolderChange).toHaveBeenCalledWith("acme-earnings-calls", {});
   });
 
-  it("keeps the timestamp folder while previous research is unresolved, then moves the chat on continue", async () => {
+  it("moves the chat to an existing folder when user chooses continue", async () => {
     tauriMocks.invoke.mockImplementation(async (command: string) => {
       if (command === "search_research") {
         return [
@@ -126,10 +128,7 @@ describe("DirectTransport research folder lifecycle", () => {
       }
       return undefined;
     });
-    fsMocks.exists.mockImplementation(async (path: string) => {
-      return path === "search-results/2026-05-22_10-11-12";
-    });
-    const model = createModel();
+    const model = createModel("earnings-research");
     chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
     const onFolderChange = vi.fn();
     const transport = createTransport(onFolderChange);
@@ -145,6 +144,9 @@ describe("DirectTransport research folder lifecycle", () => {
     );
 
     expect(fsMocks.rename).not.toHaveBeenCalled();
+    expect(onFolderChange).toHaveBeenCalledWith("earnings-research", {});
+
+    fsMocks.exists.mockResolvedValue(true);
 
     await cancelStream(
       await transport.sendMessages({
@@ -159,22 +161,16 @@ describe("DirectTransport research folder lifecycle", () => {
       }),
     );
 
-    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
-      "search-results/market-map/chats/2026-05-22T10-11-12.123Z.json",
-      expect.any(String),
-      expect.any(Object),
-    );
     expect(fsMocks.remove).toHaveBeenCalledWith(
-      "search-results/2026-05-22_10-11-12",
+      "search-results/earnings-research",
       expect.any(Object),
     );
     expect(onFolderChange).toHaveBeenCalledWith("market-map", {
-      isProvisional: false,
-      previousFolderName: "2026-05-22_10-11-12",
+      previousFolderName: "earnings-research",
     });
   });
 
-  it("keeps the provisional folder after a previous-research start-fresh answer", async () => {
+  it("keeps the current folder when user chooses start-fresh", async () => {
     tauriMocks.invoke.mockImplementation(async (command: string) => {
       if (command === "search_research") {
         return [
@@ -191,7 +187,7 @@ describe("DirectTransport research folder lifecycle", () => {
       }
       return undefined;
     });
-    const model = createModel();
+    const model = createModel("earnings-research");
     chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
     const onFolderChange = vi.fn();
     const transport = createTransport(onFolderChange);
@@ -206,7 +202,7 @@ describe("DirectTransport research folder lifecycle", () => {
       }),
     );
 
-    expect(fsMocks.rename).not.toHaveBeenCalled();
+    expect(onFolderChange).toHaveBeenCalledWith("earnings-research", {});
 
     await cancelStream(
       await transport.sendMessages({
@@ -222,9 +218,35 @@ describe("DirectTransport research folder lifecycle", () => {
     );
 
     expect(fsMocks.rename).not.toHaveBeenCalled();
-    expect(onFolderChange).not.toHaveBeenCalledWith(
+    expect(fsMocks.remove).not.toHaveBeenCalled();
+  });
+
+  it("opens an existing folder without renaming", async () => {
+    const model = createModel("unused-name");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const transport = new DirectTransport(
+      () => ({ provider: "openrouter", apiKey: "chat-key", model: "test-model" }) as never,
+      () => mockEmbeddingConfig,
+      () => mockRerankerConfig,
+      () => ({}),
+      "2026-05-22T10-11-12.123Z",
+      "existing-folder",
+    );
+
+    const stream = await transport.sendMessages({
+      trigger: "submit-message",
+      chatId: "runtime-chat",
+      messageId: "user-1",
+      messages: [userMessage("Continue my research")],
+      abortSignal: undefined,
+    });
+    await stream.cancel();
+    await vi.runAllTimersAsync();
+
+    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
+      expect.stringContaining("search-results/existing-folder"),
       expect.any(String),
-      expect.objectContaining({ isProvisional: false }),
+      expect.any(Object),
     );
   });
 
@@ -253,22 +275,27 @@ describe("DirectTransport research folder lifecycle", () => {
     await expect(transport.reconnectToStream()).resolves.toBeNull();
   });
 
-  it("rejects promptly when aborted during previous-research lookup", async () => {
-    let searchStarted!: () => void;
-    const searchStartedPromise = new Promise<void>((resolve) => {
-      searchStarted = resolve;
+  it("rejects promptly when aborted during folder naming", async () => {
+    const abortController = new AbortController();
+    let generateStarted!: () => void;
+    const generateStartedPromise = new Promise<void>((resolve) => {
+      generateStarted = resolve;
     });
-    tauriMocks.invoke.mockImplementation((command: string) => {
-      if (command === "search_research") {
-        searchStarted();
-        return new Promise<never>(() => {});
-      }
-      return Promise.resolve(undefined);
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        generateStarted();
+        return new Promise<never>((_, reject) => {
+          abortController.signal.addEventListener("abort", () =>
+            reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+          );
+        });
+      },
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({ chunks: textChunks("Done.") }),
+      }),
     });
-    const model = createModel();
     chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
     const transport = createTransport(vi.fn());
-    const abortController = new AbortController();
 
     const pending = transport.sendMessages({
       trigger: "submit-message",
@@ -278,7 +305,7 @@ describe("DirectTransport research folder lifecycle", () => {
       abortSignal: abortController.signal,
     });
 
-    await searchStartedPromise;
+    await generateStartedPromise;
     abortController.abort();
 
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
@@ -286,10 +313,7 @@ describe("DirectTransport research folder lifecycle", () => {
 });
 
 function createTransport(
-  onFolderChange: (
-    folderName: string,
-    options: ResearchFolderChangeOptions,
-  ) => void,
+  onFolderChange: (folderName: string, options: { previousFolderName?: string }) => void,
 ) {
   return new DirectTransport(
     () =>
@@ -303,15 +327,14 @@ function createTransport(
     () => ({}),
     "2026-05-22T10-11-12.123Z",
     null,
-    false,
     onFolderChange,
   );
 }
 
-function createModel() {
+function createModel(folderNameResponse: string) {
   return new MockLanguageModelV3({
     doGenerate: async () => ({
-      content: [{ type: "text", text: "{}" }],
+      content: [{ type: "text", text: folderNameResponse }],
       finishReason: { unified: "stop", raw: "stop" },
       usage: tokenUsage(),
       warnings: [],

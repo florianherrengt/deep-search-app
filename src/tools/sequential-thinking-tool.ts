@@ -15,6 +15,6 @@ export function createSequentialThinkingTool() {
       "analysis that might need course correction, problems where the full scope might not be clear initially.",
     strict: true,
     inputSchema: zodSchema(sequentialThinkingInputSchema),
-    execute: async () => {},
+    execute: async () => ({ status: "ok" }),
   });
 }

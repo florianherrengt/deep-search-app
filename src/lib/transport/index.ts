@@ -4,32 +4,29 @@ import {
   type ChatModelConfig,
 } from "@/lib/chat-providers";
 import { SafePathSegmentSchema } from "@/lib/app-file-storage";
-import { isAbortError, throwIfAborted } from "@/lib/abort";
+import { throwIfAborted } from "@/lib/abort";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
-import { createGuardedStream, getResearchFolderContext } from "./guarded-stream";
+import { createGuardedStream } from "./guarded-stream";
 import type { SearchToolKeys } from "./tool-registry";
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import {
-  createProvisionalResearchFolder,
   moveResearchChatToFolder,
   saveResearchChatMessages,
 } from "@/lib/research-history";
-import { searchResearch, type SearchResult } from "@/lib/research-search";
-import { evaluateResearchRelevance } from "@/lib/research-relevance-evaluator";
+import { extractAndStoreMemories } from "@/lib/memory-agent";
 import { isRecord } from "@/lib/json";
+import { nameFolderFromMessage } from "./folder-namer";
 
 export { createGuardedStream } from "./guarded-stream";
 export type { SearchToolKeys } from "./tool-registry";
 export type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 
 export interface ResearchFolderChangeOptions {
-  isProvisional: boolean;
   previousFolderName?: string;
 }
 
 export class DirectTransport implements ChatTransport<UIMessage> {
   private researchFolder: string | null = null;
-  private provisionalResearchFolder: string | null = null;
 
   constructor(
     private getChatModel: () => ChatModelConfig | null,
@@ -38,28 +35,20 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     private getSearchKeys: () => SearchToolKeys,
     private researchChatId: string,
     researchFolder?: string | null,
-    isProvisionalResearchFolder = false,
     private onResearchFolderChange?: (
       folderName: string,
       options: ResearchFolderChangeOptions,
     ) => void,
   ) {
-    this.setResearchFolder(researchFolder ?? null, {
-      isProvisional: isProvisionalResearchFolder,
-    });
+    if (researchFolder) {
+      this.researchFolder = SafePathSegmentSchema.parse(researchFolder);
+    }
   }
 
-  setResearchFolder(
-    researchFolder: string | null,
-    options?: { isProvisional?: boolean },
-  ) {
+  setResearchFolder(researchFolder: string | null) {
     this.researchFolder = researchFolder
       ? SafePathSegmentSchema.parse(researchFolder)
       : null;
-    this.provisionalResearchFolder =
-      this.researchFolder && options?.isProvisional
-        ? this.researchFolder
-        : null;
   }
 
   async sendMessages({
@@ -87,45 +76,21 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     const rerankerConfig = this.getRerankerConfig();
     const firstMessage = getFirstUserMessage(messages);
 
-    let upfrontSearchResults: SearchResult[] | undefined;
     if (!this.researchFolder) {
       if (firstMessage) {
-        const provisionalFolderName = await createProvisionalResearchFolder(
+        const folderName = await nameFolderFromMessage(model, firstMessage, {
+          abortSignal,
+        });
+        this.researchFolder = folderName;
+        this.onResearchFolderChange?.(folderName, {});
+
+        await saveResearchChatMessages(
+          folderName,
           this.researchChatId,
           messages,
         );
-        this.researchFolder = provisionalFolderName;
-        this.provisionalResearchFolder = provisionalFolderName;
-        this.onResearchFolderChange?.(provisionalFolderName, {
-          isProvisional: true,
-        });
-
-        upfrontSearchResults = await searchResearch(
-          embeddingConfig,
-          rerankerConfig,
-          firstMessage,
-          { limit: 5, abortSignal },
-        ).catch((error) => {
-          if (isAbortError(error)) throw error;
-          return undefined;
-        });
-
-        if (upfrontSearchResults && upfrontSearchResults.length > 0) {
-          upfrontSearchResults = await evaluateResearchRelevance(
-            firstMessage,
-            upfrontSearchResults,
-            model,
-            abortSignal,
-          ).catch((error) => {
-            if (isAbortError(error)) throw error;
-            console.error("[transport] upfront relevance evaluation failed:", error);
-            return upfrontSearchResults!;
-          });
-        }
-
       }
-    } else if (this.provisionalResearchFolder) {
-      throwIfAborted(abortSignal);
+    } else {
       const previousResearchChoice = getPreviousResearchChoice(messages);
       if (previousResearchChoice.type === "continue") {
         await this.switchResearchFolder(previousResearchChoice.folder, messages);
@@ -138,14 +103,16 @@ export class DirectTransport implements ChatTransport<UIMessage> {
         this.researchChatId,
         messages,
       ).catch(() => {});
-    }
 
-    let folderContext: Awaited<ReturnType<typeof getResearchFolderContext>> | undefined;
-    if (this.researchFolder && !this.provisionalResearchFolder) {
-      throwIfAborted(abortSignal);
-      folderContext = await getResearchFolderContext(this.researchFolder).catch(
-        () => undefined,
-      );
+      const lastUserMessage = getLastUserMessage(messages);
+      if (lastUserMessage) {
+        void extractAndStoreMemories(
+          lastUserMessage,
+          async () => this.researchFolder!,
+          model,
+          abortSignal,
+        ).catch(() => {});
+      }
     }
 
     return createGuardedStream({
@@ -156,21 +123,8 @@ export class DirectTransport implements ChatTransport<UIMessage> {
       messages,
       abortSignal,
       searchKeys: this.getSearchKeys(),
-      upfrontSearchResults,
-      folderContext,
       onResearchFolderChange: async (folderName) => {
         await this.switchResearchFolder(folderName, messages);
-      },
-      onProvisionalFolderRenamed: (newName) => {
-        const previousFolderName = this.provisionalResearchFolder;
-        this.researchFolder = newName;
-        this.provisionalResearchFolder = null;
-        this.onResearchFolderChange?.(newName, {
-          isProvisional: false,
-          ...(previousFolderName && previousFolderName !== newName
-            ? { previousFolderName }
-            : {}),
-        });
       },
     });
   }
@@ -185,21 +139,18 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   ) {
     const parsedFolderName = SafePathSegmentSchema.parse(folderName);
     const previousFolderName = this.researchFolder;
-    const provisionalFolderName = this.provisionalResearchFolder;
 
-    if (provisionalFolderName && provisionalFolderName !== parsedFolderName) {
+    if (previousFolderName && previousFolderName !== parsedFolderName) {
       await moveResearchChatToFolder({
-        fromFolderName: provisionalFolderName,
+        fromFolderName: previousFolderName,
         toFolderName: parsedFolderName,
         chatId: this.researchChatId,
         messages,
       });
     }
 
-      this.researchFolder = parsedFolderName;
-      this.provisionalResearchFolder = null;
-      this.onResearchFolderChange?.(parsedFolderName, {
-      isProvisional: false,
+    this.researchFolder = parsedFolderName;
+    this.onResearchFolderChange?.(parsedFolderName, {
       ...(previousFolderName && previousFolderName !== parsedFolderName
         ? { previousFolderName }
         : {}),
@@ -255,6 +206,21 @@ function isAssistantOutputPart(part: UIMessage["parts"][number]): boolean {
 
 function getFirstUserMessage(messages: UIMessage[]): string | null {
   for (const msg of messages) {
+    if (msg.role === "user") {
+      const text = msg.parts
+        .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+        .map((p) => p.text)
+        .join(" ")
+        .trim();
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+function getLastUserMessage(messages: UIMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
     if (msg.role === "user") {
       const text = msg.parts
         .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")

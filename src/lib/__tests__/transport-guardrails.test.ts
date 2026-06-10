@@ -881,6 +881,31 @@ describe("createGuardedStream", () => {
   });
 });
 
+describe("buildSystemPrompt", () => {
+  it("works without memories", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({ chunks: textChunks("Done.") }),
+      }),
+    });
+
+    const chunks = await collectChunks(
+      createGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        embeddingConfig: mockEmbeddingConfig,
+        rerankerConfig: mockRerankerConfig,
+        messages: [userMessage("Hello")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ type: "finish" }),
+    );
+  });
+});
+
 function userMessage(text: string): UIMessage {
   return {
     id: `user-${text}`,

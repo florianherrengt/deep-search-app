@@ -205,7 +205,6 @@ describe("evaluateAssistantStep", () => {
       messages: [
         userMessage("Research the market"),
         assistantWithQuestionTool(),
-        assistantWithRenameFolderTool(),
       ],
       responseMessage: assistantWithResearchPlanTool(),
     });
@@ -461,23 +460,6 @@ function assistantWithQuestionTool(): UIMessage {
               candidates: [{ label: "Red", value: "red" }],
             },
           ],
-        },
-      } as UIMessage["parts"][number],
-    ],
-  };
-}
-
-function assistantWithRenameFolderTool(): UIMessage {
-  return {
-    id: "assistant-rename-folder",
-    role: "assistant",
-    parts: [
-      {
-        type: "tool-rename_research_folder",
-        toolCallId: "rename-1",
-        state: "input-available",
-        input: {
-          name: "market-research",
         },
       } as UIMessage["parts"][number],
     ],

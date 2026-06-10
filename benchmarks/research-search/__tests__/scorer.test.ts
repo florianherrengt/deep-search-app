@@ -17,6 +17,7 @@ interface FolderScore {
   mrr: number;
   rank_of_first_expected: number | null;
   irrelevant_appeared: string[];
+  irrelevant_appeared_top_3: string[];
   no_match_correct: boolean;
   best_score_per_folder: Record<string, number>;
   chunks_per_folder: Record<string, number>;
@@ -88,6 +89,9 @@ function scoreFolderLevel(
   const irrelevantAppeared = seenFolders.filter((f) =>
     expectedIrrelevant.includes(f)
   );
+  const irrelevantAppearedTop3 = seenFolders.slice(0, 3).filter((f) =>
+    expectedIrrelevant.includes(f)
+  );
 
   return {
     recall_at_1: recallAt1,
@@ -96,6 +100,7 @@ function scoreFolderLevel(
     mrr,
     rank_of_first_expected: rankOfFirstExpected,
     irrelevant_appeared: irrelevantAppeared,
+    irrelevant_appeared_top_3: irrelevantAppearedTop3,
     no_match_correct: noMatchCorrect,
     best_score_per_folder: bestScorePerFolder,
     chunks_per_folder: chunksPerFolder,
@@ -207,6 +212,23 @@ describe("Folder-level scoring", () => {
       results
     );
     expect(score.irrelevant_appeared).toContain("coffee-brewing-methods");
+    expect(score.irrelevant_appeared_top_3).toContain("coffee-brewing-methods");
+  });
+
+  it("separates top-3 false positives from lower-ranked irrelevant folders", () => {
+    const results = [
+      makeResult("hammock-sleep-health", 0.95),
+      makeResult("neutral-a", 0.8),
+      makeResult("neutral-b", 0.7),
+      makeResult("coffee-brewing-methods", 0.3),
+    ];
+    const score = scoreFolderLevel(
+      ["hammock-sleep-health"],
+      ["coffee-brewing-methods"],
+      results
+    );
+    expect(score.irrelevant_appeared).toContain("coffee-brewing-methods");
+    expect(score.irrelevant_appeared_top_3).toEqual([]);
   });
 
   it("no irrelevant flag when irrelevant folders not in results", () => {
@@ -219,6 +241,7 @@ describe("Folder-level scoring", () => {
       results
     );
     expect(score.irrelevant_appeared).toEqual([]);
+    expect(score.irrelevant_appeared_top_3).toEqual([]);
   });
 
   it("counts chunks per folder correctly", () => {

@@ -20,7 +20,13 @@ interface ProviderCache {
   meta: CacheMeta;
   document_embeddings: Record<string, number[]>;
   query_embeddings: Record<string, number[]>;
-  reranker_scores: Record<string, [number, number][]>;
+  reranker_scores: Record<string, CachedRerankScore[]>;
+}
+
+interface CachedRerankScore {
+  index: number;
+  chunk_hash: string;
+  score: number;
 }
 
 function loadProviderCache(): ProviderCache {
@@ -109,6 +115,22 @@ describe("Provider cache", () => {
     const cache = loadProviderCache();
     for (const key of Object.keys(cache.query_embeddings)) {
       expect(key).toMatch(/^[0-9a-f]{64}$/);
+    }
+  });
+
+  it("reranker scores are bound to candidate chunk hashes", () => {
+    const cache = loadProviderCache();
+    for (const [queryHash, scores] of Object.entries(cache.reranker_scores)) {
+      expect(queryHash).toMatch(/^[0-9a-f]{64}$/);
+      for (const score of scores) {
+        expect(score).toEqual({
+          index: expect.any(Number),
+          chunk_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+          score: expect.any(Number),
+        });
+        expect(score.index).toBeGreaterThanOrEqual(0);
+        expect(score.score).toBeGreaterThanOrEqual(0);
+      }
     }
   });
 

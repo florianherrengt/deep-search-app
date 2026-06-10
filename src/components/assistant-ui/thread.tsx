@@ -322,7 +322,7 @@ function ThreadMessage() {
           </MessagePrimitive.GroupedParts>
           <MessageActionBar />
           <MessagePrimitive.Error>
-            <ErrorPrimitive.Root className="md-card-sm" style={{ border: "1px solid var(--mantine-color-red-3)", backgroundColor: "var(--mantine-color-red-0)", color: "var(--mantine-color-red-text)" }}>
+            <ErrorPrimitive.Root className="md-card-sm" style={{ border: "1px solid light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))", backgroundColor: "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))", color: "var(--mantine-color-red-text)" }}>
               <ErrorPrimitive.Message />
             </ErrorPrimitive.Root>
           </MessagePrimitive.Error>

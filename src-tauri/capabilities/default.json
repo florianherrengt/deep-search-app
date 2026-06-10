@@ -14,6 +14,7 @@
         { "path": "$APPDATA/search-results/*" }
       ]
     },
+    "notification:default",
     "store:default",
     "core:menu:default",
     "core:webview:allow-create-webview",

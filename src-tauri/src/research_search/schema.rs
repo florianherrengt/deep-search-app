@@ -128,7 +128,7 @@ LIMIT 30
 "#;
 
 pub const GET_CHUNK_BY_ID: &str = r#"
-SELECT c.id, c.content, c.filename, c.header_path, c.chunk_index, c.folder_id, f.name as folder_name
+SELECT c.id, c.content, c.content_hash, c.filename, c.header_path, c.chunk_index, c.folder_id, f.name as folder_name
 FROM chunks c
 JOIN research_folders f ON f.id = c.folder_id
 WHERE c.id = ?1
@@ -172,11 +172,9 @@ pub const INSERT_HYPE_QUESTION: &str =
 pub const INSERT_HYPE_EMBEDDING: &str =
     "INSERT INTO hype_embeddings(rowid, embedding) VALUES (?1, ?2)";
 
-pub const DELETE_HYPE_FOR_CHUNK: &str =
-    "DELETE FROM hype_questions WHERE chunk_id = ?1";
+pub const DELETE_HYPE_FOR_CHUNK: &str = "DELETE FROM hype_questions WHERE chunk_id = ?1";
 
-pub const DELETE_HYPE_EMBEDDING: &str =
-    "DELETE FROM hype_embeddings WHERE rowid = ?1";
+pub const DELETE_HYPE_EMBEDDING: &str = "DELETE FROM hype_embeddings WHERE rowid = ?1";
 
 pub const GET_CHUNKS_WITHOUT_HYPE: &str = r#"
 SELECT c.id, c.content

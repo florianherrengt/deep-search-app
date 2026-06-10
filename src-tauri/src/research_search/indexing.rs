@@ -43,8 +43,11 @@ pub fn rename_folder(conn: &Connection, old_name: &str, new_name: &str) -> Resul
         }
     }
 
-    conn.execute(schema::UPDATE_FOLDER_NAME, rusqlite::params![old_id, new_name])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        schema::UPDATE_FOLDER_NAME,
+        rusqlite::params![old_id, new_name],
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -104,16 +107,17 @@ struct PendingChunk {
 
 pub fn index_file(
     db: &Database,
-    _embedding_config: &EmbeddingConfig,
+    embedding_config: &EmbeddingConfig,
     folder: &str,
     filename: &str,
     content: &str,
 ) -> Result<(), String> {
-    index_file_inner(db, folder, filename, content, None)
+    index_file_inner(db, embedding_config, folder, filename, content, None)
 }
 
 pub fn index_file_inner(
     db: &Database,
+    embedding_config: &EmbeddingConfig,
     folder: &str,
     filename: &str,
     content: &str,
@@ -199,7 +203,7 @@ pub fn index_file_inner(
             .collect::<Result<Vec<_>, _>>()?
     } else {
         let texts: Vec<String> = new_or_changed.iter().map(|p| p.content.clone()).collect();
-        embeddings::embed_texts(&EmbeddingConfig::default(), &texts, false)?
+        embeddings::embed_texts(embedding_config, &texts, false)?
     };
 
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
@@ -408,7 +412,8 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.pragma_update(None, "journal_mode", "WAL").unwrap();
         conn.pragma_update(None, "foreign_keys", "ON").unwrap();
-        conn.execute_batch(&schema::create_tables_sql(schema::DEFAULT_DIMENSIONS)).unwrap();
+        conn.execute_batch(&schema::create_tables_sql(schema::DEFAULT_DIMENSIONS))
+            .unwrap();
         conn
     }
 

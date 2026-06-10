@@ -32,3 +32,6 @@ visual-snapshots
 .playwright-mcp
 __vis__
 benchmarks/research-search/results/
+benchmarks/research-search/results-real/
+benchmarks/research-search/fixtures/real-corpus.json
+benchmarks/research-search/fixtures/real-provider-cache.json

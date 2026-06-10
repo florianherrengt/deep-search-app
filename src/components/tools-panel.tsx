@@ -299,7 +299,7 @@ function ResultCard({ entry }: { entry: ToolResult }) {
             {entry.error ? (
               <Box>
                 <Text size="xs" fw={500} c="dimmed" mb={4}>Error</Text>
-                <Paper bg="var(--mantine-color-red-0)" c="red" p="xs" style={{ overflow: "auto", maxHeight: 160 }}>
+                <Paper bg="light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))" c="red" p="xs" style={{ overflow: "auto", maxHeight: 160, border: "1px solid light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))" }}>
                   <pre className="md-code-block">{entry.error}</pre>
                 </Paper>
               </Box>

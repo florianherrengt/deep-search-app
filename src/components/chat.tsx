@@ -8,7 +8,6 @@ import { QuestionsToolUI } from "./assistant-ui/questions-tool";
 import { Thread } from "./assistant-ui/thread";
 import {
   DirectTransport,
-  type ResearchFolderChangeOptions,
   shouldContinueAfterToolResult,
   type SearchToolKeys,
   type EmbeddingConfig,
@@ -32,7 +31,6 @@ export function Chat({
   runtimeChatId,
   researchChatId,
   researchFolder,
-  isProvisionalResearchFolder = false,
   selectedModelId,
   initialMessages = [],
   onResearchFolderChange,
@@ -53,13 +51,11 @@ export function Chat({
   runtimeChatId: string;
   researchChatId: string;
   researchFolder: string | null;
-  isProvisionalResearchFolder?: boolean;
   selectedModelId: string;
   initialMessages?: UIMessage[];
   onResearchFolderChange?: (
     sessionId: string,
     folderName: string,
-    options: ResearchFolderChangeOptions,
   ) => void;
   onResearchChatSaved?: (folderName: string, chatId: string) => void;
   onRunStateChange?: (sessionId: string, running: boolean) => void;
@@ -223,20 +219,17 @@ export function Chat({
       () => searchKeysRef.current,
       researchChatId,
       researchFolder,
-      isProvisionalResearchFolder,
-      (folderName: string, options: ResearchFolderChangeOptions) => {
+      (folderName: string) => {
         researchFolderRef.current = folderName;
-        onResearchFolderChangeRef.current?.(sessionId, folderName, options);
+        onResearchFolderChangeRef.current?.(sessionId, folderName);
       },
     ),
   );
 
   useEffect(() => {
-    transportRef.current.setResearchFolder(researchFolder, {
-      isProvisional: isProvisionalResearchFolder,
-    });
+    transportRef.current.setResearchFolder(researchFolder);
     researchFolderRef.current = researchFolder;
-  }, [isProvisionalResearchFolder, researchFolder]);
+  }, [researchFolder]);
 
   const chat = useChat({
     id: runtimeChatId,

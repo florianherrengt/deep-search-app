@@ -146,6 +146,7 @@ function renderSidebar(props: Partial<ResearchSidebarProps> = {}) {
         onSelectChat={vi.fn()}
         onRenameFolder={vi.fn()}
         onDeleteFolder={vi.fn()}
+        onReindexFolder={vi.fn()}
         {...props}
       />
     </MantineProvider>,

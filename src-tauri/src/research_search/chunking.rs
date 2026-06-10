@@ -28,7 +28,8 @@ pub fn chunk_markdown(content: &str) -> Vec<Chunk> {
             chunk_index += 1;
 
             if overlap_chars > 0 && current_buf.len() > overlap_chars {
-                let start = current_buf.len().saturating_sub(overlap_chars);
+                let start =
+                    floor_char_boundary(&current_buf, current_buf.len().saturating_sub(overlap_chars));
                 current_buf = current_buf[start..].to_string();
             } else {
                 current_buf.clear();
@@ -50,6 +51,14 @@ pub fn chunk_markdown(content: &str) -> Vec<Chunk> {
     }
 
     chunks
+}
+
+fn floor_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
 }
 
 fn push_chunk(chunks: &mut Vec<Chunk>, content: &str, header_path: &str, index: usize) {
@@ -309,6 +318,17 @@ mod tests {
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].header_path.as_deref(), Some("Summary"));
         assert_eq!(chunks[0].index, 0);
+    }
+
+    #[test]
+    fn chunk_markdown_overlap_handles_unicode_boundaries() {
+        let first_section = format!("a—{}", "x".repeat(305));
+        let second_section = format!("\n## Next\n{}", "y".repeat(1300));
+        let content = format!("{}{}", first_section, second_section);
+
+        let chunks = chunk_markdown(&content);
+
+        assert!(chunks.len() >= 2);
     }
 
     #[test]

@@ -13,6 +13,7 @@ import {
   MessageSquareIcon,
   PencilIcon,
   PlusIcon,
+  RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
   XIcon,
@@ -64,6 +65,7 @@ interface ResearchSidebarProps {
   onSelectChat: (folderName: string, chatId: string) => void;
   onRenameFolder: (oldFolderName: string, newFolderName: string) => Promise<void>;
   onDeleteFolder: (folderName: string) => Promise<void>;
+  onReindexFolder: (folderName: string) => Promise<void>;
 }
 
 export function ResearchSidebar({
@@ -85,12 +87,14 @@ export function ResearchSidebar({
   onSelectChat,
   onRenameFolder,
   onDeleteFolder,
+  onReindexFolder,
 }: ResearchSidebarProps) {
   const [renameTarget, setRenameTarget] = useState<ResearchFolder | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ResearchFolder | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState(false);
+  const [reindexingFolder, setReindexingFolder] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -457,6 +461,15 @@ export function ResearchSidebar({
             setDeleteTarget(contextMenu.folder);
           }}
           onRevealInFinder={() => void handleRevealInFinder(contextMenu.folder.name)}
+          reindexing={reindexingFolder === contextMenu.folder.name}
+          onReindex={() => {
+            const folder = contextMenu.folder.name;
+            setReindexingFolder(folder);
+            setContextMenu(null);
+            onReindexFolder(folder)
+              .catch((err) => setActionError(err instanceof Error ? err.message : String(err)))
+              .finally(() => setReindexingFolder(null));
+          }}
         />
       )}
     </>
@@ -650,16 +663,20 @@ function FolderContextMenu({
   state,
   onClose,
   folderRunning,
+  reindexing,
   onRename,
   onDelete,
   onRevealInFinder,
+  onReindex,
 }: {
   state: NonNullable<ContextMenuState>;
   onClose: () => void;
   folderRunning: boolean;
+  reindexing: boolean;
   onRename: () => void;
   onDelete: () => void;
   onRevealInFinder: () => void;
+  onReindex: () => void;
 }) {
   return (
     <Menu
@@ -697,6 +714,13 @@ function FolderContextMenu({
           Delete
         </Menu.Item>
         <Menu.Divider />
+        <Menu.Item
+          disabled={reindexing}
+          leftSection={reindexing ? <LoaderIcon size={16} className="animate-spin" /> : <RefreshCwIcon size={16} />}
+          onClick={() => { onReindex(); }}
+        >
+          {reindexing ? "Re-indexing…" : "Re-index"}
+        </Menu.Item>
         <Menu.Item
           leftSection={<FolderOpenIcon size={16} />}
           onClick={() => { onRevealInFinder(); onClose(); }}

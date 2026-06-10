@@ -160,32 +160,6 @@ describe("search tool availability from config", () => {
     expect(sr?.available).toBe(false);
   });
 
-  it("rename_research_folder available when researchFolder and embeddingConfig are both provided", () => {
-    const tools = getAvailableTools({
-      researchFolder: "some-folder",
-      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
-    });
-    const rrf = tools.find((t) => t.name === "rename_research_folder");
-    expect(rrf?.available).toBe(true);
-  });
-
-  it("rename_research_folder unavailable when researchFolder is missing", () => {
-    const tools = getAvailableTools({
-      researchFolder: null,
-      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
-    });
-    const rrf = tools.find((t) => t.name === "rename_research_folder");
-    expect(rrf?.available).toBe(false);
-  });
-
-  it("rename_research_folder unavailable when embeddingConfig is missing", () => {
-    const tools = getAvailableTools({
-      researchFolder: "some-folder",
-    });
-    const rrf = tools.find((t) => t.name === "rename_research_folder");
-    expect(rrf?.available).toBe(false);
-  });
-
   it("model and research-folder dependent tools become available from direct-tool config", () => {
     const tools = getAvailableTools({
       researchFolder: "manual-folder",
@@ -205,7 +179,7 @@ describe("search tool availability from config", () => {
       true,
     );
     expect(
-      tools.find((t) => t.name === "verified_research_is_good")?.available,
+      tools.find((t) => t.name === "facts_check")?.available,
     ).toBe(true);
   });
 });

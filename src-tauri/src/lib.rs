@@ -8,7 +8,7 @@ use std::time::Duration;
 use ipnet::IpNet;
 
 use reqwest::header::{ACCEPT, CONTENT_TYPE, LOCATION, USER_AGENT};
-use research_search::{Database, ResearchFolder, SearchResult};
+use research_search::{Database, ResearchFolder, SearchResult, SearchWithDiagnostics};
 use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewBuilder, WebviewUrl};
 
 const TAB_BAR_HEIGHT: f64 = 40.0;
@@ -256,12 +256,12 @@ const BLOCKED_IPV4_NETS: &[&str] = &[
 ];
 
 const BLOCKED_IPV6_NETS: &[&str] = &[
-    "::/128",         // unspecified
-    "::1/128",        // loopback
-    "::ffff:0:0/96",  // IPv4-mapped (handled by unwrapping the IPv4 part)
-    "fc00::/7",       // unique local addresses
-    "fe80::/10",      // link-local
-    "ff00::/8",       // multicast
+    "::/128",        // unspecified
+    "::1/128",       // loopback
+    "::ffff:0:0/96", // IPv4-mapped (handled by unwrapping the IPv4 part)
+    "fc00::/7",      // unique local addresses
+    "fe80::/10",     // link-local
+    "ff00::/8",      // multicast
 ];
 
 fn blocked_ip_nets() -> &'static [IpNet] {
@@ -536,12 +536,56 @@ async fn index_research_file(
 }
 
 #[tauri::command]
+async fn reindex_folder(
+    app: AppHandle,
+    embedding_config: research_search::embeddings::EmbeddingConfig,
+    folder: String,
+) -> Result<u32, String> {
+    tokio::task::spawn_blocking(move || {
+        let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let folder_dir = app_data.join("search-results").join(&folder);
+        if !folder_dir.exists() {
+            return Err(format!("Folder '{}' not found", folder));
+        }
+
+        let db = app.state::<Database>();
+        let conn = db.conn.lock().map_err(|e| e.to_string())?;
+        research_search::indexing::sync_folders_from_dir(&conn, &app_data.join("search-results"))?;
+        drop(conn);
+
+        let mut indexed: u32 = 0;
+        let entries = std::fs::read_dir(&folder_dir).map_err(|e| e.to_string())?;
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let filename = path.file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| "Invalid filename".to_string())?;
+            if filename.starts_with('.') {
+                continue;
+            }
+            let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            research_search::indexing::index_file(&db, &embedding_config, &folder, filename, &content)?;
+            indexed += 1;
+        }
+
+        Ok(indexed)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn search_research(
     app: AppHandle,
     embedding_config: research_search::embeddings::EmbeddingConfig,
     reranker_config: research_search::reranker::RerankerConfig,
     queries: Vec<String>,
     folder: Option<String>,
+    filenames: Option<Vec<String>>,
     limit: Option<u32>,
 ) -> Result<Vec<SearchResult>, String> {
     tokio::task::spawn_blocking(move || {
@@ -552,7 +596,51 @@ async fn search_research(
             let conn = db.conn.lock().map_err(|e| e.to_string())?;
             research_search::indexing::sync_folders_from_dir(&conn, &search_results_dir)?;
         }
-        research_search::search::search_multi(&db, &embedding_config, &reranker_config, &queries, folder.as_deref(), limit)
+        research_search::search::search_multi(
+            &db,
+            &embedding_config,
+            &reranker_config,
+            &queries,
+            folder.as_deref(),
+            filenames.as_deref(),
+            limit,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn search_research_with_diagnostics(
+    app: AppHandle,
+    embedding_config: research_search::embeddings::EmbeddingConfig,
+    reranker_config: research_search::reranker::RerankerConfig,
+    queries: Vec<String>,
+    folder: Option<String>,
+    filenames: Option<Vec<String>>,
+    limit: Option<u32>,
+) -> Result<SearchWithDiagnostics, String> {
+    tokio::task::spawn_blocking(move || {
+        let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let search_results_dir = app_data.join("search-results");
+        let db = app.state::<Database>();
+        {
+            let conn = db.conn.lock().map_err(|e| e.to_string())?;
+            research_search::indexing::sync_folders_from_dir(&conn, &search_results_dir)?;
+        }
+        let (results, diagnostics) = research_search::search::search_multi_with_diagnostics(
+            &db,
+            &embedding_config,
+            &reranker_config,
+            &queries,
+            folder.as_deref(),
+            filenames.as_deref(),
+            limit,
+        )?;
+        Ok(SearchWithDiagnostics {
+            results,
+            diagnostics,
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -654,6 +742,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -674,7 +763,9 @@ pub fn run() {
             delete_research_folder_index,
             delete_research_file_index,
             index_research_file,
+            reindex_folder,
             search_research,
+            search_research_with_diagnostics,
             list_research_folders_db,
             backfill_index,
         ]);
@@ -745,9 +836,17 @@ mod tests {
     fn is_blocked_ip_blocks_private_ipv4() {
         use std::net::Ipv4Addr;
         let blocked: &[&str] = &[
-            "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.0.1",
-            "169.254.169.254", "100.64.0.1", "198.18.0.1",
-            "224.0.0.1", "240.0.0.1", "127.0.0.1", "0.0.0.0",
+            "10.0.0.1",
+            "172.16.0.1",
+            "172.31.255.255",
+            "192.168.0.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "198.18.0.1",
+            "224.0.0.1",
+            "240.0.0.1",
+            "127.0.0.1",
+            "0.0.0.0",
         ];
         for s in blocked {
             let ip: Ipv4Addr = s.parse().unwrap();
@@ -768,9 +867,7 @@ mod tests {
     #[test]
     fn is_blocked_ip_blocks_private_ipv6() {
         use std::net::Ipv6Addr;
-        let blocked: &[&str] = &[
-            "::1", "fc00::1", "fd00::1", "fe80::1", "ff02::1", "::",
-        ];
+        let blocked: &[&str] = &["::1", "fc00::1", "fd00::1", "fe80::1", "ff02::1", "::"];
         for s in blocked {
             let ip: Ipv6Addr = s.parse().unwrap();
             assert!(is_blocked_ip(IpAddr::V6(ip)), "should block {}", s);

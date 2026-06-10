@@ -22,6 +22,12 @@ interface ResearchSearchMock {
     query: string | string[],
     options?: { folder?: string; limit?: number; abortSignal?: AbortSignal },
   ) => Promise<SearchResult[]>;
+  searchResearchWithDiagnostics?: (
+    embeddingConfig: EmbeddingConfig,
+    rerankerConfig: RerankerConfig,
+    query: string | string[],
+    options?: { folder?: string; limit?: number; abortSignal?: AbortSignal },
+  ) => Promise<SearchWithDiagnostics>;
   indexResearchFile?: (
     embeddingConfig: EmbeddingConfig,
     folder: string,
@@ -38,6 +44,10 @@ interface ResearchSearchMock {
     folder: string,
     filename: string,
   ) => Promise<void>;
+  reindexFolder?: (
+    embeddingConfig: EmbeddingConfig,
+    folder: string,
+  ) => Promise<number>;
 }
 
 declare global {
@@ -59,6 +69,37 @@ export interface SearchResult {
   header_path: string | null;
   score: number;
   adjacent_chunks: AdjacentChunk[] | null;
+  snippet?: string | null;
+}
+
+export interface StageLatencies {
+  total_ms: number;
+  embedding_ms: number;
+  knn_ms: number;
+  fts_ms: number;
+  rrf_ms: number;
+  mmr_ms: number;
+  reranker_ms: number;
+  metadata_ms: number;
+}
+
+export interface SearchDiagnostics {
+  query: string;
+  knn_candidate_count: number;
+  fts_candidate_count: number;
+  fused_candidate_count: number;
+  mmr_candidate_count: number;
+  reranked_candidate_count: number;
+  metadata_match_count: number;
+  final_result_count: number;
+  reranker_threshold: number;
+  latency_stage_ms: StageLatencies;
+  error: string | null;
+}
+
+export interface SearchWithDiagnostics {
+  results: SearchResult[];
+  diagnostics: SearchDiagnostics[];
 }
 
 export interface ResearchFolderInfo {
@@ -73,7 +114,7 @@ export async function searchResearch(
   embeddingConfig: EmbeddingConfig,
   rerankerConfig: RerankerConfig,
   query: string | string[],
-  options?: { folder?: string; limit?: number; abortSignal?: AbortSignal },
+  options?: { folder?: string; limit?: number; filenames?: string[]; abortSignal?: AbortSignal },
 ): Promise<SearchResult[]> {
   const abortSignal = options?.abortSignal;
   const mock = getDevResearchSearchMock();
@@ -87,6 +128,40 @@ export async function searchResearch(
   const queries = Array.isArray(query) ? query : [query];
   return abortablePromise(
     invoke<SearchResult[]>("search_research", {
+      embeddingConfig,
+      rerankerConfig,
+      queries,
+      folder: options?.folder ?? null,
+      limit: options?.limit ?? 8,
+      filenames: options?.filenames ?? null,
+    }),
+    abortSignal,
+  );
+}
+
+export async function searchResearchWithDiagnostics(
+  embeddingConfig: EmbeddingConfig,
+  rerankerConfig: RerankerConfig,
+  query: string | string[],
+  options?: { folder?: string; limit?: number; abortSignal?: AbortSignal },
+): Promise<SearchWithDiagnostics> {
+  const abortSignal = options?.abortSignal;
+  const mock = getDevResearchSearchMock();
+  if (mock?.searchResearchWithDiagnostics) {
+    return abortablePromise(
+      mock.searchResearchWithDiagnostics(
+        embeddingConfig,
+        rerankerConfig,
+        query,
+        options,
+      ),
+      abortSignal,
+    );
+  }
+
+  const queries = Array.isArray(query) ? query : [query];
+  return abortablePromise(
+    invoke<SearchWithDiagnostics>("search_research_with_diagnostics", {
       embeddingConfig,
       rerankerConfig,
       queries,
@@ -161,6 +236,18 @@ export async function backfillIndex(
   dimensions?: number,
 ): Promise<void> {
   return invoke("backfill_index", { embeddingConfig, dimensions: dimensions ?? null });
+}
+
+export async function reindexFolder(
+  embeddingConfig: EmbeddingConfig,
+  folder: string,
+): Promise<number> {
+  const mock = getDevResearchSearchMock();
+  if (mock?.reindexFolder) {
+    return mock.reindexFolder(embeddingConfig, folder);
+  }
+
+  return invoke<number>("reindex_folder", { embeddingConfig, folder });
 }
 
 function getDevResearchSearchMock(): ResearchSearchMock | null {

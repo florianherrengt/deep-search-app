@@ -26,6 +26,7 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { TabPanel } from "@/components/tab-panel";
 import { AppUpdateButton } from "@/components/app-update-button";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
+import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
 import { ResearchSidebar } from "@/components/research-sidebar";
 import {
   compareResearchFolders,
@@ -38,8 +39,8 @@ import {
   type ResearchChatSummary,
   type ResearchFolder,
 } from "@/lib/research-history";
-import type { ResearchFolderChangeOptions } from "@/lib/transport";
 import { resolveEmbeddingConfig, resolveRerankerConfig } from "@/lib/settings-store";
+import { reindexFolder } from "@/lib/research-search";
 
 const LazyChat = lazy(() =>
   import("@/components/chat").then((m) => ({ default: m.Chat })),
@@ -57,7 +58,6 @@ export interface ChatSessionRecord {
   runtimeChatId: string;
   researchChatId: string;
   researchFolder: string | null;
-  isProvisionalResearchFolder: boolean;
   initialMessages: UIMessage[];
   isRunning: boolean;
   needsAttention: boolean;
@@ -71,14 +71,12 @@ interface ChatSessionState {
 interface CreateChatSessionInput {
   researchChatId: string;
   researchFolder: string | null;
-  isProvisionalResearchFolder?: boolean;
   initialMessages?: UIMessage[];
 }
 
 export function createChatSessionRecord({
   researchChatId,
   researchFolder,
-  isProvisionalResearchFolder = false,
   initialMessages = [],
 }: CreateChatSessionInput): ChatSessionRecord {
   return {
@@ -86,7 +84,6 @@ export function createChatSessionRecord({
     runtimeChatId: createChatSessionId("chat"),
     researchChatId,
     researchFolder,
-    isProvisionalResearchFolder,
     initialMessages,
     isRunning: false,
     needsAttention: false,
@@ -133,14 +130,12 @@ export function updateChatSessionResearchFolder(
   sessions: ChatSessionRecord[],
   sessionId: string,
   folderName: string,
-  options: ResearchFolderChangeOptions = { isProvisional: false },
 ) {
   return sessions.map((session) =>
     session.sessionId === sessionId
       ? {
           ...session,
           researchFolder: folderName,
-          isProvisionalResearchFolder: options.isProvisional,
         }
       : session,
   );
@@ -390,6 +385,13 @@ function AppInner() {
     [],
   );
 
+  useDesktopNotifications({
+    sessions: chatSessions,
+    activeSessionId,
+    activateSession,
+    switchToTab,
+  });
+
   if (loading) return null;
 
   const embeddingConfig = resolveEmbeddingConfig(settings);
@@ -527,7 +529,6 @@ function AppInner() {
   const handleResearchFolderChange = (
     sessionId: string,
     folderName: string,
-    options: ResearchFolderChangeOptions,
   ) => {
     setChatSessionState((current) => ({
       ...current,
@@ -535,7 +536,6 @@ function AppInner() {
         current.sessions,
         sessionId,
         folderName,
-        options,
       ),
     }));
     setResearchFolders((folders) =>
@@ -625,6 +625,11 @@ function AppInner() {
     void refreshResearchFolders();
   };
 
+  const handleReindexResearchFolder = async (folderName: string) => {
+    await reindexFolder(embeddingConfig, folderName);
+    void refreshResearchFolders();
+  };
+
   const runningFolderNames = getRunningResearchFolders(chatSessions);
   const runningChatIds = getRunningResearchChatIds(chatSessions);
   const attentionFolderNames = getAttentionRequiredResearchFolders(chatSessions);
@@ -663,6 +668,7 @@ function AppInner() {
             }}
             onRenameFolder={handleRenameResearchFolder}
             onDeleteFolder={handleDeleteResearchFolder}
+            onReindexFolder={handleReindexResearchFolder}
           />
           <div className="md-flex-fill">
             {visibleChatSessions.map((session) => (
@@ -680,9 +686,6 @@ function AppInner() {
                     defaultModelId={defaultChatModelId}
                     researchApiKey={settings.openrouter_api_key}
                     researchFolder={session.researchFolder}
-                    isProvisionalResearchFolder={
-                      session.isProvisionalResearchFolder
-                    }
                     selectedModelId={effectiveSelectedModelId}
                     initialMessages={session.initialMessages}
                     onResearchFolderChange={handleResearchFolderChange}

@@ -8,24 +8,21 @@ const tauriMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
 }));
 
+const retrievalMocks = vi.hoisted(() => ({
+  runRetrievalAgent: vi.fn(),
+}));
+
 vi.mock("@tauri-apps/api/core", () => tauriMocks);
-
-const relevanceMocks = vi.hoisted(() => ({
-  evaluateResearchRelevance: vi.fn((_query, results) => Promise.resolve(results)),
-}));
-
-vi.mock("@/lib/research-relevance-evaluator", () => ({
-  evaluateResearchRelevance: relevanceMocks.evaluateResearchRelevance,
-}));
+vi.mock("@/lib/retrieval-agent", () => retrievalMocks);
 
 import { createSearchResearchTool } from "@/tools/search-research-tool";
 
 type ExecutableSearchTool = {
   execute: (input: {
-    query: string;
+    query: string | string[];
     folder?: string;
     limit?: number;
-  }) => Promise<Array<{ folder_name: string }>>;
+  }) => Promise<Array<{ folder_name: string; relevant_memories: string[] }>>;
 };
 
 function mockModel() {
@@ -37,7 +34,7 @@ beforeEach(() => {
 });
 
 describe("createSearchResearchTool", () => {
-  it("returns deduped folder names without chunk content", async () => {
+  it("returns relevant folders with memories from the retrieval agent", async () => {
     const tool = createSearchResearchTool(
       mockEmbeddingConfig,
       mockRerankerConfig,
@@ -63,10 +60,38 @@ describe("createSearchResearchTool", () => {
         score: 0.7,
       },
     ]);
+    retrievalMocks.runRetrievalAgent.mockResolvedValueOnce({
+      relevant_folders: ["market-map", "competitors"],
+      relevant_memories: ["User prefers EUR"],
+    });
 
     await expect(tool.execute({ query: "market size" })).resolves.toEqual([
-      { folder_name: "market-map" },
-      { folder_name: "competitors" },
+      { folder_name: "market-map", relevant_memories: ["User prefers EUR"] },
+      { folder_name: "competitors", relevant_memories: ["User prefers EUR"] },
+    ]);
+  });
+
+  it("returns memories even when no folders are relevant", async () => {
+    const tool = createSearchResearchTool(
+      mockEmbeddingConfig,
+      mockRerankerConfig,
+      mockModel(),
+    ) as unknown as ExecutableSearchTool;
+    tauriMocks.invoke.mockResolvedValueOnce([
+      {
+        folder_name: "old-folder",
+        filename: "memories.md",
+        content: "User has a dog",
+        score: 0.3,
+      },
+    ]);
+    retrievalMocks.runRetrievalAgent.mockResolvedValueOnce({
+      relevant_folders: [],
+      relevant_memories: ["User has a dog"],
+    });
+
+    await expect(tool.execute({ query: "dog parks" })).resolves.toEqual([
+      { folder_name: "", relevant_memories: ["User has a dog"] },
     ]);
   });
 
@@ -90,7 +115,48 @@ describe("createSearchResearchTool", () => {
       queries: ["market size"],
       folder: "market-map",
       limit: 3,
+      filenames: null,
     });
+  });
+
+  it("accepts multiple queries and joins them for the retrieval agent", async () => {
+    const tool = createSearchResearchTool(
+      mockEmbeddingConfig,
+      mockRerankerConfig,
+      mockModel(),
+    ) as unknown as ExecutableSearchTool;
+    tauriMocks.invoke.mockResolvedValueOnce([
+      {
+        folder_name: "stocks",
+        filename: "notes.md",
+        content: "market trends",
+        score: 0.9,
+      },
+    ]);
+    retrievalMocks.runRetrievalAgent.mockResolvedValueOnce({
+      relevant_folders: ["stocks"],
+      relevant_memories: [],
+    });
+
+    await tool.execute({
+      query: ["market size", "competitor analysis"],
+      limit: 5,
+    });
+
+    expect(tauriMocks.invoke).toHaveBeenCalledWith("search_research", {
+      embeddingConfig: mockEmbeddingConfig,
+      rerankerConfig: mockRerankerConfig,
+      queries: ["market size", "competitor analysis"],
+      folder: null,
+      limit: 5,
+      filenames: null,
+    });
+    expect(retrievalMocks.runRetrievalAgent).toHaveBeenCalledWith(
+      "market size competitor analysis",
+      expect.any(Array),
+      expect.any(Object),
+      undefined,
+    );
   });
 
   it("returns empty and logs when the backend search command fails", async () => {
@@ -109,45 +175,6 @@ describe("createSearchResearchTool", () => {
     );
     expect(errorSpy).toHaveBeenCalledWith(
       "[search-research-tool] invoke failed:",
-      expect.any(Error),
-    );
-    errorSpy.mockRestore();
-  });
-
-  it("falls back to original results when relevance evaluation fails", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const tool = createSearchResearchTool(
-      mockEmbeddingConfig,
-      mockRerankerConfig,
-      mockModel(),
-    ) as unknown as ExecutableSearchTool;
-
-    tauriMocks.invoke.mockResolvedValueOnce([
-      {
-        folder_name: "market-map",
-        filename: "notes.md",
-        content: "content",
-        score: 0.9,
-      },
-      {
-        folder_name: "competitors",
-        filename: "notes.md",
-        content: "content",
-        score: 0.7,
-      },
-    ]);
-
-    relevanceMocks.evaluateResearchRelevance.mockRejectedValueOnce(
-      new Error("Relevance evaluation timed out"),
-    );
-
-    await expect(tool.execute({ query: "market size" })).resolves.toEqual([
-      { folder_name: "market-map" },
-      { folder_name: "competitors" },
-    ]);
-
-    expect(errorSpy).toHaveBeenCalledWith(
-      "[search-research-tool] relevance evaluation failed:",
       expect.any(Error),
     );
     errorSpy.mockRestore();
@@ -183,30 +210,7 @@ describe("createSearchResearchTool", () => {
       queries: [""],
       folder: null,
       limit: 8,
+      filenames: null,
     });
-  });
-
-  it("re-throws AbortError from relevance evaluation", async () => {
-    const abortError = new DOMException("The operation was aborted.", "AbortError");
-    const tool = createSearchResearchTool(
-      mockEmbeddingConfig,
-      mockRerankerConfig,
-      mockModel(),
-    ) as unknown as ExecutableSearchTool;
-
-    tauriMocks.invoke.mockResolvedValueOnce([
-      {
-        folder_name: "market-map",
-        filename: "notes.md",
-        content: "content",
-        score: 0.9,
-      },
-    ]);
-
-    relevanceMocks.evaluateResearchRelevance.mockRejectedValueOnce(abortError);
-
-    await expect(tool.execute({ query: "market size" })).rejects.toBe(
-      abortError,
-    );
   });
 });

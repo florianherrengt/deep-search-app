@@ -174,3 +174,36 @@ export const HighTokenCount: Story = {
     tokenCount: 58_400,
   },
 };
+
+const errorMessageMessages: readonly ThreadMessageLike[] = [
+  {
+    role: "user",
+    content: "Do something that fails",
+  },
+  {
+    role: "assistant",
+    content: [
+      {
+        type: "text",
+        text: "Let me try that...",
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-fail-1",
+        toolName: "brave_search",
+        args: { query: "something risky" },
+        argsText: '{"query":"something risky"}',
+        result: "API rate limit exceeded. Please try again later.",
+        isError: true,
+      },
+    ],
+    status: { type: "incomplete", reason: "error", error: "API rate limit exceeded. Please try again later." },
+  },
+];
+
+export const ErrorMessage: Story = {
+  args: {
+    initialMessages: errorMessageMessages,
+    tokenCount: 400,
+  },
+};

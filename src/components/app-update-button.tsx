@@ -27,8 +27,8 @@ export function AppUpdateButton() {
         border: "1px solid",
         fontSize: 12,
         ...(isError
-          ? { borderColor: "var(--mantine-color-red-3)", backgroundColor: "var(--mantine-color-red-0)", color: "var(--mantine-color-red-text)" }
-          : { borderColor: "var(--mantine-color-orange-3)", backgroundColor: "var(--mantine-color-orange-0)", color: "var(--mantine-color-orange-text)" }),
+          ? { borderColor: "light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))", backgroundColor: "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))", color: "var(--mantine-color-red-text)" }
+          : { borderColor: "light-dark(var(--mantine-color-orange-3), var(--mantine-color-orange-7))", backgroundColor: "light-dark(var(--mantine-color-orange-0), var(--mantine-color-orange-9))", color: "var(--mantine-color-orange-text)" }),
       }}
       data-testid="app-update"
       title={isError ? state.error : state.update.body}
