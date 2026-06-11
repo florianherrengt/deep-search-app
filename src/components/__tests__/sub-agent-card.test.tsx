@@ -28,6 +28,8 @@ function wrap(node: React.ReactNode) {
 
 const baseRun: SubAgentRun = {
   id: "run-1",
+  chatId: "run-1",
+  parentChatId: "chat-1",
   name: "Test Run",
   toolName: "research",
   status: "running",
@@ -59,11 +61,11 @@ describe("SubAgentCard", () => {
     expect(html).toContain("spin 1s linear infinite");
   });
 
-  it('shows "done" text for complete status', () => {
+  it('shows "done" text for completed status', () => {
     const html = renderToStaticMarkup(
       wrap(
         <SubAgentCard
-          run={{ ...baseRun, status: "complete" }}
+          run={{ ...baseRun, status: "completed" }}
           onClick={vi.fn()}
         />,
       ),
@@ -71,11 +73,11 @@ describe("SubAgentCard", () => {
     expect(html).toContain("done");
   });
 
-  it('shows "error" text for error status', () => {
+  it('shows "error" text for failed status', () => {
     const html = renderToStaticMarkup(
       wrap(
         <SubAgentCard
-          run={{ ...baseRun, status: "error" }}
+          run={{ ...baseRun, status: "failed" }}
           onClick={vi.fn()}
         />,
       ),

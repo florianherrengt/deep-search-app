@@ -71,6 +71,10 @@ const ListAppFilesInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
 });
 
+const CreateAppSubfolderInputSchema = z.object({
+  subfolder: SafeSubfolderSchema,
+});
+
 const DeleteAppSubfolderInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
 });
@@ -86,6 +90,9 @@ type ListAppSubfoldersInput = z.infer<
   typeof ListAppSubfoldersInputSchema
 >;
 type ListAppFilesInput = z.infer<typeof ListAppFilesInputSchema>;
+type CreateAppSubfolderInput = z.infer<
+  typeof CreateAppSubfolderInputSchema
+>;
 type DeleteAppSubfolderInput = z.infer<
   typeof DeleteAppSubfolderInputSchema
 >;
@@ -109,6 +116,13 @@ export async function writeAppFile(input: WriteAppFileInput): Promise<void> {
       emitResearchLibraryChanged({ changeType: "write", folderName });
     }
   }
+}
+
+export async function createAppSubfolder(
+  input: CreateAppSubfolderInput,
+): Promise<void> {
+  const parsed = CreateAppSubfolderInputSchema.parse(input);
+  await bridgeMkdir(parsed.subfolder, { recursive: true });
 }
 
 export async function readAppFile(
@@ -262,4 +276,3 @@ function researchFolderNameFromSubfolder(subfolder: string): string | null {
   const [root, folderName] = subfolder.split("/");
   return root === "search-results" && folderName ? folderName : null;
 }
-

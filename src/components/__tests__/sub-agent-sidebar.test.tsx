@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { useLayoutEffect, useRef } from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { useLayoutEffect } from "react";
+import { cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { MantineProvider } from "@mantine/core";
 import { SubAgentSidebar } from "@/components/sub-agent-sidebar";
 import { SubAgentProvider, useSubAgentStore } from "@/lib/sub-agent-store";
@@ -34,6 +34,10 @@ beforeAll(() => {
   });
 });
 
+afterEach(() => {
+  cleanup();
+});
+
 function StoreSetup({
   chatId,
   runs,
@@ -43,14 +47,11 @@ function StoreSetup({
   runs: SubAgentRun[];
   selectRunId?: string;
 }) {
-  const store = useSubAgentStore();
-  const done = useRef(false);
+  const { loadRuns, selectRun } = useSubAgentStore();
   useLayoutEffect(() => {
-    if (done.current) return;
-    done.current = true;
-    store.loadRuns(chatId, runs);
-    if (selectRunId) store.selectRun(selectRunId);
-  });
+    loadRuns(chatId, runs);
+    if (selectRunId) selectRun(selectRunId);
+  }, [chatId, loadRuns, runs, selectRun, selectRunId]);
   return null;
 }
 
@@ -79,9 +80,12 @@ function renderSidebar({
 
 const baseRun: SubAgentRun = {
   id: "run-1",
+  chatId: "run-1",
+  parentChatId: "chat-1",
+  source: "sub-agent",
   name: "Research pricing",
-  toolName: "research",
-  status: "complete",
+  toolName: "retrieval_agent",
+  status: "completed",
   startedAt: "2026-01-01T00:00:00.000Z",
   finishedAt: "2026-01-01T00:00:01.000Z",
   text: "Here is the research output.",
@@ -94,8 +98,34 @@ describe("SubAgentSidebar", () => {
   it("shows empty state when no run is selected", () => {
     renderSidebar({ runs: [] });
     expect(
-      screen.getByText("Select a subagent to view details"),
+      screen.getByText("No sub-agents for this conversation yet."),
     ).toBeInTheDocument();
+  });
+
+  it("shows empty state when only main-agent tool runs are loaded", () => {
+    renderSidebar({
+      runs: [
+        {
+          ...baseRun,
+          id: "tool-run-1",
+          chatId: "tool-run-1",
+          source: undefined,
+          name: "Brave Search",
+          toolName: "brave_search",
+          toolCalls: [
+            {
+              toolName: "brave_search",
+              args: { query: "pricing" },
+              result: { results: [] },
+              status: "complete",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(screen.getByText("No sub-agents for this conversation yet.")).toBeInTheDocument();
+    expect(screen.queryByText("Brave Search")).not.toBeInTheDocument();
   });
 
   it("shows run list items when runs are loaded", () => {
@@ -106,14 +136,14 @@ describe("SubAgentSidebar", () => {
   it("shows detail panel with output text when a run is selected", () => {
     renderSidebar({ runs: [baseRun], selectRunId: "run-1" });
     expect(screen.getByText("Here is the research output.")).toBeInTheDocument();
-    expect(screen.getByText("Output")).toBeInTheDocument();
   });
 
   it("shows error text in detail panel", () => {
     const errorRun: SubAgentRun = {
       ...baseRun,
       id: "run-err",
-      status: "error",
+      chatId: "run-err",
+      status: "failed",
       error: "Something went wrong",
       text: "",
     };
@@ -126,6 +156,7 @@ describe("SubAgentSidebar", () => {
     const runWithTools: SubAgentRun = {
       ...baseRun,
       id: "run-tools",
+      chatId: "run-tools",
       text: "",
       toolCalls: [
         {
@@ -142,10 +173,42 @@ describe("SubAgentSidebar", () => {
       ],
     };
     renderSidebar({ runs: [runWithTools], selectRunId: "run-tools" });
-    expect(screen.getByText("Tool Calls")).toBeInTheDocument();
+    expect(screen.queryByText("Tool Calls")).not.toBeInTheDocument();
     expect(screen.getByText("web_search")).toBeInTheDocument();
     expect(screen.getByText("extract_page_content")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Expand extract_page_content details",
+      }),
+    );
     expect(screen.getByText("Extracted content here")).toBeInTheDocument();
+  });
+
+  it("shows running streamed text inside an open sub-agent card", () => {
+    const runningRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-live",
+      chatId: "run-live",
+      status: "running",
+      finishedAt: null,
+      text: "Streaming update 1",
+    };
+    const { rerender } = renderSidebar({ runs: [runningRun] });
+    expect(screen.getByText("Streaming update 1")).toBeInTheDocument();
+
+    rerender(
+      <MantineProvider>
+        <SubAgentProvider>
+          <StoreSetup
+            chatId="chat-1"
+            runs={[{ ...runningRun, text: "Streaming update 1\nStreaming update 2" }]}
+          />
+          <SubAgentSidebar chatId="chat-1" onClose={vi.fn()} />
+        </SubAgentProvider>
+      </MantineProvider>,
+    );
+
+    expect(screen.getByText(/Streaming update 2/)).toBeInTheDocument();
   });
 
   it("calls onClose when close button is clicked", () => {

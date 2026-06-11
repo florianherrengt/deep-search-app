@@ -12,6 +12,7 @@ import { createGuardedStream } from "./guarded-stream";
 import type { SearchToolKeys } from "./tool-registry";
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import {
+  initializeResearchFolder,
   moveResearchChatToFolder,
   saveResearchChatMessages,
 } from "@/lib/research-history";
@@ -92,21 +93,35 @@ export class DirectTransport implements ChatTransport<UIMessage> {
         setActiveSubAgentEmitter(subAgentEmitter, null);
 
         try {
+          let initialMessagesSaved = false;
+
           if (!transport.researchFolder) {
             if (firstMessage) {
               const folderName = await nameFolderFromMessage(model, firstMessage, {
                 abortSignal,
               });
-              transport.researchFolder = folderName;
-              transport.onResearchFolderChange?.(folderName, {});
 
-              await saveResearchChatMessages(
+              await initializeResearchFolderOrThrow(folderName, "created");
+              await saveInitialResearchChatOrThrow(
                 folderName,
                 transport.researchChatId,
                 messages,
               );
+
+              transport.researchFolder = folderName;
+              transport.onResearchFolderChange?.(folderName, {});
+              initialMessagesSaved = true;
+            } else {
+              throw new Error(
+                "Research could not start because the research folder name could not be generated. No user message was available for folder naming.",
+              );
             }
           } else {
+            await initializeResearchFolderOrThrow(
+              transport.researchFolder,
+              "initialized",
+            );
+
             const previousResearchChoice = getPreviousResearchChoice(messages);
             if (previousResearchChoice.type === "continue") {
               await transport.switchResearchFolder(previousResearchChoice.folder, messages);
@@ -114,11 +129,13 @@ export class DirectTransport implements ChatTransport<UIMessage> {
           }
 
           if (transport.researchFolder) {
-            void saveResearchChatMessages(
-              transport.researchFolder,
-              transport.researchChatId,
-              messages,
-            ).catch(() => {});
+            if (!initialMessagesSaved) {
+              void saveResearchChatMessages(
+                transport.researchFolder,
+                transport.researchChatId,
+                messages,
+              ).catch(() => {});
+            }
 
             const lastUserMessage = getLastUserMessage(messages);
             if (lastUserMessage) {
@@ -255,6 +272,37 @@ function getFirstUserMessage(messages: UIMessage[]): string | null {
     }
   }
   return null;
+}
+
+async function initializeResearchFolderOrThrow(
+  folderName: string,
+  action: "created" | "initialized",
+): Promise<void> {
+  try {
+    await initializeResearchFolder(folderName);
+  } catch (error) {
+    throw new Error(
+      `Research could not start because the research folder "${folderName}" could not be ${action}. ${errorMessage(error)}`,
+    );
+  }
+}
+
+async function saveInitialResearchChatOrThrow(
+  folderName: string,
+  chatId: string,
+  messages: UIMessage[],
+): Promise<void> {
+  try {
+    await saveResearchChatMessages(folderName, chatId, messages);
+  } catch (error) {
+    throw new Error(
+      `Research could not start because the research folder "${folderName}" could not be initialized. ${errorMessage(error)}`,
+    );
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error.";
 }
 
 function getLastUserMessage(messages: UIMessage[]): string | null {

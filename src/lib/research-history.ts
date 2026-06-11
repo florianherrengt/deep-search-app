@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
 import { z } from "zod";
 import {
+  createAppSubfolder,
   deleteAppSubfolder,
   listAppFiles,
   listAppSubfolders,
@@ -238,6 +239,16 @@ export async function saveResearchChatMessages(
   });
 
   await upsertResearchChatSummary(parsedFolderName, summary).catch(() => {});
+}
+
+export async function initializeResearchFolder(
+  folderName: string,
+): Promise<void> {
+  const parsedFolderName = SafePathSegmentSchema.parse(folderName);
+
+  await createAppSubfolder({
+    subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
+  });
 }
 
 export async function moveResearchChatToFolder({

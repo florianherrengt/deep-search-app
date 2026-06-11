@@ -3,10 +3,12 @@ import { MockLanguageModelV3 } from "ai/test";
 
 const resolveUnique = vi.hoisted(() => vi.fn());
 const slugifyName = vi.hoisted(() => vi.fn());
+const validateName = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/transport/research-folder", () => ({
   slugifyFolderName: slugifyName,
   resolveUniqueFolderName: resolveUnique,
+  validateResearchFolderName: validateName,
 }));
 
 vi.mock("@/lib/sub-agent-emitter", () => ({
@@ -21,6 +23,7 @@ const mockedEmit = vi.mocked(emitSubAgentEvent);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  validateName.mockImplementation(defaultValidateName);
 });
 
 function tokenUsage() {
@@ -40,6 +43,19 @@ function modelReturning(...texts: string[]) {
       warnings: [],
     }),
   });
+}
+
+function defaultValidateName(name: string): string | null {
+  if (!name.trim()) return "must not be empty";
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
+    return "must be lowercase kebab-case (letters, numbers, hyphens only)";
+  }
+  if (name.length < 2) return "too short (min 2 characters)";
+  if (name.split("-").length > 5) return "too many words (max 5)";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(name)) {
+    return "must describe the research topic, not just a timestamp";
+  }
+  return null;
 }
 
 describe("nameFolderFromMessage", () => {
@@ -127,12 +143,32 @@ describe("nameFolderFromMessage validation", () => {
     expect(name).toBe("2026");
   });
 
-  it("accepts the fallback 'research' when LLM output slugifies to it", async () => {
+  it("accepts the literal 'research' name when the LLM generates it", async () => {
     slugifyName.mockReturnValue("research");
     resolveUnique.mockResolvedValueOnce("research");
     const model = modelReturning("research");
     const name = await nameFolderFromMessage(model, "!!! invalid !!!");
     expect(name).toBe("research");
+  });
+
+  it("treats empty generated names as fatal", async () => {
+    slugifyName.mockReturnValue("");
+    const model = modelReturning("", "", "");
+
+    await expect(
+      nameFolderFromMessage(model, "Research ACME"),
+    ).rejects.toThrow("Research could not start because the research folder name could not be generated");
+    expect(resolveUnique).not.toHaveBeenCalled();
+  });
+
+  it("treats timestamp-only generated names as fatal", async () => {
+    slugifyName.mockReturnValue("2026-06-11");
+    const model = modelReturning("2026-06-11");
+
+    await expect(
+      nameFolderFromMessage(model, "Research ACME"),
+    ).rejects.toThrow("timestamp");
+    expect(resolveUnique).not.toHaveBeenCalled();
   });
 
   it("retries with different failure reasons on each attempt", async () => {
@@ -324,5 +360,25 @@ describe("nameFolderFromMessage abort", () => {
     await nameFolderFromMessage(model, "test", { abortSignal: controller.signal });
 
     expect(capturedSignal).toBe(controller.signal);
+  });
+
+  it("treats LLM generation errors as fatal", async () => {
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        throw new Error("provider unavailable");
+      },
+    });
+
+    await expect(
+      nameFolderFromMessage(model, "Research ACME"),
+    ).rejects.toThrow("provider unavailable");
+
+    expect(resolveUnique).not.toHaveBeenCalled();
+    expect(mockedEmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "error",
+        error: expect.stringContaining("research folder name could not be generated"),
+      }),
+    );
   });
 });

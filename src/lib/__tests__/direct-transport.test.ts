@@ -5,6 +5,7 @@ import {
 } from "ai/test";
 import type { UIMessage } from "ai";
 import type {
+  LanguageModelV3GenerateResult,
   LanguageModelV3StreamPart,
   LanguageModelV3StreamResult,
 } from "@ai-sdk/provider";
@@ -59,14 +60,21 @@ vi.mock("@/lib/retrieval-agent", () => ({
   }),
 }));
 
+vi.mock("@/lib/skills-store", () => ({
+  skillsStore: {
+    get: vi.fn().mockResolvedValue({ skills: [] }),
+  },
+}));
+
 import {
   DirectTransport,
 } from "@/lib/transport";
+import { extractAndStoreMemories } from "@/lib/memory-agent";
+
+const mockedExtractAndStoreMemories = vi.mocked(extractAndStoreMemories);
 
 describe("DirectTransport research folder lifecycle", () => {
   beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 4, 22, 10, 11, 12));
     vi.clearAllMocks();
     fsMocks.exists.mockResolvedValue(false);
     fsMocks.readDir.mockResolvedValue([]);
@@ -75,6 +83,7 @@ describe("DirectTransport research folder lifecycle", () => {
     fsMocks.rename.mockResolvedValue(undefined);
     fsMocks.remove.mockResolvedValue(undefined);
     tauriMocks.invoke.mockResolvedValue(undefined);
+    mockedExtractAndStoreMemories.mockResolvedValue({ memoriesStored: 0 });
   });
 
   afterEach(() => {
@@ -100,12 +109,140 @@ describe("DirectTransport research folder lifecycle", () => {
     });
     await consumeStream(stream);
 
+    expect(fsMocks.mkdir).toHaveBeenNthCalledWith(
+      1,
+      "search-results/acme-earnings-calls",
+      { recursive: true },
+    );
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/acme-earnings-calls/chats/2026-05-22T10-11-12.123Z.json",
       expect.any(String),
     );
+    expect(fsMocks.mkdir.mock.invocationCallOrder[0]).toBeLessThan(
+      fsMocks.writeTextFile.mock.invocationCallOrder[0],
+    );
     expect(fsMocks.rename).not.toHaveBeenCalled();
     expect(onFolderChange).toHaveBeenCalledWith("acme-earnings-calls", {});
+  });
+
+  it("creates and persists the folder before memory extraction or streaming starts", async () => {
+    const events: string[] = [];
+    fsMocks.mkdir.mockImplementation(async (path: string) => {
+      if (path === "search-results/acme-ordering") {
+        events.push("folder-created");
+      }
+    });
+    fsMocks.writeTextFile.mockImplementation(async (path: string) => {
+      events.push(`write:${path}`);
+    });
+    mockedExtractAndStoreMemories.mockImplementation(async () => {
+      events.push("memory-started");
+      return { memoriesStored: 0 };
+    });
+
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "acme-ordering" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: tokenUsage(),
+        warnings: [],
+      }),
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        events.push("stream-started");
+        return {
+          stream: simulateReadableStream({ chunks: textChunks("Done.") }),
+        };
+      },
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+
+    await consumeStream(
+      await createTransport(vi.fn()).sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Research ACME ordering")],
+        abortSignal: undefined,
+      }),
+    );
+
+    const firstChatWriteIndex = events.findIndex((event) =>
+      event.startsWith("write:search-results/acme-ordering/chats/"),
+    );
+    expect(events.indexOf("folder-created")).toBeLessThan(firstChatWriteIndex);
+    expect(firstChatWriteIndex).toBeLessThan(events.indexOf("memory-started"));
+    expect(firstChatWriteIndex).toBeLessThan(events.indexOf("stream-started"));
+
+    const writePaths = fsMocks.writeTextFile.mock.calls.map(([path]) => path);
+    expect(writePaths.length).toBeGreaterThan(0);
+    expect(
+      writePaths.every((path) => path.startsWith("search-results/acme-ordering/")),
+    ).toBe(true);
+    expect(writePaths).toContain(
+      "search-results/acme-ordering/chats/index.json",
+    );
+  });
+
+  it("does not stream tool calls before the folder exists", async () => {
+    const events: string[] = [];
+    fsMocks.mkdir.mockImplementation(async (path: string) => {
+      if (path === "search-results/acme-tools") {
+        events.push("folder-created");
+      }
+    });
+    fsMocks.writeTextFile.mockImplementation(async (path: string) => {
+      if (path.startsWith("search-results/acme-tools/chats/")) {
+        events.push("chat-written");
+      }
+    });
+
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "acme-tools" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: tokenUsage(),
+        warnings: [],
+      }),
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        events.push("tool-stream-started");
+        return {
+          stream: simulateReadableStream({
+            chunks: toolCallChunks("ask_questions", "call-question", {
+              questions: [
+                {
+                  question: "Which market?",
+                  candidates: [{ label: "AI search", value: "ai-search" }],
+                },
+              ],
+            }),
+          }),
+        };
+      },
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+
+    const chunks = await collectChunks(
+      await createTransport(vi.fn()).sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Research ACME tooling")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(events.indexOf("folder-created")).toBeLessThan(
+      events.indexOf("chat-written"),
+    );
+    expect(events.indexOf("chat-written")).toBeLessThan(
+      events.indexOf("tool-stream-started"),
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "tool-input-available",
+        toolName: "ask_questions",
+      }),
+    );
   });
 
   it("moves the chat to an existing folder when user chooses continue", async () => {
@@ -245,6 +382,58 @@ describe("DirectTransport research folder lifecycle", () => {
     );
   });
 
+  it("reuses an existing folder on resume without generating a second folder", async () => {
+    const doGenerate = vi.fn(async (): Promise<LanguageModelV3GenerateResult> => ({
+      content: [{ type: "text", text: "unexpected-new-folder" }],
+      finishReason: { unified: "stop", raw: "stop" },
+      usage: tokenUsage(),
+      warnings: [],
+    }));
+    const model = new MockLanguageModelV3({
+      doGenerate,
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({ chunks: textChunks("Done.") }),
+      }),
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = new DirectTransport(
+      () => ({ provider: "openrouter", apiKey: "chat-key", model: "test-model" }) as never,
+      () => mockEmbeddingConfig,
+      () => mockRerankerConfig,
+      () => ({}),
+      "2026-05-22T10-11-12.123Z",
+      "existing-folder",
+      onFolderChange,
+    );
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Continue my research")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(doGenerate).not.toHaveBeenCalled();
+    expect(onFolderChange).not.toHaveBeenCalled();
+    expect(fsMocks.mkdir).toHaveBeenCalledWith(
+      "search-results/existing-folder",
+      { recursive: true },
+    );
+    expect(fsMocks.mkdir).not.toHaveBeenCalledWith(
+      "search-results/unexpected-new-folder",
+      expect.anything(),
+    );
+    expect(
+      fsMocks.writeTextFile.mock.calls.every(([path]) =>
+        path.startsWith("search-results/existing-folder/"),
+      ),
+    ).toBe(true);
+  });
+
   it("throws when no chat model is configured", async () => {
     const transport = new DirectTransport(
       () => null,
@@ -321,6 +510,9 @@ describe("DirectTransport research folder lifecycle", () => {
   });
 
   it("emits error chunk when folder naming fails after retries", async () => {
+    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => ({
+      stream: simulateReadableStream({ chunks: textChunks("Done.") }),
+    }));
     const model = new MockLanguageModelV3({
       doGenerate: async () => ({
         content: [{ type: "text", text: "The folder should be named something very descriptive with many words" }],
@@ -328,9 +520,7 @@ describe("DirectTransport research folder lifecycle", () => {
         usage: tokenUsage(),
         warnings: [],
       }),
-      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
-        stream: simulateReadableStream({ chunks: textChunks("Done.") }),
-      }),
+      doStream,
     });
     chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
     const onFolderChange = vi.fn();
@@ -350,6 +540,104 @@ describe("DirectTransport research folder lifecycle", () => {
         typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "error",
     );
     expect(errorChunk).toBeTruthy();
+    expect(errorChunk).toEqual(
+      expect.objectContaining({
+        errorText: expect.stringContaining("research folder name could not be generated"),
+      }),
+    );
+    expect(fsMocks.mkdir).not.toHaveBeenCalled();
+    expect(fsMocks.writeTextFile).not.toHaveBeenCalled();
+    expect(mockedExtractAndStoreMemories).not.toHaveBeenCalled();
+    expect(doStream).not.toHaveBeenCalled();
+    expect(onFolderChange).not.toHaveBeenCalled();
+  });
+
+  it("does not create a fallback folder after empty folder naming output", async () => {
+    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => ({
+      stream: simulateReadableStream({ chunks: textChunks("Done.") }),
+    }));
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: tokenUsage(),
+        warnings: [],
+      }),
+      doStream,
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+
+    const chunks = await collectChunks(
+      await createTransport(vi.fn()).sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Research ACME")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorText: expect.stringContaining("research folder name could not be generated"),
+      }),
+    );
+    expect(fsMocks.mkdir).not.toHaveBeenCalledWith(
+      "search-results/research",
+      expect.anything(),
+    );
+    expect(fsMocks.mkdir).not.toHaveBeenCalled();
+    expect(fsMocks.writeTextFile).not.toHaveBeenCalled();
+    expect(doStream).not.toHaveBeenCalled();
+  });
+
+  it("stops startup with a clear error when folder creation fails", async () => {
+    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => ({
+      stream: simulateReadableStream({ chunks: textChunks("Done.") }),
+    }));
+    fsMocks.mkdir.mockImplementation(async (path: string) => {
+      if (path === "search-results/acme-failure") {
+        throw new Error("disk denied");
+      }
+    });
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "acme-failure" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: tokenUsage(),
+        warnings: [],
+      }),
+      doStream,
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+
+    const chunks = await collectChunks(
+      await createTransport(onFolderChange).sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Research ACME")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorText: expect.stringContaining("could not be created"),
+      }),
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorText: expect.stringContaining("disk denied"),
+      }),
+    );
+    expect(fsMocks.writeTextFile).not.toHaveBeenCalled();
+    expect(mockedExtractAndStoreMemories).not.toHaveBeenCalled();
+    expect(doStream).not.toHaveBeenCalled();
     expect(onFolderChange).not.toHaveBeenCalled();
   });
 
@@ -541,6 +829,27 @@ function textChunks(text: string): LanguageModelV3StreamPart[] {
     {
       type: "finish" as const,
       finishReason: { unified: "stop", raw: "stop" },
+      usage: tokenUsage(),
+    },
+  ];
+}
+
+function toolCallChunks(
+  toolName: string,
+  toolCallId: string,
+  input: unknown,
+): LanguageModelV3StreamPart[] {
+  return [
+    { type: "stream-start" as const, warnings: [] },
+    {
+      type: "tool-call" as const,
+      toolCallId,
+      toolName,
+      input: JSON.stringify(input),
+    },
+    {
+      type: "finish" as const,
+      finishReason: { unified: "tool-calls", raw: "tool-calls" },
       usage: tokenUsage(),
     },
   ];

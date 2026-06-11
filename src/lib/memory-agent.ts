@@ -27,6 +27,7 @@ export async function extractAndStoreMemories(
   emitSubAgentEvent({
     type: "start",
     id: saId,
+    source: "sub-agent",
     name: "Memory Extraction",
     toolName: "memory_agent",
     parentMessageId: "transport",
@@ -45,15 +46,22 @@ export async function extractAndStoreMemories(
     let newFacts: string[];
     try {
       const parsed = JSON.parse(text.trim());
-      if (!Array.isArray(parsed)) return { memoriesStored: 0 };
+      if (!Array.isArray(parsed)) {
+        emitSubAgentEvent({ type: "complete", id: saId });
+        return { memoriesStored: 0 };
+      }
       newFacts = parsed.filter(
         (f): f is string => typeof f === "string" && f.trim().length > 0,
       );
     } catch {
+      emitSubAgentEvent({ type: "complete", id: saId });
       return { memoriesStored: 0 };
     }
 
-    if (newFacts.length === 0) return { memoriesStored: 0 };
+    if (newFacts.length === 0) {
+      emitSubAgentEvent({ type: "complete", id: saId });
+      return { memoriesStored: 0 };
+    }
 
     const folder = await getResearchFolder();
     const subfolder = `${SEARCH_RESULTS_SUBFOLDER}/${folder}`;

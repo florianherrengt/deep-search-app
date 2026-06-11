@@ -8,9 +8,14 @@ import {
 import {
   type SubAgentRun,
   type SubAgentEvent,
+  isSubAgentStartEvent,
   MAX_SUB_AGENT_TEXT_LENGTH,
 } from "./sub-agent-types";
-import { readSubAgentRuns, writeSubAgentRuns } from "./sub-agent-persistence";
+import {
+  normalizeSubAgentRuns,
+  readSubAgentRuns,
+  writeSubAgentRuns,
+} from "./sub-agent-persistence";
 
 interface SubAgentStoreState {
   runsByChat: Record<string, SubAgentRun[]>;
@@ -41,7 +46,10 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
   const loadRuns = useCallback((chatId: string, runs: SubAgentRun[]) => {
     setState((prev) => ({
       ...prev,
-      runsByChat: { ...prev.runsByChat, [chatId]: runs },
+      runsByChat: {
+        ...prev.runsByChat,
+        [chatId]: normalizeSubAgentRuns(runs, chatId),
+      },
     }));
   }, []);
 
@@ -60,7 +68,7 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
     (chatId: string, event: SubAgentEvent) => {
       setState((prev) => {
         const chatRuns = prev.runsByChat[chatId] ?? [];
-        const updated = applyEvent(chatRuns, event);
+        const updated = applyEvent(chatRuns, event, chatId);
         return {
           ...prev,
           runsByChat: { ...prev.runsByChat, [chatId]: updated },
@@ -131,13 +139,28 @@ export function useSubAgentStore(): SubAgentStore {
   return store;
 }
 
-function applyEvent(runs: SubAgentRun[], event: SubAgentEvent): SubAgentRun[] {
+function applyEvent(
+  runs: SubAgentRun[],
+  event: SubAgentEvent,
+  parentChatId: string,
+): SubAgentRun[] {
   switch (event.type) {
-    case "start":
+    case "start": {
+      if (!isSubAgentStartEvent(event)) return runs;
+
+      const runChatId = event.chatId ?? event.id;
+      const existingRun = runs.find(
+        (run) => run.chatId === runChatId || run.id === runChatId,
+      );
+      if (existingRun) return runs;
+
       return [
         ...runs,
         {
-          id: event.id,
+          id: runChatId,
+          chatId: runChatId,
+          parentChatId,
+          source: "sub-agent",
           name: event.name,
           toolName: event.toolName,
           status: "running",
@@ -149,6 +172,7 @@ function applyEvent(runs: SubAgentRun[], event: SubAgentEvent): SubAgentRun[] {
           parentMessageId: event.parentMessageId,
         },
       ];
+    }
 
     case "text-delta":
       return updateRun(runs, event.id, (run) => {
@@ -171,11 +195,16 @@ function applyEvent(runs: SubAgentRun[], event: SubAgentEvent): SubAgentRun[] {
     case "tool-result":
       return updateRun(runs, event.id, (run) => {
         const calls = [...run.toolCalls];
-        if (calls[event.toolCallIndex]) {
-          calls[event.toolCallIndex] = {
-            ...calls[event.toolCallIndex],
+        const toolCallIndex =
+          typeof event.toolCallIndex === "number"
+            ? event.toolCallIndex
+            : calls.findIndex((call) => call.toolCallId === event.toolCallId);
+
+        if (toolCallIndex >= 0 && calls[toolCallIndex]) {
+          calls[toolCallIndex] = {
+            ...calls[toolCallIndex],
             result: event.result,
-            status: "complete",
+            status: event.status ?? "complete",
           };
         }
         return { ...run, toolCalls: calls };
@@ -184,14 +213,14 @@ function applyEvent(runs: SubAgentRun[], event: SubAgentEvent): SubAgentRun[] {
     case "complete":
       return updateRun(runs, event.id, (run) => ({
         ...run,
-        status: "complete",
+        status: "completed",
         finishedAt: new Date().toISOString(),
       }));
 
     case "error":
       return updateRun(runs, event.id, (run) => ({
         ...run,
-        status: "error",
+        status: "failed",
         finishedAt: new Date().toISOString(),
         error: event.error,
       }));
@@ -203,5 +232,7 @@ function updateRun(
   id: string,
   updater: (run: SubAgentRun) => SubAgentRun,
 ): SubAgentRun[] {
-  return runs.map((run) => (run.id === id ? updater(run) : run));
+  return runs.map((run) =>
+    run.id === id || run.chatId === id ? updater(run) : run,
+  );
 }

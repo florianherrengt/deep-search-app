@@ -1,5 +1,8 @@
-import { Box, ScrollArea, Text, UnstyledButton } from "@mantine/core";
-import { XIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Box, Collapse, ScrollArea, Text, UnstyledButton } from "@mantine/core";
+import { BotIcon, ChevronDownIcon, XIcon } from "lucide-react";
+import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
+import { MarkdownContent } from "@/components/assistant-ui/markdown-text";
 import { useSubAgentStore } from "@/lib/sub-agent-store";
 import type { SubAgentRun } from "@/lib/sub-agent-types";
 
@@ -12,11 +15,38 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   const store = useSubAgentStore();
   const runs = store.getRuns(chatId);
   const selectedRun = store.getSelectedRun(chatId);
+  const [openRunIds, setOpenRunIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setOpenRunIds((current) => {
+      const next = new Set(current);
+      let changed = false;
+
+      for (const run of runs) {
+        if (run.status === "running" && !next.has(run.id)) {
+          next.add(run.id);
+          changed = true;
+        }
+      }
+
+      if (selectedRun && !next.has(selectedRun.id)) {
+        next.add(selectedRun.id);
+        changed = true;
+      }
+
+      return changed ? next : current;
+    });
+  }, [runs, selectedRun]);
+
+  const visibleRuns = useMemo(
+    () => [...runs].sort(compareSubAgentRuns),
+    [runs],
+  );
 
   return (
     <Box
       style={{
-        width: 380,
+        width: 420,
         flexShrink: 0,
         display: "flex",
         flexDirection: "column",
@@ -36,219 +66,194 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
         }}
       >
         <Text size="sm" fw={600} style={{ flex: 1 }}>
-          Subagents
+          Sub-agents
         </Text>
         <UnstyledButton onClick={onClose} aria-label="Close subagent sidebar">
           <XIcon size={16} style={{ color: "var(--mantine-color-dimmed)" }} />
         </UnstyledButton>
       </Box>
 
-      <Box
-        style={{
-          flexShrink: 0,
-          borderBottom: "1px solid var(--mantine-color-default-border)",
-          maxHeight: 200,
-          overflowY: "auto",
-        }}
-      >
-        {runs.map((run) => (
-          <RunListItem
-            key={run.id}
-            run={run}
-            active={selectedRun?.id === run.id}
-            onClick={() => store.selectRun(run.id)}
-          />
-        ))}
-      </Box>
-
       <ScrollArea style={{ flex: 1 }} type="auto">
-        {selectedRun ? (
-          <DetailPanel run={selectedRun} />
-        ) : (
-          <Box p="md">
-            <Text size="sm" c="dimmed">
-              Select a subagent to view details
-            </Text>
-          </Box>
-        )}
+        <Box p="sm" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {visibleRuns.length === 0 ? (
+            <Box p="sm">
+              <Text size="sm" c="dimmed">
+                No sub-agents for this conversation yet.
+              </Text>
+            </Box>
+          ) : (
+            visibleRuns.map((run) => {
+              const opened = openRunIds.has(run.id);
+              return (
+                <SubAgentRunCard
+                  key={run.id}
+                  run={run}
+                  opened={opened}
+                  onToggle={() => {
+                    setOpenRunIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(run.id)) {
+                        next.delete(run.id);
+                      } else {
+                        next.add(run.id);
+                      }
+                      return next;
+                    });
+                    store.selectRun(run.id);
+                  }}
+                />
+              );
+            })
+          )}
+        </Box>
       </ScrollArea>
     </Box>
   );
 }
 
-function RunListItem({
+function SubAgentRunCard({
   run,
-  active,
-  onClick,
+  opened,
+  onToggle,
 }: {
   run: SubAgentRun;
-  active: boolean;
-  onClick: () => void;
+  opened: boolean;
+  onToggle: () => void;
 }) {
-  const duration = getDuration(run);
+  const status = getStatusMeta(run.status);
 
   return (
-    <UnstyledButton
-      onClick={onClick}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "8px 16px",
-        width: "100%",
-        fontSize: 13,
-        textAlign: "left",
-        backgroundColor: active
-          ? "var(--mantine-color-default-hover)"
-          : undefined,
-      }}
-    >
-      <span
+    <Box className="md-surface md-card-sm" style={{ overflow: "hidden" }}>
+      <UnstyledButton
+        onClick={onToggle}
+        aria-label={`${opened ? "Collapse" : "Expand"} ${run.name}`}
         style={{
-          width: 6,
-          height: 6,
-          borderRadius: "50%",
-          flexShrink: 0,
-          backgroundColor:
-            run.status === "running"
-              ? "var(--mantine-color-blue-6)"
-              : run.status === "complete"
-                ? "var(--mantine-color-teal-6)"
-                : "var(--mantine-color-red-6)",
-          animation:
-            run.status === "running" ? "pulse 2s infinite" : undefined,
-        }}
-      />
-      <Text size="sm" style={{ flex: 1 }} truncate>
-        {run.name}
-      </Text>
-      <Text size="xs" c="dimmed">
-        {duration}
-      </Text>
-    </UnstyledButton>
-  );
-}
-
-function DetailPanel({ run }: { run: SubAgentRun }) {
-  return (
-    <Box p="md" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {run.text && (
-        <Box>
-          <Text size="xs" fw={500} c="dimmed" mb={4}>
-            Output
-          </Text>
-          <Box
-            style={{
-              fontSize: 13,
-              lineHeight: 1.6,
-              whiteSpace: "pre-wrap",
-              backgroundColor: "var(--mantine-color-default-hover)",
-              padding: 12,
-              borderRadius: 6,
-            }}
-          >
-            {run.text}
-          </Box>
-        </Box>
-      )}
-
-      {run.error && (
-        <Box>
-          <Text size="xs" fw={500} c="dimmed" mb={4}>
-            Error
-          </Text>
-          <Text size="sm" c="red">
-            {run.error}
-          </Text>
-        </Box>
-      )}
-
-      {run.toolCalls.length > 0 && (
-        <Box>
-          <Text size="xs" fw={500} c="dimmed" mb={4}>
-            Tool Calls
-          </Text>
-          {run.toolCalls.map((tc, i) => (
-            <ToolCallCard key={i} toolCall={tc} />
-          ))}
-        </Box>
-      )}
-    </Box>
-  );
-}
-
-function ToolCallCard({
-  toolCall: tc,
-}: {
-  toolCall: SubAgentRun["toolCalls"][number];
-}) {
-  return (
-    <Box
-      mb={8}
-      style={{
-        backgroundColor: "var(--mantine-color-default-hover)",
-        borderRadius: 6,
-        overflow: "hidden",
-      }}
-    >
-      <Box
-        style={{
-          padding: "8px 12px",
-          fontSize: 12,
           display: "flex",
+          width: "100%",
           alignItems: "center",
-          gap: 6,
+          gap: 8,
+          padding: "10px 12px",
+          textAlign: "left",
         }}
       >
-        <Text size="xs" fw={500}>
-          {tc.toolName}
-        </Text>
-        <Text
-          size="xs"
-          ml="auto"
-          c={tc.status === "complete" ? "teal" : tc.status === "error" ? "red" : "blue"}
-        >
-          {tc.status}
-        </Text>
-      </Box>
-      {tc.args !== undefined && (
-        <Box px={12} pb={8}>
-          <Text size="xs" fw={500} c="dimmed" mb={4}>
-            Input
+        <BotIcon size={15} style={{ color: "var(--mantine-color-dimmed)" }} />
+        <Box style={{ minWidth: 0, flex: 1 }}>
+          <Text size="sm" fw={600} truncate>
+            {run.name}
           </Text>
-          <pre
-            className="md-code-bg md-code-block"
-            style={{ fontSize: 11 }}
-          >
-            {formatJson(tc.args)}
-          </pre>
+          <Text size="xs" c="dimmed" truncate>
+            {run.chatId}
+          </Text>
         </Box>
-      )}
-      {tc.result !== undefined && (
-        <Box px={12} pb={8}>
-          <Text size="xs" fw={500} c="dimmed" mb={4}>
-            Result
+        {run.status === "running" ? (
+          <span
+            aria-label="running"
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              border: "2px solid var(--mantine-color-default-border)",
+              borderTopColor: "var(--mantine-color-blue-6)",
+              animation: "spin 1s linear infinite",
+              flexShrink: 0,
+            }}
+          />
+        ) : (
+          <Text size="xs" c={status.color} fw={600} style={{ flexShrink: 0 }}>
+            {status.label}
           </Text>
-          <pre
-            className="md-code-bg md-code-block"
-            style={{ fontSize: 11 }}
-          >
-            {formatJson(tc.result)}
-          </pre>
+        )}
+        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+          {getDuration(run)}
+        </Text>
+        <ChevronDownIcon
+          size={14}
+          style={{
+            color: "var(--mantine-color-dimmed)",
+            transition: "transform 0.2s",
+            transform: opened ? "rotate(180deg)" : "rotate(0deg)",
+            flexShrink: 0,
+          }}
+        />
+      </UnstyledButton>
+
+      <Collapse in={opened}>
+        <Box className="md-divider-top" p="sm">
+          <SubAgentTranscript run={run} />
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+function SubAgentTranscript({ run }: { run: SubAgentRun }) {
+  const hasContent = run.text.trim().length > 0;
+
+  return (
+    <Box style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {hasContent ? (
+        <Box style={{ overflowX: "auto", fontSize: 13, lineHeight: 1.55 }}>
+          <MarkdownContent text={run.text} />
+        </Box>
+      ) : run.status === "running" ? (
+        <Text size="sm" c="dimmed">
+          Waiting for sub-agent output...
+        </Text>
+      ) : null}
+
+      {run.toolCalls.map((toolCall, index) => (
+        <ToolFallback
+          key={toolCall.toolCallId ?? `${toolCall.toolName}-${index}`}
+          toolName={toolCall.toolName}
+          args={toolCall.args}
+          result={toolCall.result}
+          status={toToolFallbackStatus(toolCall.status)}
+        />
+      ))}
+
+      {run.error && (
+        <Box
+          className="md-card-sm"
+          style={{
+            border: "1px solid light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))",
+            backgroundColor: "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))",
+            color: "var(--mantine-color-red-text)",
+          }}
+        >
+          <Text size="xs" fw={600} mb={4}>
+            Error
+          </Text>
+          <Text size="sm">{run.error}</Text>
         </Box>
       )}
     </Box>
   );
 }
 
-function formatJson(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
+function toToolFallbackStatus(
+  status: SubAgentRun["toolCalls"][number]["status"],
+): "running" | "complete" | "error" {
+  return status;
+}
+
+function getStatusMeta(status: SubAgentRun["status"]): {
+  label: string;
+  color: string;
+} {
+  switch (status) {
+    case "running":
+      return { label: "running", color: "blue" };
+    case "completed":
+      return { label: "completed", color: "teal" };
+    case "failed":
+      return { label: "failed", color: "red" };
   }
+}
+
+function compareSubAgentRuns(a: SubAgentRun, b: SubAgentRun) {
+  if (a.status === "running" && b.status !== "running") return -1;
+  if (a.status !== "running" && b.status === "running") return 1;
+  return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
 }
 
 function getDuration(run: SubAgentRun): string {

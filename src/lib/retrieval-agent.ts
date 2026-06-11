@@ -1,4 +1,13 @@
-import { generateText, tool, zodSchema, stepCountIs, type LanguageModel } from "ai";
+import {
+  generateText,
+  tool,
+  zodSchema,
+  stepCountIs,
+  type GenerateTextOnToolCallFinishCallback,
+  type GenerateTextOnToolCallStartCallback,
+  type LanguageModel,
+  type ToolSet,
+} from "ai";
 import { z } from "zod";
 import { readAppFile, listAppFiles, SafePathSegmentSchema } from "@/lib/app-file-storage";
 import { isRecord } from "@/lib/json";
@@ -72,6 +81,7 @@ export async function runRetrievalAgent(
   emitSubAgentEvent({
     type: "start",
     id: saId,
+    source: "sub-agent",
     name: "Research Recall",
     toolName: "retrieval_agent",
     parentMessageId: "transport",
@@ -125,16 +135,22 @@ export async function runRetrievalAgent(
       },
     });
 
+    const scopedTools = {
+      list_files: scopedListFiles,
+      read_file: scopedReadFile,
+    };
+    const { handleToolCallStart, handleToolCallFinish } =
+      createSubAgentToolCallbacks<typeof scopedTools>(saId);
+
     const { text } = await generateText({
       model,
       system: retrievalAgentPrompt,
       prompt: userPrompt,
-      tools: {
-        list_files: scopedListFiles,
-        read_file: scopedReadFile,
-      },
+      tools: scopedTools,
       stopWhen: stepCountIs(5),
       abortSignal,
+      experimental_onToolCallStart: handleToolCallStart,
+      experimental_onToolCallFinish: handleToolCallFinish,
     });
 
     emitSubAgentEvent({ type: "text-delta", id: saId, delta: text });
@@ -146,6 +162,66 @@ export async function runRetrievalAgent(
     emitSubAgentEvent({ type: "error", id: saId, error: "Retrieval agent failed" });
     return { relevant_folders: [], relevant_memories: [] };
   }
+}
+
+function createSubAgentToolCallbacks<TOOLS extends ToolSet>(saId: string): {
+  handleToolCallStart: GenerateTextOnToolCallStartCallback<TOOLS>;
+  handleToolCallFinish: GenerateTextOnToolCallFinishCallback<TOOLS>;
+} {
+  const toolCallIndices = new Map<string, number>();
+  let nextToolCallIndex = 0;
+
+  const handleToolCallStart: GenerateTextOnToolCallStartCallback<TOOLS> = ({
+    toolCall,
+  }) => {
+    const toolCallIndex = nextToolCallIndex++;
+    toolCallIndices.set(toolCall.toolCallId, toolCallIndex);
+    emitSubAgentEvent({
+      type: "tool-call",
+      id: saId,
+      toolCall: {
+        toolCallId: toolCall.toolCallId,
+        toolName: toolCall.toolName,
+        args: toolCall.input,
+        status: "running",
+      },
+    });
+  };
+
+  const handleToolCallFinish: GenerateTextOnToolCallFinishCallback<TOOLS> = (
+    event,
+  ) => {
+    let toolCallIndex = toolCallIndices.get(event.toolCall.toolCallId);
+    if (toolCallIndex === undefined) {
+      toolCallIndex = nextToolCallIndex++;
+      toolCallIndices.set(event.toolCall.toolCallId, toolCallIndex);
+      emitSubAgentEvent({
+        type: "tool-call",
+        id: saId,
+        toolCall: {
+          toolCallId: event.toolCall.toolCallId,
+          toolName: event.toolCall.toolName,
+          args: event.toolCall.input,
+          status: "running",
+        },
+      });
+    }
+
+    emitSubAgentEvent({
+      type: "tool-result",
+      id: saId,
+      toolCallId: event.toolCall.toolCallId,
+      toolCallIndex,
+      result: event.success ? event.output : formatToolError(event.error),
+      status: event.success ? "complete" : "error",
+    });
+  };
+
+  return { handleToolCallStart, handleToolCallFinish };
+}
+
+function formatToolError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function parseRetrievalResult(text: string, candidates: Set<string>): RetrievalResult {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockGenerateText = vi.hoisted(() => vi.fn());
+const mockEmitSubAgentEvent = vi.hoisted(() => vi.fn());
 
 vi.mock("ai", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ai")>();
@@ -9,6 +10,10 @@ vi.mock("ai", async (importOriginal) => {
     generateText: mockGenerateText,
   };
 });
+
+vi.mock("@/lib/sub-agent-emitter", () => ({
+  emitSubAgentEvent: mockEmitSubAgentEvent,
+}));
 
 import { extractAndStoreMemories } from "@/lib/memory-agent";
 
@@ -60,6 +65,9 @@ describe("extractAndStoreMemories", () => {
 
     expect(mockWriteAppFile).not.toHaveBeenCalled();
     expect(result).toEqual({ memoriesStored: 0 });
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "complete" }),
+    );
   });
 
   it("merges with existing memories.md", async () => {
@@ -149,5 +157,8 @@ describe("extractAndStoreMemories", () => {
 
     expect(mockWriteAppFile).not.toHaveBeenCalled();
     expect(result).toEqual({ memoriesStored: 0 });
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "complete" }),
+    );
   });
 });

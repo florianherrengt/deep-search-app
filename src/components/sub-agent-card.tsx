@@ -47,12 +47,12 @@ export function SubAgentCard({
             }}
           />
         )}
-        {run.status === "complete" && (
+        {run.status === "completed" && (
           <Text size="xs" c="teal" ml="auto">
             done
           </Text>
         )}
-        {run.status === "error" && (
+        {run.status === "failed" && (
           <Text size="xs" c="red" ml="auto">
             error
           </Text>

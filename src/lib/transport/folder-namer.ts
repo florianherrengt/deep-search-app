@@ -1,13 +1,17 @@
 import { generateText, type LanguageModel } from "ai";
-import { slugifyFolderName, resolveUniqueFolderName } from "./research-folder";
+import {
+  resolveUniqueFolderName,
+  slugifyFolderName,
+  validateResearchFolderName,
+} from "./research-folder";
 import { createSubAgentId } from "../sub-agent-types";
 import { emitSubAgentEvent } from "../sub-agent-emitter";
 
 const NAMER_SYSTEM = `You name research folders. Given the user's research question, return a short kebab-case folder name that captures the general topic. Max 5 words. Return ONLY the name, nothing else. No explanation, no quotes, no punctuation.`;
 
-const VALID_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-const MAX_WORDS = 5;
 const MAX_ATTEMPTS = 3;
+const STARTUP_NAME_ERROR_PREFIX =
+  "Research could not start because the research folder name could not be generated.";
 
 class FolderNameError extends Error {
   constructor(
@@ -19,16 +23,8 @@ class FolderNameError extends Error {
 }
 
 function validateName(slug: string): FolderNameError | null {
-  if (!VALID_NAME.test(slug)) {
-    return new FolderNameError(slug, "must be lowercase kebab-case (letters, numbers, hyphens only)");
-  }
-  if (slug.length < 2) {
-    return new FolderNameError(slug, "too short (min 2 characters)");
-  }
-  if (slug.split("-").length > MAX_WORDS) {
-    return new FolderNameError(slug, `too many words (max ${MAX_WORDS})`);
-  }
-  return null;
+  const reason = validateResearchFolderName(slug);
+  return reason ? new FolderNameError(slug, reason) : null;
 }
 
 export async function nameFolderFromMessage(
@@ -40,6 +36,7 @@ export async function nameFolderFromMessage(
   emitSubAgentEvent({
     type: "start",
     id: saId,
+    source: "sub-agent",
     name: "Folder Naming",
     toolName: "name_folder",
     parentMessageId: "transport",
@@ -53,13 +50,24 @@ export async function nameFolderFromMessage(
         ? userMessage
         : `Your previous answer "${lastError!.raw}" was rejected: ${lastError!.message}. Try again. Return ONLY a valid kebab-case folder name.`;
 
-    const result = await generateText({
-      model,
-      system: NAMER_SYSTEM,
-      prompt,
-      maxOutputTokens: 30,
-      abortSignal: options?.abortSignal,
-    });
+    let result: Awaited<ReturnType<typeof generateText>>;
+    try {
+      result = await generateText({
+        model,
+        system: NAMER_SYSTEM,
+        prompt,
+        maxOutputTokens: 30,
+        abortSignal: options?.abortSignal,
+      });
+    } catch (error) {
+      if (options?.abortSignal?.aborted) {
+        throw error;
+      }
+
+      const finalError = `${STARTUP_NAME_ERROR_PREFIX} ${errorMessage(error)}`;
+      emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+      throw new Error(finalError);
+    }
 
     const raw = result.text.trim();
     emitSubAgentEvent({ type: "text-delta", id: saId, delta: raw });
@@ -67,7 +75,15 @@ export async function nameFolderFromMessage(
     const validationError = validateName(slug);
 
     if (!validationError) {
-      const resolved = resolveUniqueFolderName(slug);
+      let resolved: string;
+      try {
+        resolved = await resolveUniqueFolderName(slug);
+      } catch (error) {
+        const finalError = `${STARTUP_NAME_ERROR_PREFIX} The generated folder name could not be resolved. ${errorMessage(error)}`;
+        emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+        throw new Error(finalError);
+      }
+
       emitSubAgentEvent({ type: "complete", id: saId });
       return resolved;
     }
@@ -75,7 +91,11 @@ export async function nameFolderFromMessage(
     lastError = validationError;
   }
 
-  const finalError = `Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts. Last issue: ${lastError?.message}`;
+  const finalError = `${STARTUP_NAME_ERROR_PREFIX} Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts. Last issue: ${lastError?.message}`;
   emitSubAgentEvent({ type: "error", id: saId, error: finalError });
   throw new Error(finalError);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error.";
 }

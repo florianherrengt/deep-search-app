@@ -4,6 +4,7 @@ import {
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
+import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { type AnchorHTMLAttributes, type FC } from "react";
 import { useClipboard } from "@mantine/hooks";
@@ -19,6 +20,14 @@ const MarkdownTextImpl = () => {
   );
 };
 export const MarkdownText = MarkdownTextImpl;
+
+export function MarkdownContent({ text }: { text: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={defaultComponents}>
+      {text}
+    </ReactMarkdown>
+  );
+}
 
 const CodeHeader: FC<{
   language?: string;

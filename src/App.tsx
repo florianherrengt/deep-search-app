@@ -401,6 +401,15 @@ function AppInner() {
     }
   }, [subAgentStore.selectedRunId]);
 
+  const activeSubAgentRuns = activeResearchChatId
+    ? subAgentStore.runsByChat[activeResearchChatId]
+    : undefined;
+  useEffect(() => {
+    if (activeSubAgentRuns?.some((run) => run.status === "running")) {
+      setSubAgentSidebarOpen(true);
+    }
+  }, [activeSubAgentRuns]);
+
   if (loading) return null;
 
   const embeddingConfig = resolveEmbeddingConfig(settings);

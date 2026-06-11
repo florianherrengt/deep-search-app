@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockGenerateText = vi.hoisted(() => vi.fn());
+const mockEmitSubAgentEvent = vi.hoisted(() => vi.fn());
 
 vi.mock("ai", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ai")>();
@@ -9,6 +10,10 @@ vi.mock("ai", async (importOriginal) => {
     generateText: mockGenerateText,
   };
 });
+
+vi.mock("@/lib/sub-agent-emitter", () => ({
+  emitSubAgentEvent: mockEmitSubAgentEvent,
+}));
 
 import { runRetrievalAgent } from "@/lib/retrieval-agent";
 import type { SearchResult } from "@/lib/research-search";
@@ -59,6 +64,58 @@ describe("runRetrievalAgent", () => {
     );
 
     expect(result).toEqual({ relevant_folders: ["hiking-trails"], relevant_memories: [] });
+  });
+
+  it("emits nested tool calls from agent tool callbacks", async () => {
+    mockGenerateText.mockImplementation(
+      async ({ experimental_onToolCallStart, experimental_onToolCallFinish }) => {
+        const toolCall = {
+          type: "tool-call",
+          toolCallId: "tc-list-files",
+          toolName: "list_files",
+          input: { folder: "hiking-trails" },
+        };
+
+        experimental_onToolCallStart?.({ toolCall } as never);
+        experimental_onToolCallFinish?.({
+          toolCall,
+          success: true,
+          output: ["notes.md"],
+        } as never);
+
+        return { text: '{"relevant_folders": ["hiking-trails"], "relevant_memories": []}' };
+      },
+    );
+
+    await runRetrievalAgent(
+      "Find my hiking research",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "start", name: "Research Recall" }),
+    );
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith({
+      type: "tool-call",
+      id: expect.any(String),
+      toolCall: {
+        toolCallId: "tc-list-files",
+        toolName: "list_files",
+        args: { folder: "hiking-trails" },
+        status: "running",
+      },
+    });
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith({
+      type: "tool-result",
+      id: expect.any(String),
+      toolCallId: "tc-list-files",
+      toolCallIndex: 0,
+      result: ["notes.md"],
+      status: "complete",
+    });
   });
 
   it("returns relevant memories from agent output", async () => {

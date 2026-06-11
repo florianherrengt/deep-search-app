@@ -53,23 +53,23 @@ function StoreInit({
 
 const now = new Date("2025-01-15T10:00:00Z");
 
-const completedBraveRun: SubAgentRun = {
-  id: "sa-brave-1",
-  name: "brave_search",
-  toolName: "brave_search",
-  status: "complete",
+const completedRecallRun: SubAgentRun = {
+  id: "sa-recall-1",
+  chatId: "sa-recall-1",
+  parentChatId: "test-chat",
+  source: "sub-agent",
+  name: "Research Recall",
+  toolName: "retrieval_agent",
+  status: "completed",
   startedAt: new Date(now.getTime() - 5000).toISOString(),
   finishedAt: now.toISOString(),
-  text: "Found 5 results for the query. Top result discusses modern AI search techniques.",
+  text: "Identified the most relevant saved research folder for this request.",
   toolCalls: [
     {
-      toolName: "brave_search",
-      args: { query: "AI research tools 2025", count: 5 },
+      toolName: "list_files",
+      args: { folder: "ai-research-tools" },
       result: {
-        results: [
-          { title: "AI Research Tools Comparison", url: "https://example.com/ai-tools" },
-          { title: "Best AI Search Engines", url: "https://example.com/search" },
-        ],
+        files: ["notes.md", "sources.md"],
       },
       status: "complete",
     },
@@ -80,8 +80,11 @@ const completedBraveRun: SubAgentRun = {
 
 const runningSeqRun: SubAgentRun = {
   id: "sa-seq-2",
-  name: "sequential_thinking",
-  toolName: "sequential_thinking",
+  chatId: "sa-seq-2",
+  parentChatId: "test-chat",
+  source: "sub-agent",
+  name: "Memory Extraction",
+  toolName: "memory_agent",
   status: "running",
   startedAt: new Date(now.getTime() - 12000).toISOString(),
   finishedAt: null,
@@ -105,9 +108,12 @@ const runningSeqRun: SubAgentRun = {
 
 const erroredExtractRun: SubAgentRun = {
   id: "sa-extract-3",
-  name: "extract_page_content",
-  toolName: "extract_page_content",
-  status: "error",
+  chatId: "sa-extract-3",
+  parentChatId: "test-chat",
+  source: "sub-agent",
+  name: "Folder Naming",
+  toolName: "name_folder",
+  status: "failed",
   startedAt: new Date(now.getTime() - 30000).toISOString(),
   finishedAt: new Date(now.getTime() - 15000).toISOString(),
   text: "Attempting to extract content from https://example.com/research-paper...",
@@ -151,8 +157,8 @@ type Story = StoryObj<typeof meta>;
 
 export const WithRuns: Story = {
   args: {
-    initialRuns: [completedBraveRun, runningSeqRun, erroredExtractRun],
-    selectedRunId: "sa-brave-1",
+    initialRuns: [completedRecallRun, runningSeqRun, erroredExtractRun],
+    selectedRunId: "sa-recall-1",
   },
 };
 
@@ -168,9 +174,12 @@ export const WithToolCalls: Story = {
     initialRuns: [
       {
         id: "sa-tools-1",
-        name: "research_agent",
-        toolName: "research_agent",
-        status: "complete",
+        chatId: "sa-tools-1",
+        parentChatId: "test-chat",
+        source: "sub-agent",
+        name: "Research Agent",
+        toolName: "retrieval_agent",
+        status: "completed",
         startedAt: new Date(now.getTime() - 20000).toISOString(),
         finishedAt: now.toISOString(),
         text: "Research complete. Compiled findings from tool calls below.",

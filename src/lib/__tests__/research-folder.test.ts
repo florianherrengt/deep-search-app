@@ -21,7 +21,12 @@ vi.mock("@/lib/research-library-events", () => ({
   emitResearchLibraryChanged: vi.fn(),
 }));
 
-import { slugifyFolderName, resolveUniqueFolderName } from "@/lib/transport/research-folder";
+import {
+  resolveUniqueFolderName,
+  resolveUniqueFolderNameFromExisting,
+  slugifyFolderName,
+  validateResearchFolderName,
+} from "@/lib/transport/research-folder";
 
 describe("slugifyFolderName", () => {
   it("slugifies a simple phrase to kebab-case", () => {
@@ -32,12 +37,12 @@ describe("slugifyFolderName", () => {
     expect(slugifyFolderName("How do LLMs work?!")).toBe("how-do-llms-work");
   });
 
-  it("returns fallback for empty input", () => {
-    expect(slugifyFolderName("")).toBe("research");
+  it("does not fallback for empty input", () => {
+    expect(slugifyFolderName("")).toBe("");
   });
 
-  it("returns fallback for special-char-only input", () => {
-    expect(slugifyFolderName("!!!")).toBe("research");
+  it("does not fallback for special-char-only input", () => {
+    expect(slugifyFolderName("!!!")).toBe("");
   });
 
   it("converts underscores to hyphens", () => {
@@ -56,12 +61,12 @@ describe("slugifyFolderName", () => {
     expect(slugifyFolderName("café résumé")).toBe("cafe-resume");
   });
 
-  it("returns fallback for non-latin scripts that produce empty output", () => {
-    expect(slugifyFolderName("北京")).toBe("research");
+  it("does not fallback for non-latin scripts that produce empty output", () => {
+    expect(slugifyFolderName("北京")).toBe("");
   });
 
-  it("returns fallback for emoji-only input", () => {
-    expect(slugifyFolderName("🎉🚀")).toBe("research");
+  it("does not fallback for emoji-only input", () => {
+    expect(slugifyFolderName("🎉🚀")).toBe("");
   });
 
   it("strips emoji from mixed input", () => {
@@ -112,12 +117,41 @@ describe("slugifyFolderName", () => {
     expect(slugifyFolderName("project 2026 roadmap")).toBe("project-2026-roadmap");
   });
 
-  it("returns fallback for input that slugifies to a single character", () => {
+  it("can sanitize input to a single character for later validation", () => {
     expect(slugifyFolderName("c++")).toBe("c");
   });
 
   it("handles input that is already a valid slug", () => {
     expect(slugifyFolderName("my-research")).toBe("my-research");
+  });
+});
+
+describe("validateResearchFolderName", () => {
+  it("accepts safe kebab-case folder names", () => {
+    expect(validateResearchFolderName("acme-earnings-calls")).toBeNull();
+  });
+
+  it("rejects empty names", () => {
+    expect(validateResearchFolderName("")).toBe("must not be empty");
+  });
+
+  it("rejects unsafe path segments", () => {
+    expect(validateResearchFolderName("../escape")).toContain("kebab-case");
+    expect(validateResearchFolderName("a\\b")).toContain("kebab-case");
+  });
+
+  it("rejects names that are too short", () => {
+    expect(validateResearchFolderName("a")).toContain("too short");
+  });
+
+  it("rejects names with too many words", () => {
+    expect(validateResearchFolderName("one-two-three-four-five-six")).toContain(
+      "too many words",
+    );
+  });
+
+  it("rejects timestamp-only names", () => {
+    expect(validateResearchFolderName("2026-06-11")).toContain("timestamp");
   });
 });
 
@@ -223,6 +257,28 @@ describe("resolveUniqueFolderName", () => {
       dirEntry("project-2026-06-14"),
     ]);
     await expect(resolveUniqueFolderName("project-2026-06-14")).resolves.toBe("project-2026-06-14-2026-06-15");
+  });
+});
+
+describe("resolveUniqueFolderNameFromExisting", () => {
+  it("handles duplicate folder names deterministically from inputs", () => {
+    expect(
+      resolveUniqueFolderNameFromExisting(
+        "my-folder",
+        ["my-folder", "my-folder-2026-06-15"],
+        new Date("2026-06-15T12:00:00Z"),
+      ),
+    ).toBe("my-folder-2026-06-15-2");
+  });
+
+  it("does not mutate unique candidates", () => {
+    expect(
+      resolveUniqueFolderNameFromExisting(
+        "unique-folder",
+        ["other-folder"],
+        new Date("2026-06-15T12:00:00Z"),
+      ),
+    ).toBe("unique-folder");
   });
 });
 

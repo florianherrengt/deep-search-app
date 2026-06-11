@@ -34,14 +34,31 @@ function startEvent(
   return {
     type: "start",
     id,
+    source: "sub-agent",
     name: `Subagent ${id}`,
-    toolName: "research",
+    toolName: "retrieval_agent",
     parentMessageId: "msg-1",
     ...overrides,
   };
 }
 
 describe("SubAgentStore processEvent", () => {
+  it("ignores main-agent tool wrapper start events", () => {
+    const { result } = renderHook(() => useSubAgentStore(), { wrapper });
+
+    act(() => {
+      result.current.processEvent(chatId, {
+        type: "start",
+        id: "tool-run-1",
+        name: "Brave Search",
+        toolName: "brave_search",
+        parentMessageId: "msg-1",
+      });
+    });
+
+    expect(result.current.getRuns(chatId)).toEqual([]);
+  });
+
   it("start event creates a new run with status running", () => {
     const { result } = renderHook(() => useSubAgentStore(), { wrapper });
 
@@ -52,6 +69,8 @@ describe("SubAgentStore processEvent", () => {
     const runs = result.current.getRuns(chatId);
     expect(runs).toHaveLength(1);
     expect(runs[0].id).toBe("sa-1");
+    expect(runs[0].chatId).toBe("sa-1");
+    expect(runs[0].parentChatId).toBe(chatId);
     expect(runs[0].status).toBe("running");
     expect(runs[0].startedAt).toBeTruthy();
     expect(runs[0].finishedAt).toBeNull();
@@ -140,7 +159,39 @@ describe("SubAgentStore processEvent", () => {
     expect(runs[0].toolCalls[0].result).toBe("Search results here");
   });
 
-  it("complete event sets status to complete and finishedAt", () => {
+  it("tool-result event can update a tool call by toolCallId", () => {
+    const { result } = renderHook(() => useSubAgentStore(), { wrapper });
+
+    act(() => {
+      result.current.processEvent(chatId, startEvent("sa-1"));
+    });
+    act(() => {
+      result.current.processEvent(chatId, {
+        type: "tool-call",
+        id: "sa-1",
+        toolCall: {
+          toolCallId: "tc-1",
+          toolName: "read_file",
+          args: { filename: "notes.md" },
+          status: "running",
+        },
+      });
+    });
+    act(() => {
+      result.current.processEvent(chatId, {
+        type: "tool-result",
+        id: "sa-1",
+        toolCallId: "tc-1",
+        result: "File content",
+      });
+    });
+
+    const runs = result.current.getRuns(chatId);
+    expect(runs[0].toolCalls[0].status).toBe("complete");
+    expect(runs[0].toolCalls[0].result).toBe("File content");
+  });
+
+  it("complete event sets status to completed and finishedAt", () => {
     const { result } = renderHook(() => useSubAgentStore(), { wrapper });
 
     act(() => {
@@ -151,11 +202,11 @@ describe("SubAgentStore processEvent", () => {
     });
 
     const runs = result.current.getRuns(chatId);
-    expect(runs[0].status).toBe("complete");
+    expect(runs[0].status).toBe("completed");
     expect(runs[0].finishedAt).toBeTruthy();
   });
 
-  it("error event sets status to error, finishedAt, and error message", () => {
+  it("error event sets status to failed, finishedAt, and error message", () => {
     const { result } = renderHook(() => useSubAgentStore(), { wrapper });
 
     act(() => {
@@ -170,7 +221,7 @@ describe("SubAgentStore processEvent", () => {
     });
 
     const runs = result.current.getRuns(chatId);
-    expect(runs[0].status).toBe("error");
+    expect(runs[0].status).toBe("failed");
     expect(runs[0].finishedAt).toBeTruthy();
     expect(runs[0].error).toBe("Failed to process");
   });
@@ -239,10 +290,10 @@ describe("SubAgentStore processEvent", () => {
     expect(runs).toHaveLength(2);
     expect(runs[0].id).toBe("sa-1");
     expect(runs[0].text).toBe("First");
-    expect(runs[0].status).toBe("complete");
+    expect(runs[0].status).toBe("completed");
     expect(runs[1].id).toBe("sa-2");
     expect(runs[1].text).toBe("Second");
-    expect(runs[1].status).toBe("error");
+    expect(runs[1].status).toBe("failed");
     expect(runs[1].error).toBe("Boom");
   });
 });

@@ -23,8 +23,10 @@ import { saveResearchChatMessages } from "@/lib/research-history";
 import { getCurrentTokenCount } from "@/lib/token-usage";
 import { hasPendingQuestionTool } from "@/lib/chat-attention";
 import { useSubAgentStore } from "@/lib/sub-agent-store";
-import type { SubAgentEvent } from "@/lib/sub-agent-types";
+import type { SubAgentEvent, SubAgentRun } from "@/lib/sub-agent-types";
 import { isRecord } from "@/lib/json";
+
+const EMPTY_SUB_AGENT_RUNS: SubAgentRun[] = [];
 
 export function Chat({
   sessionId,
@@ -271,7 +273,14 @@ export function Chat({
   }, [needsAttention, onAttentionStateChange, sessionId]);
 
   const subAgentStore = useSubAgentStore();
-  const processedPartsByMessageRef = useRef<Record<string, number>>({});
+  const processedPartsByMessageRef = useRef<Record<string, number>>(
+    getProcessedPartCounts(initialMessages),
+  );
+  const processedResearchChatIdRef = useRef(researchChatId);
+  if (processedResearchChatIdRef.current !== researchChatId) {
+    processedResearchChatIdRef.current = researchChatId;
+    processedPartsByMessageRef.current = getProcessedPartCounts(initialMessages);
+  }
 
   useEffect(() => {
     for (const message of chat.messages) {
@@ -307,12 +316,39 @@ export function Chat({
     }
   }, [researchChatId]);
 
+  const subAgentRunsForChat =
+    subAgentStore.runsByChat[researchChatId] ?? EMPTY_SUB_AGENT_RUNS;
+  const persistedTerminalRunsKeyRef = useRef<Record<string, string>>({});
+  const persistSubAgentRuns = subAgentStore.persistRuns;
   useEffect(() => {
     const folderName = researchFolderRef.current;
-    if (folderName && researchChatId) {
-      void subAgentStore.persistRuns(researchChatId, folderName);
+    if (!folderName || !researchChatId) return;
+
+    const terminalRuns = subAgentRunsForChat.filter(
+      (run) => run.status !== "running",
+    );
+    if (terminalRuns.length === 0) return;
+
+    const terminalRunsKey = terminalRuns
+      .map((run) =>
+        [
+          run.id,
+          run.status,
+          run.finishedAt ?? "",
+          run.text.length,
+          run.toolCalls.length,
+          run.error ?? "",
+        ].join(":"),
+      )
+      .join("|");
+
+    if (persistedTerminalRunsKeyRef.current[researchChatId] === terminalRunsKey) {
+      return;
     }
-  }, [chat.messages, researchChatId]);
+
+    persistedTerminalRunsKeyRef.current[researchChatId] = terminalRunsKey;
+    void persistSubAgentRuns(researchChatId, folderName);
+  }, [persistSubAgentRuns, researchChatId, subAgentRunsForChat]);
 
   const runtime = useAISDKRuntime(chat);
   const tokenCount = useMemo(
@@ -340,4 +376,13 @@ export function Chat({
       </Box>
     </AssistantRuntimeProvider>
   );
+}
+
+function getProcessedPartCounts(messages: UIMessage[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const message of messages) {
+    if (!Array.isArray(message.parts)) continue;
+    counts[message.id] = message.parts.length;
+  }
+  return counts;
 }

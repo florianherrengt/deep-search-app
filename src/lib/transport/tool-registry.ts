@@ -21,7 +21,6 @@ import { isValidServiceUrl } from "@/lib/url-validation";
 import type { Currency } from "@/lib/settings-store";
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { createChromeDevToolsMcpTools } from "@/lib/mcp/chrome-devtools-tools";
-import { wrapToolWithSubAgentTracking } from "@/lib/sub-agent-tool-wrapper";
 
 export interface SearchToolKeys {
   braveApiKey?: string | null;
@@ -53,31 +52,31 @@ export async function createTools({
   });
   const chromeDevToolsTools: ToolSet = {};
   for (const [name, t] of Object.entries(chromeDevToolsToolsRaw)) {
-    chromeDevToolsTools[name] = wrapToolWithSubAgentTracking(name, t as any);
+    chromeDevToolsTools[name] = t as any;
   }
   const tools = {
-    ask_questions: wrapToolWithSubAgentTracking("ask_questions", questionsTool),
-    disambiguate: wrapToolWithSubAgentTracking("disambiguate", disambiguateTool),
-    ...(searchKeys?.braveApiKey ? { brave_search: wrapToolWithSubAgentTracking("brave_search", createBraveSearchTool(searchKeys.braveApiKey)) } : {}),
-    ...(searchKeys?.exaApiKey ? { exa_search: wrapToolWithSubAgentTracking("exa_search", createExaSearchTool(searchKeys.exaApiKey)) } : {}),
-    ...(searchKeys?.serperApiKey ? { serper_search: wrapToolWithSubAgentTracking("serper_search", createSerperSearchTool(searchKeys.serperApiKey)) } : {}),
-    ...(searchKeys?.tavilyApiKey ? { tavily_search: wrapToolWithSubAgentTracking("tavily_search", createTavilySearchTool(searchKeys.tavilyApiKey)) } : {}),
-    ...(searchKeys?.searxngBaseUrl && isValidServiceUrl(searchKeys.searxngBaseUrl) ? { searxng_search: wrapToolWithSubAgentTracking("searxng_search", createSearXNGSearchTool(searchKeys.searxngBaseUrl)) } : {}),
-    extract_page_content: wrapToolWithSubAgentTracking("extract_page_content", createExtractPageContentTool(model, getResearchFolder)),
-    create_file: wrapToolWithSubAgentTracking("create_file", createCreateFileTool(getResearchFolder, embeddingConfig)),
-    read_file: wrapToolWithSubAgentTracking("read_file", createReadFileTool(getResearchFolder)),
-    update_file: wrapToolWithSubAgentTracking("update_file", createUpdateFileTool(getResearchFolder, embeddingConfig)),
-    move_file: wrapToolWithSubAgentTracking("move_file", createMoveFileTool(getResearchFolder, embeddingConfig)),
-    delete_file: wrapToolWithSubAgentTracking("delete_file", createDeleteFileTool(getResearchFolder)),
-    list_files: wrapToolWithSubAgentTracking("list_files", createListFilesTool(getResearchFolder)),
-    research_checkpoint: wrapToolWithSubAgentTracking("research_checkpoint", createResearchCheckpointTool(model)),
-    sequential_thinking: wrapToolWithSubAgentTracking("sequential_thinking", createSequentialThinkingTool()),
-    load_skill: wrapToolWithSubAgentTracking("load_skill", createLoadSkillTool()),
-    search_research: wrapToolWithSubAgentTracking("search_research", createSearchResearchTool(embeddingConfig, rerankerConfig, model)),
-    switch_research_folder: wrapToolWithSubAgentTracking("switch_research_folder", createSwitchResearchFolderTool(switchResearchFolder)),
-    create_research_plan: wrapToolWithSubAgentTracking("create_research_plan", createResearchPlanTool(model)),
-    facts_check: wrapToolWithSubAgentTracking("facts_check", createFactsCheckTool(model)),
-    currency_conversion: wrapToolWithSubAgentTracking("currency_conversion", createCurrencyConversionTool(searchKeys?.currency ?? "USD")),
+    ask_questions: questionsTool,
+    disambiguate: disambiguateTool,
+    ...(searchKeys?.braveApiKey ? { brave_search: createBraveSearchTool(searchKeys.braveApiKey) } : {}),
+    ...(searchKeys?.exaApiKey ? { exa_search: createExaSearchTool(searchKeys.exaApiKey) } : {}),
+    ...(searchKeys?.serperApiKey ? { serper_search: createSerperSearchTool(searchKeys.serperApiKey) } : {}),
+    ...(searchKeys?.tavilyApiKey ? { tavily_search: createTavilySearchTool(searchKeys.tavilyApiKey) } : {}),
+    ...(searchKeys?.searxngBaseUrl && isValidServiceUrl(searchKeys.searxngBaseUrl) ? { searxng_search: createSearXNGSearchTool(searchKeys.searxngBaseUrl) } : {}),
+    extract_page_content: createExtractPageContentTool(model, getResearchFolder),
+    create_file: createCreateFileTool(getResearchFolder, embeddingConfig),
+    read_file: createReadFileTool(getResearchFolder),
+    update_file: createUpdateFileTool(getResearchFolder, embeddingConfig),
+    move_file: createMoveFileTool(getResearchFolder, embeddingConfig),
+    delete_file: createDeleteFileTool(getResearchFolder),
+    list_files: createListFilesTool(getResearchFolder),
+    research_checkpoint: createResearchCheckpointTool(model),
+    sequential_thinking: createSequentialThinkingTool(),
+    load_skill: createLoadSkillTool(),
+    search_research: createSearchResearchTool(embeddingConfig, rerankerConfig, model),
+    switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
+    create_research_plan: createResearchPlanTool(model),
+    facts_check: createFactsCheckTool(model),
+    currency_conversion: createCurrencyConversionTool(searchKeys?.currency ?? "USD"),
     ...chromeDevToolsTools,
   } as const satisfies ToolSet;
 

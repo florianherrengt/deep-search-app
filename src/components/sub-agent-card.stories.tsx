@@ -7,7 +7,9 @@ const meta = {
   args: {
     run: {
       id: "sa-1718000000-0",
-      name: "brave_search",
+      chatId: "sa-1718000000-0",
+      parentChatId: "storybook-chat",
+      name: "Brave Search",
       toolName: "brave_search",
       status: "running" as const,
       startedAt: new Date().toISOString(),
@@ -39,9 +41,11 @@ export const Complete: Story = {
   args: {
     run: {
       id: "sa-1718000000-1",
-      name: "brave_search",
+      chatId: "sa-1718000000-1",
+      parentChatId: "storybook-chat",
+      name: "Brave Search",
       toolName: "brave_search",
-      status: "complete",
+      status: "completed",
       startedAt: new Date(Date.now() - 3000).toISOString(),
       finishedAt: new Date().toISOString(),
       text: "Found 5 relevant results for AI research tools.",
@@ -68,9 +72,11 @@ export const Error: Story = {
   args: {
     run: {
       id: "sa-1718000000-2",
-      name: "extract_page_content",
+      chatId: "sa-1718000000-2",
+      parentChatId: "storybook-chat",
+      name: "Extract Page Content",
       toolName: "extract_page_content",
-      status: "error",
+      status: "failed",
       startedAt: new Date(Date.now() - 10000).toISOString(),
       finishedAt: new Date().toISOString(),
       text: "Attempting to extract page content...",
@@ -91,9 +97,11 @@ export const WithLongName: Story = {
   args: {
     run: {
       id: "sa-1718000000-3",
-      name: "extract_page_content_from_multiple_urls_batch_1",
+      chatId: "sa-1718000000-3",
+      parentChatId: "storybook-chat",
+      name: "Extract multiple URLs batch 1",
       toolName: "extract_page_content",
-      status: "complete",
+      status: "completed",
       startedAt: new Date(Date.now() - 5000).toISOString(),
       finishedAt: new Date().toISOString(),
       text: "Extracted content from 3 URLs.",
@@ -115,9 +123,11 @@ export const WithoutToolCalls: Story = {
   args: {
     run: {
       id: "sa-1718000000-4",
-      name: "research_checkpoint",
+      chatId: "sa-1718000000-4",
+      parentChatId: "storybook-chat",
+      name: "Research Checkpoint",
       toolName: "research_checkpoint",
-      status: "complete",
+      status: "completed",
       startedAt: new Date(Date.now() - 2000).toISOString(),
       finishedAt: new Date().toISOString(),
       text: "Checkpoint saved.",
