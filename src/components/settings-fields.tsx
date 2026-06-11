@@ -191,7 +191,11 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
         <Select
           label="Provider"
           value={selectedProvider}
-          onChange={(value) => setSelectedProvider(value as ChatProvider)}
+          onChange={(value) => {
+            if (!value) return;
+            setSelectedProvider(value as ChatProvider);
+          }}
+          allowDeselect={false}
           data={CHAT_PROVIDER_SETTINGS.map((definition) => ({
             value: definition.provider,
             label: getChatProviderLabel(definition.provider),

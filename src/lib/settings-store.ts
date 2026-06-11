@@ -42,7 +42,7 @@ export const CURRENCIES = [
 
 export type Currency = (typeof CURRENCIES)[number];
 
-export const currencySchema = z.enum(CURRENCIES);
+const currencySchema = z.enum(CURRENCIES);
 
 export const EMBEDDING_DEFAULTS = {
   base_url: "https://openrouter.ai/api/v1",

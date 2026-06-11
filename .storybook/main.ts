@@ -33,6 +33,7 @@ const config: StorybookConfig = {
           { find: "@tauri-apps/api/path", replacement: tauriMocks },
           { find: "@tauri-apps/plugin-fs", replacement: tauriMocks },
           { find: "@tauri-apps/plugin-http", replacement: tauriMocks },
+          { find: "@tauri-apps/plugin-notification", replacement: tauriMocks },
           { find: "@tauri-apps/plugin-opener", replacement: tauriMocks },
           { find: "@tauri-apps/plugin-process", replacement: tauriMocks },
           { find: "@tauri-apps/plugin-shell", replacement: tauriMocks },

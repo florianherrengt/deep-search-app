@@ -1,4 +1,5 @@
 import { isTauri } from "@/lib/tauri-bridge";
+import { isRecord } from "@/lib/json";
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { TauriStdioTransport } from "./tauri-stdio-transport";
@@ -156,8 +157,4 @@ function normalizeToolCallResult(result: {
       ? { structuredContent: result.structuredContent }
       : {}),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

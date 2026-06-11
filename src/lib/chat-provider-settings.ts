@@ -144,7 +144,7 @@ export function getInitialProviderSelection(settings: Settings): ChatProvider {
   return unconfigured?.provider ?? CHAT_PROVIDER_SETTINGS[0].provider;
 }
 
-export function isChatProviderConfigured(
+function isChatProviderConfigured(
   settings: Settings,
   definition: ChatProvider | ChatProviderSettingsDefinition,
 ) {

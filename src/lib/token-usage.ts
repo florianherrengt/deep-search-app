@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai";
 
-export interface TokenUsageData {
+interface TokenUsageData {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;

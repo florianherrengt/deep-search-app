@@ -54,7 +54,7 @@ export const guardrailEventSchema = z.object({
 
 export type GuardrailEvent = z.infer<typeof guardrailEventSchema>;
 
-export const researchSourceSchema = z.object({
+const researchSourceSchema = z.object({
   url: z.string().min(1),
   title: z.string().optional(),
   sourceType: z.enum(["primary", "secondary", "forum", "unknown"]).optional(),
@@ -253,7 +253,7 @@ function detectForeignCurrencyMentions(
   return [...matches];
 }
 
-export function stripCodeBlocksAndQuotes(text: string) {
+function stripCodeBlocksAndQuotes(text: string) {
   return text
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`[^`]*`/g, " ")
@@ -314,7 +314,7 @@ export function asksUserForInput(text: string): boolean {
   );
 }
 
-export function getMessageText(message: UIMessage | undefined): string {
+function getMessageText(message: UIMessage | undefined): string {
   if (!message) return "";
   return message.parts
     .filter(
@@ -327,7 +327,7 @@ export function getMessageText(message: UIMessage | undefined): string {
     .trim();
 }
 
-export function getLatestUserText(messages: UIMessage[]): string {
+function getLatestUserText(messages: UIMessage[]): string {
   const latestUserMessage = [...messages]
     .reverse()
     .find((message) => message.role === "user");
@@ -348,23 +348,23 @@ export function isResearchLikeRequest(text: string): boolean {
   );
 }
 
-export function getToolNameFromPart(part: UIMessage["parts"][number]) {
+function getToolNameFromPart(part: UIMessage["parts"][number]) {
   if (!isToolUIPart(part)) return null;
   return part.type.slice("tool-".length);
 }
 
-export function hasToolCall(message: UIMessage, toolName: string) {
+function hasToolCall(message: UIMessage, toolName: string) {
   return message.parts.some((part) => getToolNameFromPart(part) === toolName);
 }
 
-export function hasDeepResearchToolCall(message: UIMessage) {
+function hasDeepResearchToolCall(message: UIMessage) {
   return message.parts.some((part) => {
     const name = getToolNameFromPart(part);
     return name ? RESEARCH_TOOL_NAMES.has(name) : false;
   });
 }
 
-export function hasResearchCheckpoint(message: UIMessage) {
+function hasResearchCheckpoint(message: UIMessage) {
   return hasToolCall(message, RESEARCH_CHECKPOINT_TOOL);
 }
 
@@ -550,7 +550,7 @@ function getCurrentTurnMessages(
   ];
 }
 
-export function validateResearchCheckpoint(
+function validateResearchCheckpoint(
   input: ResearchCheckpointInput,
 ): ResearchCheckpointResult {
   const guidance: string[] = [];

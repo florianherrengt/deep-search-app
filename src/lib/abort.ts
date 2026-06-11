@@ -1,4 +1,4 @@
-export function createAbortError(): DOMException {
+function createAbortError(): DOMException {
   return new DOMException("The operation was aborted.", "AbortError");
 }
 

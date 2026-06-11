@@ -29,7 +29,7 @@ export interface ConfiguredChatModelOption extends ChatModelConfig {
 
 export const DEFAULT_CHAT_PROVIDER: ChatProvider = "openrouter";
 
-export const CHAT_PROVIDER_LABELS: Record<ChatProvider, string> = {
+const CHAT_PROVIDER_LABELS: Record<ChatProvider, string> = {
   openrouter: "OpenRouter",
   anthropic: "Anthropic",
   zhipu: "Zhipu",
@@ -221,5 +221,4 @@ function normalizeZhipuBaseURL(baseURL: string | undefined): string | undefined 
 }
 
 const providerFetch: typeof fetch = bridgeFetch;
-
 

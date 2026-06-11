@@ -72,6 +72,20 @@ export async function invoke<T = unknown>(command: string): Promise<T> {
   throw new Error(`Tauri command unavailable in Storybook: ${command}`);
 }
 
+export async function addPluginListener() {
+  return () => undefined;
+}
+
+export async function isPermissionGranted() {
+  return false;
+}
+
+export async function requestPermission() {
+  return "denied";
+}
+
+export function sendNotification() {}
+
 export async function appDataDir() {
   return "/storybook/app-data";
 }

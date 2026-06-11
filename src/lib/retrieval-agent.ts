@@ -1,6 +1,7 @@
 import { generateText, tool, zodSchema, stepCountIs, type LanguageModel } from "ai";
 import { z } from "zod";
 import { readAppFile, listAppFiles, SafePathSegmentSchema } from "@/lib/app-file-storage";
+import { isRecord } from "@/lib/json";
 import type { SearchResult } from "@/lib/research-search";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import retrievalAgentPrompt from "./retrieval-agent-prompt.md?raw";
@@ -169,8 +170,4 @@ function parseRetrievalResult(text: string, candidates: Set<string>): RetrievalR
   } catch {
     return empty;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
