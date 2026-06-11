@@ -76,7 +76,7 @@ export function SkillsSection() {
           cancelEdit();
         }
       } catch {
-        // store handles cleanup
+        // deletion failed, state unchanged
       }
     },
     [deleteSkill, editing, cancelEdit],

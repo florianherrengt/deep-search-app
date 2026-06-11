@@ -47,44 +47,35 @@ export async function nameFolderFromMessage(
 
   let lastError: FolderNameError | null = null;
 
-  try {
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const prompt =
-        attempt === 0
-          ? userMessage
-          : `Your previous answer "${lastError!.raw}" was rejected: ${lastError!.message}. Try again. Return ONLY a valid kebab-case folder name.`;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const prompt =
+      attempt === 0
+        ? userMessage
+        : `Your previous answer "${lastError!.raw}" was rejected: ${lastError!.message}. Try again. Return ONLY a valid kebab-case folder name.`;
 
-      const result = await generateText({
-        model,
-        system: NAMER_SYSTEM,
-        prompt,
-        maxOutputTokens: 30,
-        abortSignal: options?.abortSignal,
-      });
+    const result = await generateText({
+      model,
+      system: NAMER_SYSTEM,
+      prompt,
+      maxOutputTokens: 30,
+      abortSignal: options?.abortSignal,
+    });
 
-      const raw = result.text.trim();
-      emitSubAgentEvent({ type: "text-delta", id: saId, delta: raw });
-      const slug = slugifyFolderName(raw);
-      const validationError = validateName(slug);
+    const raw = result.text.trim();
+    emitSubAgentEvent({ type: "text-delta", id: saId, delta: raw });
+    const slug = slugifyFolderName(raw);
+    const validationError = validateName(slug);
 
-      if (!validationError) {
-        const resolved = resolveUniqueFolderName(slug);
-        emitSubAgentEvent({ type: "complete", id: saId });
-        return resolved;
-      }
-
-      lastError = validationError;
+    if (!validationError) {
+      const resolved = resolveUniqueFolderName(slug);
+      emitSubAgentEvent({ type: "complete", id: saId });
+      return resolved;
     }
 
-    throw new Error(
-      `Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts. Last issue: ${lastError?.message}`,
-    );
-  } catch (error) {
-    emitSubAgentEvent({
-      type: "error",
-      id: saId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
+    lastError = validationError;
   }
+
+  const finalError = `Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts. Last issue: ${lastError?.message}`;
+  emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+  throw new Error(finalError);
 }

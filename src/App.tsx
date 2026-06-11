@@ -291,7 +291,8 @@ function AppInner() {
           mergeResearchFoldersWithCurrent(folders, currentFolders),
         );
         setResearchFoldersStatus("ready");
-      } catch {
+      } catch (error) {
+        console.error("[App] Failed to refresh research folders:", error);
         setResearchFoldersStatus("error");
       }
     },
@@ -304,7 +305,8 @@ function AppInner() {
       if (researchChatsStatusRef.current === "idle") {
         setResearchChatsStatus("ready");
       }
-    } catch {
+    } catch (error) {
+      console.error("[App] Failed to refresh research chats:", error);
       if (researchChatsStatusRef.current !== "ready") {
         setResearchChats([]);
         setResearchChatsStatus("error");
@@ -456,7 +458,8 @@ function AppInner() {
       try {
         setResearchChats(await listResearchChats(folderName));
         setResearchChatsStatus("ready");
-      } catch {
+      } catch (error) {
+        console.error("[App] Failed to list research chats:", error);
         setResearchChats([]);
         setResearchChatsStatus("error");
       }
@@ -477,7 +480,8 @@ function AppInner() {
         researchFolder: folderName,
         initialMessages: messages,
       });
-    } catch {
+    } catch (error) {
+      console.error("[App] Failed to open research folder:", error);
       const nextChatId = createResearchChatId();
       setResearchChats([]);
       setResearchChatsStatus("error");

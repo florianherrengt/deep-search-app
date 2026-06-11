@@ -18,7 +18,7 @@ import { tryParseJson } from "@/lib/json";
 import slugify from "slugify";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";
 import {
-  registry,
+  extractors,
   setWebViewExtractor,
   setAmazonWebViewExtractor,
   setShopifyWebViewExtractor,
@@ -558,7 +558,7 @@ async function extractRawContent(
 ): Promise<ExtractedPageContent> {
   throwIfAborted(abortSignal);
 
-  const extractor = registry.find(url);
+  const extractor = extractors.find((e) => e.canHandle(url));
   if (extractor) {
     return {
       html: null,

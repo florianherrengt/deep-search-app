@@ -9,7 +9,7 @@ import {
   type UIMessageChunk,
   isToolUIPart,
 } from "ai";
-import { SafePathSegmentSchema, listAppFiles, readAppFile } from "@/lib/app-file-storage";
+import { SafePathSegmentSchema } from "@/lib/app-file-storage";
 import {
   type AgentDiagnosticEvent,
 } from "@/lib/agent-diagnostics";
@@ -23,32 +23,10 @@ import { getActiveToolNamesForMessages } from "@/lib/tool-call-requirements";
 import systemPrompt from "../system-prompt.md?raw";
 import { createTools, type AppToolSet, type SearchToolKeys } from "./tool-registry";
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
-import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import { skillsStore } from "@/lib/skills-store";
 import { setActiveSubAgentEmitter, emitSubAgentEvent as _emitSubAgentEvent } from "@/lib/sub-agent-emitter";
 import type { SubAgentEvent } from "@/lib/sub-agent-types";
-
-export interface ResearchFolderContext {
-  folderName: string;
-  files: string[];
-  readmeContent: string | null;
-}
-
-export async function getResearchFolderContext(
-  folderName: string,
-): Promise<ResearchFolderContext> {
-  const subfolder = `${SEARCH_RESULTS_SUBFOLDER}/${folderName}`;
-  const [files, readme] = await Promise.all([
-    listAppFiles({ subfolder }),
-    readAppFile({ subfolder, filename: "README.md" }),
-  ]);
-  return {
-    folderName,
-    files,
-    readmeContent: readme?.slice(0, 2000) ?? null,
-  };
-}
 
 const MAX_GUARD_RETRIES = 2;
 
@@ -72,6 +50,7 @@ export function createGuardedStream({
   abortSignal,
   onResearchFolderChange,
   searchKeys,
+  controller,
 }: {
   model: LanguageModel;
   researchFolder: string | null;
@@ -81,10 +60,10 @@ export function createGuardedStream({
   abortSignal: AbortSignal | undefined;
   onResearchFolderChange?: (folderName: string) => void | Promise<void>;
   searchKeys?: SearchToolKeys;
-}): ReadableStream<UIMessageChunk> {
-  return new ReadableStream<UIMessageChunk>({
-    async start(controller) {
-      let activeResearchFolder = researchFolder;
+  controller: ReadableStreamDefaultController<UIMessageChunk>;
+}): Promise<void> {
+  return (async () => {
+    let activeResearchFolder = researchFolder;
       const retries: Record<GuardName, number> = {
         question_tool: 0,
         research_checkpoint: 0,
@@ -183,19 +162,8 @@ export function createGuardedStream({
           toolChoice = decision.toolChoice;
           sendStart = false;
         }
-
-        if (abortSignal?.aborted) {
-          controller.enqueue({ type: "abort", reason: "aborted" });
-        } else {
-          controller.enqueue({
-            type: "finish",
-            finishReason: lastFinish?.finishReason ?? "stop",
-          });
-        }
       } catch (error) {
-        if (abortSignal?.aborted) {
-          controller.enqueue({ type: "abort", reason: "aborted" });
-        } else {
+        if (!abortSignal?.aborted) {
           controller.enqueue({
             type: "error",
             errorText:
@@ -203,14 +171,11 @@ export function createGuardedStream({
                 ? error.message
                 : "Agent guardrail stream failed.",
           });
-          controller.enqueue({ type: "finish", finishReason: "error" });
         }
       } finally {
         setActiveSubAgentEmitter(null, null);
-        controller.close();
       }
-    },
-  });
+    })();
 }
 
 async function runAttempt({
@@ -260,10 +225,9 @@ async function runAttempt({
   });
 
   await pipeUIMessageStream(stream, controller, abortSignal);
-  const [finishReason, totalUsage] = await Promise.all([
-    Promise.resolve(result.finishReason).catch(() => undefined),
-    Promise.resolve(result.totalUsage).catch(() => undefined),
-  ]);
+
+  const finishReason = await result.finishReason;
+  const totalUsage = await result.totalUsage;
 
   if (!finish) {
     throw new Error("Model attempt finished without a response message.");

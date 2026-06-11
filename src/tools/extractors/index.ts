@@ -1,4 +1,4 @@
-import { ExtractorRegistry } from "./registry";
+import { extractors } from "./registry";
 import { RedditExtractor, setWebViewExtractor } from "./reddit-extractor";
 import { AmazonExtractor, setAmazonWebViewExtractor } from "./amazon-extractor";
 import {
@@ -6,17 +6,13 @@ import {
   setShopifyWebViewExtractor,
 } from "./shopify-extractor";
 
-const registry = new ExtractorRegistry();
-registry.register(new RedditExtractor());
-registry.register(new AmazonExtractor());
-registry.register(new ShopifyExtractor());
+extractors.push(new RedditExtractor(), new AmazonExtractor(), new ShopifyExtractor());
 
 export {
-  registry,
+  extractors,
   setWebViewExtractor,
   setAmazonWebViewExtractor,
   setShopifyWebViewExtractor,
 };
 export { PageExtractor } from "./base-extractor";
-export { ExtractorRegistry } from "./registry";
 export type { WebViewExtractorOptions } from "./reddit-extractor";

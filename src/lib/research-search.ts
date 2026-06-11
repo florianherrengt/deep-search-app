@@ -16,7 +16,7 @@ export interface RerankerConfig {
 }
 
 
-export interface AdjacentChunk {
+interface AdjacentChunk {
   chunk_index: number;
   content: string;
 }
@@ -30,44 +30,6 @@ export interface SearchResult {
   score: number;
   adjacent_chunks: AdjacentChunk[] | null;
   snippet?: string | null;
-}
-
-export interface StageLatencies {
-  total_ms: number;
-  embedding_ms: number;
-  knn_ms: number;
-  fts_ms: number;
-  rrf_ms: number;
-  mmr_ms: number;
-  reranker_ms: number;
-  metadata_ms: number;
-}
-
-export interface SearchDiagnostics {
-  query: string;
-  knn_candidate_count: number;
-  fts_candidate_count: number;
-  fused_candidate_count: number;
-  mmr_candidate_count: number;
-  reranked_candidate_count: number;
-  metadata_match_count: number;
-  final_result_count: number;
-  reranker_threshold: number;
-  latency_stage_ms: StageLatencies;
-  error: string | null;
-}
-
-export interface SearchWithDiagnostics {
-  results: SearchResult[];
-  diagnostics: SearchDiagnostics[];
-}
-
-export interface ResearchFolderInfo {
-  id: number;
-  name: string;
-  query: string | null;
-  created_at: string;
-  chunk_count: number;
 }
 
 export async function searchResearch(
@@ -86,26 +48,6 @@ export async function searchResearch(
       folder: options?.folder ?? null,
       limit: options?.limit ?? 8,
       filenames: options?.filenames ?? null,
-    }),
-    abortSignal,
-  );
-}
-
-export async function searchResearchWithDiagnostics(
-  embeddingConfig: EmbeddingConfig,
-  rerankerConfig: RerankerConfig,
-  query: string | string[],
-  options?: { folder?: string; limit?: number; abortSignal?: AbortSignal },
-): Promise<SearchWithDiagnostics> {
-  const abortSignal = options?.abortSignal;
-  const queries = Array.isArray(query) ? query : [query];
-  return abortablePromise(
-    invoke<SearchWithDiagnostics>("search_research_with_diagnostics", {
-      embeddingConfig,
-      rerankerConfig,
-      queries,
-      folder: options?.folder ?? null,
-      limit: options?.limit ?? 8,
     }),
     abortSignal,
   );

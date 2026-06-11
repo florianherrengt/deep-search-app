@@ -77,7 +77,7 @@ export function PromptTemplatesSection() {
           cancelEdit();
         }
       } catch {
-        // store handles cleanup
+        // deletion failed, state unchanged
       }
     },
     [deleteTemplate, editing, cancelEdit],

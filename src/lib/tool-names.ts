@@ -22,5 +22,3 @@ export const TOOL_NAMES = {
   facts_check: "facts_check",
   currency_conversion: "currency_conversion",
 } as const;
-
-export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES];
