@@ -25,8 +25,6 @@ export const factsCheckInputSchema = z.object({
     ),
 });
 
-export type FactsCheckInput = z.infer<typeof factsCheckInputSchema>;
-
 const FACTS_CHECK_SYSTEM = `You are a fact-checking assistant. You will receive:
 1. A research answer that contains factual claims and source URLs.
 2. The content extracted from each cited source.

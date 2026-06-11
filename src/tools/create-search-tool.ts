@@ -8,7 +8,7 @@ import {
   type SearchResult,
 } from "./search-result";
 
-export interface CreateSearchToolOptions<TResponse> {
+interface CreateSearchToolOptions<TResponse> {
   /** Human-readable provider name used in error messages (e.g. "Tavily"). */
   providerName: string;
   /** Description for the AI tool. */
