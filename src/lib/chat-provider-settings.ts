@@ -125,15 +125,11 @@ export const CHAT_PROVIDER_SETTINGS = [
 ] as const satisfies readonly ChatProviderSettingsDefinition[];
 
 export function getProviderSettingsDefinition(provider: ChatProvider) {
-  const definition = CHAT_PROVIDER_SETTINGS.find(
-    (candidate) => candidate.provider === provider,
+  return (
+    CHAT_PROVIDER_SETTINGS.find(
+      (candidate) => candidate.provider === provider,
+    ) ?? CHAT_PROVIDER_SETTINGS[0]
   );
-
-  if (!definition) {
-    throw new Error(`Unknown chat provider: ${provider}`);
-  }
-
-  return definition;
 }
 
 export function getInitialProviderSelection(settings: Settings): ChatProvider {

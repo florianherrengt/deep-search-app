@@ -36,3 +36,6 @@ benchmarks/research-search/results-real/
 benchmarks/research-search/fixtures/real-corpus.json
 benchmarks/research-search/fixtures/real-provider-cache.json
 test-results/
+.agent-logs/
+.logs/
+mastra/

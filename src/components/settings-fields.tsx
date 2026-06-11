@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { XIcon } from "lucide-react";
 import { Button, TextInput, Select, Box, Stack, Text, Group, Checkbox, Paper, ActionIcon } from "@mantine/core";
 import {
@@ -156,6 +156,14 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
   );
   const selectedDefinition = getProviderSettingsDefinition(selectedProvider);
   const readyProviders = getConfiguredChatProviderDefinitions(settings);
+  const providerOptions = useMemo(
+    () =>
+      CHAT_PROVIDER_SETTINGS.map((definition) => ({
+        value: definition.provider,
+        label: getChatProviderLabel(definition.provider),
+      })),
+    [],
+  );
 
   async function handleCommit(key: keyof Settings, value: string) {
     if (value !== settings[key]) {
@@ -196,10 +204,7 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             setSelectedProvider(value as ChatProvider);
           }}
           allowDeselect={false}
-          data={CHAT_PROVIDER_SETTINGS.map((definition) => ({
-            value: definition.provider,
-            label: getChatProviderLabel(definition.provider),
-          }))}
+          data={providerOptions}
         />
 
         <Paper withBorder p="sm">
