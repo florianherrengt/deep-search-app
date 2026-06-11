@@ -25,6 +25,8 @@ import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { GuardrailCard } from "@/components/assistant-ui/guardrail-card";
 import { AgentDiagnosticCard } from "@/components/assistant-ui/agent-diagnostic-card";
+import { SubAgentCard } from "@/components/sub-agent-card";
+import { useSubAgentStore } from "@/lib/sub-agent-store";
 import {
   ReasoningRoot,
   ReasoningTrigger,
@@ -288,7 +290,7 @@ function ThreadMessage() {
                   }
                   if (toolPart.toolUI) return toolPart.toolUI;
                   return (
-                    <ToolFallback
+                    <SubAgentOrToolFallback
                       toolName={toolPart.toolName}
                       args={toolPart.args}
                       result={toolPart.result}
@@ -315,8 +317,12 @@ function ThreadMessage() {
                   }
                   return null;
                 }
-                default:
+                default: {
+                  if ((part.type as string).startsWith("data-subagent")) {
+                    return null;
+                  }
                   return null;
+                }
               }
             }}
           </MessagePrimitive.GroupedParts>
@@ -334,4 +340,43 @@ function ThreadMessage() {
 
 function UserMessageText() {
   return <MessagePartPrimitive.Text smooth={false} />;
+}
+
+function SubAgentOrToolFallback({
+  toolName,
+  args,
+  result,
+  status,
+}: {
+  toolName: string;
+  args?: unknown;
+  result?: unknown;
+  status: "running" | "complete" | "error";
+}) {
+  const store = useSubAgentStore();
+  const runs = Object.values(store.runsByChat).flat();
+  const matchedRun = runs.find(
+    (r) =>
+      r.toolName === toolName &&
+      r.status === (status === "running" ? "running" : status === "complete" ? "complete" : "error") &&
+      (!result || r.status !== "running"),
+  );
+
+  if (matchedRun) {
+    return (
+      <SubAgentCard
+        run={matchedRun}
+        onClick={() => store.selectRun(matchedRun.id)}
+      />
+    );
+  }
+
+  return (
+    <ToolFallback
+      toolName={toolName}
+      args={args}
+      result={result}
+      status={status}
+    />
+  );
 }

@@ -1,4 +1,4 @@
-import { load, type StoreOptions } from "@tauri-apps/plugin-store";
+import { loadStore, type StoreOptions } from "@/lib/tauri-bridge";
 import { z } from "zod";
 
 type StoreApi<T extends z.ZodObject<any>> = {
@@ -25,12 +25,12 @@ export function createStore<T extends z.ZodObject<any>>(
   const keys = Object.keys(shape) as (keyof z.infer<T>)[];
   const storeOptions = createStoreOptions<T>(defaults);
 
-  function loadStore() {
-    return load(filename, storeOptions);
+  function loadStoreInstance() {
+    return loadStore(filename, storeOptions);
   }
 
   async function get(): Promise<z.infer<T>> {
-    const store = await loadStore();
+    const store = await loadStoreInstance();
     const result = { ...defaults };
 
     for (const key of keys) {
@@ -55,13 +55,13 @@ export function createStore<T extends z.ZodObject<any>>(
     const fieldSchema = shape[key as string];
     fieldSchema.parse(value);
 
-    const store = await loadStore();
+    const store = await loadStoreInstance();
     await store.set(key as string, value);
     await store.save();
   }
 
   async function reset(): Promise<void> {
-    const store = await loadStore();
+    const store = await loadStoreInstance();
     for (const key of keys) {
       await store.set(key as string, defaults[key]);
     }

@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/tauri-bridge";
 import {
   BROWSER_TAB_CLOSED_EVENT,
   BROWSER_TAB_OPENED_EVENT,

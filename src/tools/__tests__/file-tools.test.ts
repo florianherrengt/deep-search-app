@@ -13,7 +13,7 @@ const fsMocks = vi.hoisted(() => ({
   exists: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-fs", () => ({
+vi.mock("@/lib/tauri-bridge", () => ({
   ...fsMocks,
   BaseDirectory: {
     AppData: "AppData",
@@ -75,7 +75,6 @@ describe("create_file", () => {
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/test-folder/notes.md",
       "hello",
-      { baseDir: "AppData" },
     );
     expect(researchSearchMocks.indexResearchFile).toHaveBeenCalledWith(
       mockEmbeddingConfig,
@@ -167,7 +166,6 @@ describe("update_file", () => {
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/test-folder/notes.md",
       "hello universe",
-      { baseDir: "AppData" },
     );
     expect(researchSearchMocks.indexResearchFile).toHaveBeenCalledWith(
       mockEmbeddingConfig,
@@ -265,7 +263,6 @@ describe("update_file", () => {
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/test-folder/notes.md",
       "qux bar qux baz qux",
-      { baseDir: "AppData" },
     );
   });
 });
@@ -291,10 +288,6 @@ describe("move_file", () => {
     expect(fsMocks.rename).toHaveBeenCalledWith(
       "search-results/test-folder/old.md",
       "search-results/test-folder/new.md",
-      {
-        oldPathBaseDir: "AppData",
-        newPathBaseDir: "AppData",
-      },
     );
     expect(researchSearchMocks.indexResearchFile).toHaveBeenCalledWith(
       mockEmbeddingConfig,
@@ -366,7 +359,6 @@ describe("delete_file", () => {
     );
     expect(fsMocks.remove).toHaveBeenCalledWith(
       "search-results/test-folder/notes.md",
-      { baseDir: "AppData" },
     );
   });
 
@@ -469,7 +461,6 @@ describe("file tool edge cases", () => {
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/test-folder/empty.md",
       "",
-      { baseDir: "AppData" },
     );
   });
 

@@ -5,6 +5,7 @@ import type {
   UIMessage,
   UIMessageStreamWriter,
 } from "ai";
+import type { SubAgentEvent } from "./sub-agent-types";
 
 const SUB_AGENT_METADATA_PROVIDER = "deep-search";
 
@@ -16,6 +17,7 @@ export interface SubAgentStreamContext {
   subAgentStream: {
     writer: UIMessageStreamWriter<UIMessage>;
   };
+  emitSubAgentEvent?: (event: SubAgentEvent) => void;
 }
 
 let nextSubAgentTextId = 0;
@@ -40,11 +42,14 @@ export function isSubAgentOutputTextPart(
 export async function collectSubAgentTextStream<TOOLS extends ToolSet>({
   stream,
   context,
+  subAgentId,
 }: {
   stream: AsyncIterable<TextStreamPart<TOOLS>>;
   context?: unknown;
+  subAgentId?: string;
 }): Promise<string> {
   const writer = getSubAgentStreamWriter(context);
+  const emitter = getSubAgentEventEmitter(context);
   const textId = `sub-agent-${Date.now()}-${nextSubAgentTextId++}`;
   let text = "";
   let textStarted = false;
@@ -68,6 +73,11 @@ export async function collectSubAgentTextStream<TOOLS extends ToolSet>({
       if (part.type !== "text-delta" || !part.text) continue;
 
       text += part.text;
+
+      if (subAgentId && emitter) {
+        emitter({ type: "text-delta", id: subAgentId, delta: part.text });
+      }
+
       if (!writer) continue;
 
       startText();
@@ -100,6 +110,16 @@ function getSubAgentStreamWriter(
     .subAgentStream;
   const writer = subAgentStream?.writer;
   return writer && typeof writer.write === "function" ? writer : null;
+}
+
+export function getSubAgentEventEmitter(
+  context: unknown,
+): ((event: SubAgentEvent) => void) | null {
+  if (!context || typeof context !== "object") return null;
+  const ctx = context as Partial<SubAgentStreamContext>;
+  return typeof ctx.emitSubAgentEvent === "function"
+    ? ctx.emitSubAgentEvent
+    : null;
 }
 
 function normalizeStreamError(error: unknown): Error {

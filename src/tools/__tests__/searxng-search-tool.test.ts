@@ -4,7 +4,7 @@ const tauriMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/api/core", () => tauriMocks);
+vi.mock("@/lib/tauri-bridge", () => ({ invoke: tauriMocks.invoke }));
 
 import { createSearXNGSearchTool } from "@/tools/searxng-search-tool";
 

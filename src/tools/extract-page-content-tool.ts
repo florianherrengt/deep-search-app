@@ -2,7 +2,7 @@ import { tool, zodSchema, generateText, type LanguageModel } from "ai";
 import { load, type CheerioAPI } from "cheerio";
 import type { AnyNode, Element, Text } from "domhandler";
 import { z } from "zod";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/tauri-bridge";
 import {
   abortableDelay,
   abortablePromise,
@@ -50,20 +50,6 @@ type RawContentLocation = {
   rawPath: string;
   page: string;
 };
-
-interface WebviewExtractionMock {
-  openTab?: (input: { id: string; url: string }) => Promise<void>;
-  switchTab?: (input: { id: string }) => Promise<void>;
-  extractContent?: (input: { id: string }) => Promise<string>;
-  closeTab?: (input: { id: string }) => Promise<void>;
-}
-
-declare global {
-  interface Window {
-    __deepSearchWebviewExtractionMock?: WebviewExtractionMock;
-    __deepSearchFetchHtmlMock?: (url: string) => Promise<string | null>;
-  }
-}
 
 let webviewExtractionQueue: Promise<void> = Promise.resolve();
 let nextWebviewTabId = 0;
@@ -125,11 +111,6 @@ function rawContentLocation(
   };
 }
 
-function getDevWebviewExtractionMock(): WebviewExtractionMock | null {
-  if (!import.meta.env.DEV || typeof window === "undefined") return null;
-  return window.__deepSearchWebviewExtractionMock ?? null;
-}
-
 function waitForBrowserPaint(): Promise<void> {
   if (
     typeof window === "undefined" ||
@@ -148,12 +129,6 @@ async function openWebviewTab(
   url: string,
   abortSignal?: AbortSignal,
 ) {
-  const mock = getDevWebviewExtractionMock();
-  if (mock?.openTab) {
-    await abortablePromise(mock.openTab({ id, url }), abortSignal);
-    return;
-  }
-
   await abortablePromise(invoke("open_tab", { url, id }), abortSignal);
 }
 
@@ -161,12 +136,6 @@ async function switchWebviewTab(
   id: string,
   abortSignal?: AbortSignal,
 ) {
-  const mock = getDevWebviewExtractionMock();
-  if (mock?.switchTab) {
-    await abortablePromise(mock.switchTab({ id }), abortSignal);
-    return;
-  }
-
   await abortablePromise(
     invoke("switch_tab", { id }).catch(() => undefined),
     abortSignal,
@@ -177,11 +146,6 @@ async function extractWebviewContent(
   id: string,
   abortSignal?: AbortSignal,
 ): Promise<string> {
-  const mock = getDevWebviewExtractionMock();
-  if (mock?.extractContent) {
-    return abortablePromise(mock.extractContent({ id }), abortSignal);
-  }
-
   return abortablePromise(
     invoke<string>("extract_content", { id }),
     abortSignal,
@@ -189,12 +153,6 @@ async function extractWebviewContent(
 }
 
 async function closeWebviewTab(id: string) {
-  const mock = getDevWebviewExtractionMock();
-  if (mock?.closeTab) {
-    await mock.closeTab({ id }).catch(() => undefined);
-    return;
-  }
-
   await invoke("close_tab", { id }).catch(() => undefined);
 }
 
@@ -204,9 +162,6 @@ export async function fetchHtml(
 ): Promise<string | null> {
   try {
     validateUrl(url);
-    if (import.meta.env.DEV && typeof window !== "undefined" && window.__deepSearchFetchHtmlMock) {
-      return window.__deepSearchFetchHtmlMock(url);
-    }
     return await abortablePromise(
       invoke<string | null>("fetch_html", { url }),
       abortSignal,

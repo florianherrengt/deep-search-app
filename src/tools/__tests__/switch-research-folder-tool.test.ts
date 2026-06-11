@@ -10,7 +10,7 @@ const fsMocks = vi.hoisted(() => ({
   exists: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-fs", () => ({
+vi.mock("@/lib/tauri-bridge", () => ({
   ...fsMocks,
   BaseDirectory: {
     AppData: "AppData",

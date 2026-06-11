@@ -773,6 +773,9 @@ pub fn run() {
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_webdriver::init());
 
+    #[cfg(feature = "e2e-testing")]
+    let builder = builder.plugin(tauri_plugin_playwright::init());
+
     builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

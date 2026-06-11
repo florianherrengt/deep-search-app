@@ -4,7 +4,7 @@ const tauriMocks = vi.hoisted(() => ({
   fetch: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-http", () => tauriMocks);
+vi.mock("@/lib/tauri-bridge", () => tauriMocks);
 vi.mock("@/lib/rate-limit", () => ({
   rateLimit: <T>(fn: () => Promise<T>) => fn(),
 }));

@@ -1,4 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@/lib/tauri-bridge";
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { TauriStdioTransport } from "./tauri-stdio-transport";

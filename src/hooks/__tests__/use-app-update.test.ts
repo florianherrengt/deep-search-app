@@ -5,7 +5,7 @@ import {
   getErrorMessage,
   type AppUpdateState,
 } from "../use-app-update";
-import type { DownloadEvent } from "@tauri-apps/plugin-updater";
+import type { DownloadEvent } from "@/lib/tauri-bridge";
 
 const updateInfo = {
   version: "2.0.0",

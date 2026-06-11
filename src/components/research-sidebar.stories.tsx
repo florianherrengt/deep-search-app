@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn, userEvent, within } from "storybook/test";
 import { ResearchSidebar } from "./research-sidebar";
 import type { SearchResult } from "@/lib/research-search";
+import { setBridgeMock } from "@/lib/tauri-bridge";
 
 const embeddingConfig = {
   api_key: "storybook-key",
@@ -188,9 +189,9 @@ export const SearchResults: Story = {
   decorators: [
     (Story) => {
       if (typeof window !== "undefined") {
-        window.__deepSearchResearchSearchMock = {
-          searchResearch: async () => searchResults,
-        };
+        setBridgeMock({
+          invoke: async () => searchResults,
+        });
       }
       return <Story />;
     },

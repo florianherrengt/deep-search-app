@@ -8,7 +8,7 @@ import remarkGfm from "remark-gfm";
 import { type AnchorHTMLAttributes, type FC } from "react";
 import { useClipboard } from "@mantine/hooks";
 import { CheckIcon, CopyIcon } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@/lib/tauri-bridge";
 
 const MarkdownTextImpl = () => {
   return (

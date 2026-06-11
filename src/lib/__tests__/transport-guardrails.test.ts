@@ -14,12 +14,9 @@ import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
 const mockRerankerConfig: RerankerConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "cohere/rerank-4-pro" };
 
-vi.mock("@tauri-apps/api/core", () => ({
+vi.mock("@/lib/tauri-bridge", () => ({
   invoke: vi.fn(),
   isTauri: () => false,
-}));
-
-vi.mock("@tauri-apps/plugin-fs", () => ({
   mkdir: vi.fn(),
   writeTextFile: vi.fn(),
   readTextFile: vi.fn(),
@@ -28,18 +25,12 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   rename: vi.fn(),
   exists: vi.fn().mockResolvedValue(false),
   BaseDirectory: { AppData: "AppData" },
-}));
-
-vi.mock("@tauri-apps/plugin-store", () => ({
-  load: vi.fn().mockResolvedValue({
+  fetch: vi.fn(),
+  loadStore: vi.fn().mockResolvedValue({
     get: vi.fn().mockResolvedValue(null),
     set: vi.fn(),
     save: vi.fn(),
   }),
-}));
-
-vi.mock("@tauri-apps/plugin-http", () => ({
-  fetch: vi.fn(),
 }));
 
 import { createGuardedStream } from "@/lib/transport";

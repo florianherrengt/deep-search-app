@@ -1,10 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
-import { relaunch } from "@tauri-apps/plugin-process";
-import {
-  check,
-  type DownloadEvent,
-  type Update,
-} from "@tauri-apps/plugin-updater";
+import { isTauri, checkForUpdate, relaunchApp, type AppUpdate, type DownloadEvent, isDownloadStartedEvent, isDownloadProgressEvent } from "@/lib/tauri-bridge";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
 const CHECK_TIMEOUT_MS = 15_000;
@@ -75,7 +69,7 @@ export function appUpdateReducer(
 }
 
 export function useAppUpdate() {
-  const updateRef = useRef<Update | null>(null);
+  const updateRef = useRef<AppUpdate | null>(null);
   const [state, dispatch] = useReducer(appUpdateReducer, {
     status: "hidden",
   });
@@ -86,7 +80,7 @@ export function useAppUpdate() {
     let cancelled = false;
     dispatch({ type: "check_started" });
 
-    void check({ timeout: CHECK_TIMEOUT_MS })
+    void checkForUpdate({ timeout: CHECK_TIMEOUT_MS })
       .then((update) => {
         if (cancelled) {
           void update?.close().catch(() => undefined);
@@ -161,7 +155,7 @@ export function useAppUpdate() {
       );
 
       dispatch({ type: "relaunch_started", update: updateInfo });
-      await relaunch();
+      await relaunchApp();
     } catch (error) {
       dispatch({
         type: "install_failed",
@@ -185,7 +179,7 @@ export function useAppUpdate() {
   };
 }
 
-function toUpdateInfo(update: Update): AppUpdateInfo {
+function toUpdateInfo(update: AppUpdate): AppUpdateInfo {
   return {
     version: update.version,
     currentVersion: update.currentVersion,
@@ -200,12 +194,12 @@ export function getDownloadProgress(
 ) {
   let { contentLength, downloaded } = current;
 
-  if (event.event === "Started") {
+  if (isDownloadStartedEvent(event)) {
     contentLength = event.data.contentLength ?? null;
     downloaded = 0;
   }
 
-  if (event.event === "Progress") {
+  if (isDownloadProgressEvent(event)) {
     downloaded += event.data.chunkLength;
   }
 

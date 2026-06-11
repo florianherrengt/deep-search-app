@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
-import { Box } from "@mantine/core";
+import { Box, Alert } from "@mantine/core";
 import type { UIMessage } from "ai";
 import { QuestionsToolUI } from "./assistant-ui/questions-tool";
 import { Thread } from "./assistant-ui/thread";
@@ -22,6 +22,9 @@ import {
 import { saveResearchChatMessages } from "@/lib/research-history";
 import { getCurrentTokenCount } from "@/lib/token-usage";
 import { hasPendingQuestionTool } from "@/lib/chat-attention";
+import { useSubAgentStore } from "@/lib/sub-agent-store";
+import type { SubAgentEvent } from "@/lib/sub-agent-types";
+import { isRecord } from "@/lib/json";
 
 export function Chat({
   sessionId,
@@ -236,6 +239,9 @@ export function Chat({
     messages: initialMessages,
     transport: transportRef.current,
     sendAutomaticallyWhen: shouldContinueAfterToolResult,
+    onError: (error) => {
+      console.error("[chat] Transport error:", error);
+    },
     onFinish: ({ messages }) => {
       const folderName = researchFolderRef.current;
       if (!folderName) return;
@@ -262,6 +268,46 @@ export function Chat({
     onAttentionStateChange?.(sessionId, needsAttention);
   }, [needsAttention, onAttentionStateChange, sessionId]);
 
+  const subAgentStore = useSubAgentStore();
+  const processedSubAgentPartsRef = useRef(0);
+
+  useEffect(() => {
+    for (const message of chat.messages) {
+      if (!("parts" in message) || !Array.isArray(message.parts)) continue;
+
+      for (let i = processedSubAgentPartsRef.current; i < message.parts.length; i++) {
+        const part = message.parts[i];
+        if (!isRecord(part)) continue;
+        const type = part.type as string;
+        if (!type.startsWith("data-")) continue;
+        const name = type.slice("data-".length);
+        if (name !== "subagent_event") continue;
+
+        const dataPart = part as { data: unknown };
+        if (!isRecord(dataPart.data)) continue;
+
+        subAgentStore.processEvent(researchChatId, dataPart.data as unknown as SubAgentEvent);
+        processedSubAgentPartsRef.current = i + 1;
+      }
+    }
+  }, [chat.messages, researchChatId]);
+
+  useEffect(() => {
+    if (!researchChatId) return;
+    if (researchFolder) {
+      void subAgentStore.loadRunsFromDisk(researchChatId, researchFolder);
+    } else {
+      subAgentStore.loadRuns(researchChatId, []);
+    }
+  }, [researchChatId]);
+
+  useEffect(() => {
+    const folderName = researchFolderRef.current;
+    if (folderName && researchChatId) {
+      void subAgentStore.persistRuns(researchChatId, folderName);
+    }
+  }, [chat.messages, researchChatId]);
+
   const runtime = useAISDKRuntime(chat);
   const tokenCount = useMemo(
     () => getCurrentTokenCount(chat.messages),
@@ -272,6 +318,11 @@ export function Chat({
     <AssistantRuntimeProvider runtime={runtime}>
       <QuestionsToolUI />
       <Box style={{ height: "100%" }}>
+        {chat.error && (
+          <Alert variant="light" color="red" title="Connection Error" withCloseButton mb="xs">
+            {chat.error.message}
+          </Alert>
+        )}
         <Thread
           models={modelsWithContextWindows}
           selectedModelId={selectedModelId}

@@ -58,6 +58,10 @@ describe("chat provider settings", () => {
         provider: "zhipu",
         disabled: true,
       },
+      {
+        provider: "local",
+        disabled: true,
+      },
     ]);
     expect(getDefaultChatModelId(settings, options)).toBe(
       createChatModelId("openrouter", settingsDefaults.default_model),
@@ -86,6 +90,7 @@ describe("chat provider settings", () => {
       {},
       { provider: "anthropic", contextWindowTokens: 200_000 },
       { provider: "zhipu" },
+      { provider: "local" },
     ]);
     expect(
       getKnownChatModelContextWindowTokens({
@@ -185,6 +190,62 @@ describe("chat provider settings", () => {
     expect(fieldKeys).not.toContain("openrouter_context_window");
     expect(fieldKeys).not.toContain("anthropic_context_window");
     expect(fieldKeys).not.toContain("zhipu_context_window");
+    expect(fieldKeys).not.toContain("local_context_window");
+  });
+
+  it("checks base URL (not API key) to determine if local provider is configured", () => {
+    const noBaseUrl: Settings = {
+      ...settingsDefaults,
+      local_api_key: "some-key",
+      local_base_url: "",
+    };
+    expect(getConfiguredChatProviderDefinitions(noBaseUrl)).toEqual([]);
+
+    const withBaseUrl: Settings = {
+      ...settingsDefaults,
+      local_api_key: "",
+      local_base_url: "http://localhost:11434/v1",
+    };
+    expect(
+      getConfiguredChatProviderDefinitions(withBaseUrl).map(
+        (d) => d.provider,
+      ),
+    ).toEqual(["local"]);
+  });
+
+  it("builds local provider model option", () => {
+    const settings: Settings = {
+      ...settingsDefaults,
+      local_api_key: "",
+      local_base_url: "http://localhost:11434/v1",
+      local_model: "llama3",
+    };
+
+    const options = getChatModelOptions(settings);
+    const localOption = options.find((o) => o.provider === "local");
+
+    expect(localOption).toMatchObject({
+      provider: "local",
+      model: "llama3",
+      baseURL: "http://localhost:11434/v1",
+      disabled: false,
+    });
+  });
+
+  it("shows local provider as disabled when base URL is empty", () => {
+    const settings: Settings = {
+      ...settingsDefaults,
+      local_api_key: "some-key",
+      local_base_url: "",
+    };
+
+    const options = getChatModelOptions(settings);
+    const localOption = options.find((o) => o.provider === "local");
+
+    expect(localOption).toMatchObject({
+      provider: "local",
+      disabled: true,
+    });
   });
 
   it("returns empty providers when no API keys are configured", () => {

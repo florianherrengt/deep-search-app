@@ -21,6 +21,7 @@ export interface ChatProviderSettingsDefinition {
   apiKeyKey: keyof Settings;
   modelKey: keyof Settings;
   baseURLKey?: keyof Settings;
+  configuredKey?: keyof Settings;
   fields: readonly SettingsFieldDefinition[];
   clearOnRemove: readonly (keyof Settings)[];
 }
@@ -93,6 +94,34 @@ export const CHAT_PROVIDER_SETTINGS = [
     ],
     clearOnRemove: ["zhipu_api_key", "zhipu_base_url"],
   },
+  {
+    provider: "local",
+    apiKeyKey: "local_api_key",
+    modelKey: "local_model",
+    baseURLKey: "local_base_url",
+    configuredKey: "local_base_url",
+    fields: [
+      {
+        key: "local_model",
+        label: "Model",
+        type: "text",
+        placeholder: "llama3",
+      },
+      {
+        key: "local_base_url",
+        label: "Base URL",
+        type: "text",
+        placeholder: "http://localhost:11434/v1",
+      },
+      {
+        key: "local_api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "Optional",
+      },
+    ],
+    clearOnRemove: ["local_api_key", "local_base_url", "local_model"],
+  },
 ] as const satisfies readonly ChatProviderSettingsDefinition[];
 
 export function getProviderSettingsDefinition(provider: ChatProvider) {
@@ -119,12 +148,13 @@ export function isChatProviderConfigured(
   settings: Settings,
   definition: ChatProvider | ChatProviderSettingsDefinition,
 ) {
-  const resolvedDefinition =
+  const resolvedDefinition: ChatProviderSettingsDefinition =
     typeof definition === "string"
       ? getProviderSettingsDefinition(definition)
-      : definition;
+      : definition as ChatProviderSettingsDefinition;
 
-  return getSettingValue(settings, resolvedDefinition.apiKeyKey).trim().length > 0;
+  const checkKey = resolvedDefinition.configuredKey ?? resolvedDefinition.apiKeyKey;
+  return getSettingValue(settings, checkKey).trim().length > 0;
 }
 
 export function getConfiguredChatProviderDefinitions(settings: Settings) {
@@ -183,6 +213,7 @@ function getChatModelOption(
     provider,
     model,
   });
+  const disabled = !isChatProviderConfigured(settings, definition);
 
   return {
     id: createChatModelId(provider, model),
@@ -190,12 +221,10 @@ function getChatModelOption(
     apiKey,
     model,
     baseURL: baseURL || undefined,
-    name: `${providerLabel}: ${model}`,
-    description: apiKey
-      ? providerLabel
-      : `Add ${providerLabel} API key in Settings`,
+    name: `${providerLabel}: ${model || "(any)"}`,
+    description: disabled ? `Add ${providerLabel} in Settings` : providerLabel,
     ...(contextWindowTokens ? { contextWindowTokens } : {}),
-    disabled: !apiKey,
+    disabled,
   };
 }
 

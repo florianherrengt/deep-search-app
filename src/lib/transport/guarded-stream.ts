@@ -26,6 +26,8 @@ import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import { skillsStore } from "@/lib/skills-store";
+import { setActiveSubAgentEmitter, emitSubAgentEvent as _emitSubAgentEvent } from "@/lib/sub-agent-emitter";
+import type { SubAgentEvent } from "@/lib/sub-agent-types";
 
 export interface ResearchFolderContext {
   folderName: string;
@@ -94,7 +96,13 @@ export function createGuardedStream({
       let sendStart = true;
       let lastFinish: AttemptFinish | undefined;
 
+      const subAgentEmitter = (event: SubAgentEvent) => {
+        writeSubAgentEvent(controller, event);
+      };
+
       try {
+        setActiveSubAgentEmitter(subAgentEmitter, null);
+
         const tools = await createTools({
           model,
           getResearchFolder: async () => {
@@ -198,6 +206,7 @@ export function createGuardedStream({
           controller.enqueue({ type: "finish", finishReason: "error" });
         }
       } finally {
+        setActiveSubAgentEmitter(null, null);
         controller.close();
       }
     },
@@ -306,6 +315,17 @@ async function pipeUIMessageStream(
     }),
     { signal: abortSignal, preventClose: true },
   );
+}
+
+function writeSubAgentEvent(
+  controller: ReadableStreamDefaultController<UIMessageChunk>,
+  event: SubAgentEvent,
+) {
+  controller.enqueue({
+    type: "data-subagent_event",
+    id: `subagent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    data: event,
+  });
 }
 
 function writeGuardrailEvent(

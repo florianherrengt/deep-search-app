@@ -1,18 +1,14 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
 import { z } from "zod";
 import { createZhipu } from "zhipu-ai-provider";
-import { validateUrl } from "@/lib/url-validation";
+import { validateUrl, validateServiceUrl } from "@/lib/url-validation";
 
-declare global {
-  interface Window {
-    __deepSearchProviderFetchMock?: typeof fetch;
-  }
-}
 
-export const chatProviderSchema = z.enum(["openrouter", "anthropic", "zhipu"]);
+export const chatProviderSchema = z.enum(["openrouter", "anthropic", "zhipu", "local"]);
 
 export type ChatProvider = z.infer<typeof chatProviderSchema>;
 
@@ -37,12 +33,14 @@ export const CHAT_PROVIDER_LABELS: Record<ChatProvider, string> = {
   openrouter: "OpenRouter",
   anthropic: "Anthropic",
   zhipu: "Zhipu",
+  local: "Local / OpenAI Compatible",
 };
 
 export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
   openrouter: "openrouter/free",
   anthropic: "claude-sonnet-4-5",
   zhipu: "glm-4.7-flash",
+  local: "",
 };
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
@@ -81,7 +79,7 @@ export function createChatLanguageModel({
   const modelId = model.trim() || CHAT_PROVIDER_DEFAULT_MODELS[provider];
   const trimmedBaseURL = baseURL?.trim();
 
-  if (!trimmedApiKey) {
+  if (provider !== "local" && !trimmedApiKey) {
     throw new Error(`${getChatProviderLabel(provider)} API key is missing.`);
   }
 
@@ -100,6 +98,13 @@ export function createChatLanguageModel({
       return createZhipu({
         apiKey: trimmedApiKey,
         baseURL: normalizeZhipuBaseURL(trimmedBaseURL),
+        fetch: providerFetch,
+      })(modelId);
+    case "local":
+      return createOpenAICompatible({
+        name: "local",
+        apiKey: trimmedApiKey || undefined,
+        baseURL: normalizeLocalBaseURL(trimmedBaseURL!),
         fetch: providerFetch,
       })(modelId);
   }
@@ -195,6 +200,15 @@ function normalizeContextWindowTokens(value: number | null | undefined) {
   return Math.round(value);
 }
 
+function normalizeLocalBaseURL(baseURL: string): string {
+  if (!baseURL) {
+    throw new Error("Local provider base URL is required.");
+  }
+
+  const parsed = validateServiceUrl(baseURL);
+  return parsed.toString().replace(/\/$/, "");
+}
+
 function normalizeZhipuBaseURL(baseURL: string | undefined): string | undefined {
   if (!baseURL) return undefined;
 
@@ -206,31 +220,6 @@ function normalizeZhipuBaseURL(baseURL: string | undefined): string | undefined 
   return parsed.toString().replace(/\/$/, "");
 }
 
-const providerFetch: typeof fetch = (input, init) => {
-  const mock = getDevProviderFetchMock();
-  if (mock) {
-    return mock(input, init);
-  }
+const providerFetch: typeof fetch = bridgeFetch;
 
-  if (isTauriRuntime()) {
-    return tauriFetch(input, init);
-  }
 
-  return globalThis.fetch(input, init);
-};
-
-function getDevProviderFetchMock(): typeof fetch | null {
-  if (!import.meta.env.DEV || typeof window === "undefined") {
-    return null;
-  }
-
-  return window.__deepSearchProviderFetchMock ?? null;
-}
-
-function isTauriRuntime() {
-  if (typeof window === "undefined") return false;
-
-  return Boolean(
-    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__,
-  );
-}

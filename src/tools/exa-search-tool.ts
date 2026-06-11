@@ -1,4 +1,4 @@
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch } from "@/lib/tauri-bridge";
 import { z } from "zod";
 import { createSearchTool } from "./create-search-tool";
 import { searchQueryInputSchema } from "./search-result";

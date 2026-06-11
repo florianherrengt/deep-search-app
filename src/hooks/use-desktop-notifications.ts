@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
 import {
-  isPermissionGranted,
-  onAction,
-  requestPermission,
+  isNotificationPermissionGranted as isPermissionGranted,
+  onNotificationAction,
+  requestNotificationPermission as requestPermission,
   sendNotification,
-} from "@tauri-apps/plugin-notification";
+} from "@/lib/tauri-bridge";
 import type { ChatSessionRecord } from "@/App";
 
 interface UseDesktopNotificationsOptions {
@@ -79,7 +79,7 @@ export function useDesktopNotifications({
     activated.current = true;
 
     let cancelled = false;
-    onAction((notification) => {
+    onNotificationAction((notification) => {
       if (cancelled) return;
       const payload = fromExtra(notification.extra);
       if (!payload) return;

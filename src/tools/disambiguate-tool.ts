@@ -1,18 +1,7 @@
 import { tool, zodSchema } from "ai";
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch } from "@/lib/tauri-bridge";
 import { z } from "zod";
 import { rateLimit } from "@/lib/rate-limit";
-
-declare global {
-  interface Window {
-    __deepSearchDisambiguateMock?: (term: string) => Promise<string>;
-  }
-}
-
-function getDevDisambiguateMock(): ((term: string) => Promise<string>) | null {
-  if (!import.meta.env.DEV || typeof window === "undefined") return null;
-  return window.__deepSearchDisambiguateMock ?? null;
-}
 
 const API_URL = "https://api.duckduckgo.com/";
 const MAX_RELATED_TOPICS = 8;
@@ -70,9 +59,6 @@ async function fetchDuckDuckGo(
   term: string,
   abortSignal?: AbortSignal,
 ): Promise<string> {
-  const mock = getDevDisambiguateMock();
-  if (mock) return mock(term);
-
   return rateLimit(async () => {
     const url = new URL(API_URL);
     url.searchParams.set("q", term.trim());

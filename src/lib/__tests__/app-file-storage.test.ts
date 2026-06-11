@@ -10,14 +10,13 @@ const fsMocks = vi.hoisted(() => ({
   exists: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-fs", () => ({
+vi.mock("@/lib/tauri-bridge", () => ({
   ...fsMocks,
   BaseDirectory: {
     AppData: "AppData",
   },
 }));
 
-import { BaseDirectory } from "@tauri-apps/plugin-fs";
 import {
   deleteAppFile,
   deleteAppSubfolder,
@@ -43,15 +42,11 @@ describe("app file storage", () => {
     });
 
     expect(fsMocks.mkdir).toHaveBeenCalledWith("notes", {
-      baseDir: BaseDirectory.AppData,
       recursive: true,
     });
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "notes/example.md",
       "# Example\n\nHello from app data.",
-      {
-        baseDir: BaseDirectory.AppData,
-      },
     );
   });
 
@@ -65,16 +60,12 @@ describe("app file storage", () => {
     expect(fsMocks.mkdir).toHaveBeenCalledWith(
       "search-results/apartment-dogs",
       {
-        baseDir: BaseDirectory.AppData,
         recursive: true,
       },
     );
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/apartment-dogs/brave-initial.md",
       "Search results",
-      {
-        baseDir: BaseDirectory.AppData,
-      },
     );
   });
 
@@ -158,12 +149,8 @@ describe("app file storage", () => {
       }),
     ).resolves.toBe("# Example");
 
-    expect(fsMocks.exists).toHaveBeenCalledWith("notes/example.md", {
-      baseDir: BaseDirectory.AppData,
-    });
-    expect(fsMocks.readTextFile).toHaveBeenCalledWith("notes/example.md", {
-      baseDir: BaseDirectory.AppData,
-    });
+    expect(fsMocks.exists).toHaveBeenCalledWith("notes/example.md");
+    expect(fsMocks.readTextFile).toHaveBeenCalledWith("notes/example.md");
   });
 
   it("returns null when a file does not exist", async () => {
@@ -212,9 +199,7 @@ describe("app file storage", () => {
       listAppSubfolders({ subfolder: "search-results" }),
     ).resolves.toEqual(["apartment-dogs", "zebra-research"]);
 
-    expect(fsMocks.readDir).toHaveBeenCalledWith("search-results", {
-      baseDir: BaseDirectory.AppData,
-    });
+    expect(fsMocks.readDir).toHaveBeenCalledWith("search-results");
   });
 
   it("lists safe app data files", async () => {
@@ -246,9 +231,6 @@ describe("app file storage", () => {
 
     expect(fsMocks.readDir).toHaveBeenCalledWith(
       "search-results/apartment-dogs/chats",
-      {
-        baseDir: BaseDirectory.AppData,
-      },
     );
   });
 
@@ -270,7 +252,6 @@ describe("app file storage", () => {
     expect(fsMocks.remove).toHaveBeenCalledWith(
       "search-results/apartment-dogs",
       {
-        baseDir: BaseDirectory.AppData,
         recursive: true,
       },
     );
@@ -295,10 +276,6 @@ describe("app file storage", () => {
     expect(fsMocks.rename).toHaveBeenCalledWith(
       "search-results/apartment-dogs",
       "search-results/city-dogs",
-      {
-        oldPathBaseDir: BaseDirectory.AppData,
-        newPathBaseDir: BaseDirectory.AppData,
-      },
     );
 
     fsMocks.exists.mockResolvedValueOnce(true);
@@ -344,12 +321,8 @@ describe("app file storage", () => {
       filename: "example.md",
     });
 
-    expect(fsMocks.exists).toHaveBeenCalledWith("notes/example.md", {
-      baseDir: BaseDirectory.AppData,
-    });
-    expect(fsMocks.remove).toHaveBeenCalledWith("notes/example.md", {
-      baseDir: BaseDirectory.AppData,
-    });
+    expect(fsMocks.exists).toHaveBeenCalledWith("notes/example.md");
+    expect(fsMocks.remove).toHaveBeenCalledWith("notes/example.md");
   });
 
   it("deletes an existing file from a nested app data subfolder", async () => {
@@ -362,9 +335,6 @@ describe("app file storage", () => {
 
     expect(fsMocks.remove).toHaveBeenCalledWith(
       "search-results/apartment-dogs/brave-initial.md",
-      {
-        baseDir: BaseDirectory.AppData,
-      },
     );
   });
 
@@ -403,10 +373,6 @@ describe("app file storage", () => {
     expect(fsMocks.rename).toHaveBeenCalledWith(
       "notes/draft.md",
       "notes/final.md",
-      {
-        oldPathBaseDir: BaseDirectory.AppData,
-        newPathBaseDir: BaseDirectory.AppData,
-      },
     );
   });
 

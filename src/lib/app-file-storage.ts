@@ -1,32 +1,15 @@
 import { z } from "zod";
 import {
-  BaseDirectory,
-  exists,
-  mkdir,
-  readDir,
-  readTextFile,
-  remove,
-  rename,
-  writeTextFile,
-} from "@tauri-apps/plugin-fs";
+  exists as bridgeExists,
+  mkdir as bridgeMkdir,
+  readDir as bridgeReadDir,
+  readTextFile as bridgeReadTextFile,
+  remove as bridgeRemove,
+  rename as bridgeRename,
+  writeTextFile as bridgeWriteTextFile,
+} from "@/lib/tauri-bridge";
 import { emitResearchLibraryChanged } from "@/lib/research-library-events";
 
-interface AppFileStorageMock {
-  writeAppFile?: (input: WriteAppFileInput) => Promise<void>;
-  readAppFile?: (input: ReadAppFileInput) => Promise<string | null>;
-  listAppSubfolders?: (input: ListAppSubfoldersInput) => Promise<string[]>;
-  listAppFiles?: (input: ListAppFilesInput) => Promise<string[]>;
-  deleteAppFile?: (input: ReadAppFileInput) => Promise<void>;
-  renameAppFile?: (input: { subfolder: string; oldFilename: string; newFilename: string }) => Promise<void>;
-  deleteAppSubfolder?: (input: DeleteAppSubfolderInput) => Promise<void>;
-  renameAppSubfolder?: (input: RenameAppSubfolderInput) => Promise<void>;
-}
-
-declare global {
-  interface Window {
-    __deepSearchAppFileStorageMock?: AppFileStorageMock;
-  }
-}
 
 export const SafePathSegmentSchema = z
   .string()
@@ -112,24 +95,13 @@ type RenameAppSubfolderInput = z.infer<
 
 export async function writeAppFile(input: WriteAppFileInput): Promise<void> {
   const parsed = WriteAppFileInputSchema.parse(input);
-  const mock = getDevAppFileStorageMock();
 
-  if (mock?.writeAppFile) {
-    await mock.writeAppFile(parsed);
-  } else {
-    await mkdir(parsed.subfolder, {
-      baseDir: BaseDirectory.AppData,
-      recursive: true,
-    });
+  await bridgeMkdir(parsed.subfolder, { recursive: true });
 
-    await writeTextFile(
-      `${parsed.subfolder}/${parsed.filename}`,
-      parsed.content,
-      {
-        baseDir: BaseDirectory.AppData,
-      },
-    );
-  }
+  await bridgeWriteTextFile(
+    `${parsed.subfolder}/${parsed.filename}`,
+    parsed.content,
+  );
 
   if (parsed.emitChange !== false) {
     const folderName = researchFolderNameFromSubfolder(parsed.subfolder);
@@ -143,46 +115,30 @@ export async function readAppFile(
   input: ReadAppFileInput,
 ): Promise<string | null> {
   const parsed = ReadAppFileInputSchema.parse(input);
-  const mock = getDevAppFileStorageMock();
-  if (mock?.readAppFile) {
-    return mock.readAppFile(parsed);
-  }
 
   const path = `${parsed.subfolder}/${parsed.filename}`;
 
-  const fileExists = await exists(path, {
-    baseDir: BaseDirectory.AppData,
-  });
+  const fileExists = await bridgeExists(path);
 
   if (!fileExists) {
     return null;
   }
 
-  return readTextFile(path, {
-    baseDir: BaseDirectory.AppData,
-  });
+  return bridgeReadTextFile(path);
 }
 
 export async function listAppSubfolders(
   input: ListAppSubfoldersInput,
 ): Promise<string[]> {
   const parsed = ListAppSubfoldersInputSchema.parse(input);
-  const mock = getDevAppFileStorageMock();
-  if (mock?.listAppSubfolders) {
-    return mock.listAppSubfolders(parsed);
-  }
 
-  const folderExists = await exists(parsed.subfolder, {
-    baseDir: BaseDirectory.AppData,
-  });
+  const folderExists = await bridgeExists(parsed.subfolder);
 
   if (!folderExists) {
     return [];
   }
 
-  const entries = await readDir(parsed.subfolder, {
-    baseDir: BaseDirectory.AppData,
-  });
+  const entries = await bridgeReadDir(parsed.subfolder);
 
   return entries
     .filter(
@@ -195,22 +151,14 @@ export async function listAppSubfolders(
 
 export async function listAppFiles(input: ListAppFilesInput): Promise<string[]> {
   const parsed = ListAppFilesInputSchema.parse(input);
-  const mock = getDevAppFileStorageMock();
-  if (mock?.listAppFiles) {
-    return mock.listAppFiles(parsed);
-  }
 
-  const folderExists = await exists(parsed.subfolder, {
-    baseDir: BaseDirectory.AppData,
-  });
+  const folderExists = await bridgeExists(parsed.subfolder);
 
   if (!folderExists) {
     return [];
   }
 
-  const entries = await readDir(parsed.subfolder, {
-    baseDir: BaseDirectory.AppData,
-  });
+  const entries = await bridgeReadDir(parsed.subfolder);
 
   return entries
     .filter(
@@ -225,25 +173,15 @@ export async function deleteAppFile(
   input: ReadAppFileInput,
 ): Promise<void> {
   const parsed = ReadAppFileInputSchema.parse(input);
-  const mock = getDevAppFileStorageMock();
-
-  if (mock?.deleteAppSubfolder) {
-    await mock.deleteAppSubfolder({ subfolder: parsed.subfolder });
-    return;
-  }
 
   const path = `${parsed.subfolder}/${parsed.filename}`;
-  const fileExists = await exists(path, {
-    baseDir: BaseDirectory.AppData,
-  });
+  const fileExists = await bridgeExists(path);
 
   if (!fileExists) {
     return;
   }
 
-  await remove(path, {
-    baseDir: BaseDirectory.AppData,
-  });
+  await bridgeRemove(path);
 }
 
 export async function renameAppFile(
@@ -260,49 +198,27 @@ export async function renameAppFile(
   const oldPath = `${validatedSubfolder}/${validatedOld}`;
   const newPath = `${validatedSubfolder}/${validatedNew}`;
 
-  const newExists = await exists(newPath, {
-    baseDir: BaseDirectory.AppData,
-  });
+  const newExists = await bridgeExists(newPath);
 
   if (newExists) {
     throw new Error(`A file named "${validatedNew}" already exists.`);
   }
 
-  await rename(oldPath, newPath, {
-    oldPathBaseDir: BaseDirectory.AppData,
-    newPathBaseDir: BaseDirectory.AppData,
-  });
+  await bridgeRename(oldPath, newPath);
 }
 
 export async function deleteAppSubfolder(
   input: DeleteAppSubfolderInput,
 ): Promise<void> {
   const parsed = DeleteAppSubfolderInputSchema.parse(input);
-  const mock = getDevAppFileStorageMock();
 
-  if (mock?.deleteAppSubfolder) {
-    await mock.deleteAppSubfolder(parsed);
-
-    const folderName = researchFolderNameFromSubfolder(parsed.subfolder);
-    if (folderName) {
-      emitResearchLibraryChanged({ changeType: "delete", folderName });
-    }
-
-    return;
-  }
-
-  const folderExists = await exists(parsed.subfolder, {
-    baseDir: BaseDirectory.AppData,
-  });
+  const folderExists = await bridgeExists(parsed.subfolder);
 
   if (!folderExists) {
     return;
   }
 
-  await remove(parsed.subfolder, {
-    baseDir: BaseDirectory.AppData,
-    recursive: true,
-  });
+  await bridgeRemove(parsed.subfolder, { recursive: true });
 
   const folderName = researchFolderNameFromSubfolder(parsed.subfolder);
   if (folderName) {
@@ -319,25 +235,13 @@ export async function renameAppSubfolder(
     return;
   }
 
-  const mock = getDevAppFileStorageMock();
-  if (mock?.renameAppSubfolder) {
-    await mock.renameAppSubfolder(parsed);
-    emitResearchFolderRename(parsed.oldSubfolder, parsed.newSubfolder);
-    return;
-  }
-
-  const targetExists = await exists(parsed.newSubfolder, {
-    baseDir: BaseDirectory.AppData,
-  });
+  const targetExists = await bridgeExists(parsed.newSubfolder);
 
   if (targetExists) {
     throw new Error("A folder with that name already exists.");
   }
 
-  await rename(parsed.oldSubfolder, parsed.newSubfolder, {
-    oldPathBaseDir: BaseDirectory.AppData,
-    newPathBaseDir: BaseDirectory.AppData,
-  });
+  await bridgeRename(parsed.oldSubfolder, parsed.newSubfolder);
 
   emitResearchFolderRename(parsed.oldSubfolder, parsed.newSubfolder);
 }
@@ -359,10 +263,3 @@ function researchFolderNameFromSubfolder(subfolder: string): string | null {
   return root === "search-results" && folderName ? folderName : null;
 }
 
-function getDevAppFileStorageMock(): AppFileStorageMock | null {
-  if (!import.meta.env.DEV || typeof window === "undefined") {
-    return null;
-  }
-
-  return window.__deepSearchAppFileStorageMock ?? null;
-}

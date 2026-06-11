@@ -12,7 +12,7 @@ const retrievalMocks = vi.hoisted(() => ({
   runRetrievalAgent: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/api/core", () => tauriMocks);
+vi.mock("@/lib/tauri-bridge", () => ({ invoke: tauriMocks.invoke }));
 vi.mock("@/lib/retrieval-agent", () => retrievalMocks);
 
 import { createSearchResearchTool } from "@/tools/search-research-tool";

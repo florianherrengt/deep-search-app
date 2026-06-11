@@ -1,18 +1,7 @@
 import { tool, zodSchema } from "ai";
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch } from "@/lib/tauri-bridge";
 import { z } from "zod";
 import type { Currency } from "@/lib/settings-store";
-
-declare global {
-  interface Window {
-    __deepSearchCurrencyMock?: (from: string, to: string, amount: number) => Promise<string>;
-  }
-}
-
-function getDevCurrencyMock(): ((from: string, to: string, amount: number) => Promise<string>) | null {
-  if (!import.meta.env.DEV || typeof window === "undefined") return null;
-  return window.__deepSearchCurrencyMock ?? null;
-}
 
 const API_BASE = "https://api.frankfurter.dev/v2";
 
@@ -53,9 +42,6 @@ export function createCurrencyConversionTool(targetCurrency: Currency) {
       if (from === to) {
         return amount.toFixed(2);
       }
-
-      const mock = getDevCurrencyMock();
-      if (mock) return mock(from, to, amount);
 
       const key = cacheKey(from, to);
 

@@ -5,6 +5,8 @@ import {
 } from "@/lib/app-file-storage";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import memoryAgentPrompt from "./memory-agent-prompt.md?raw";
+import { createSubAgentId } from "./sub-agent-types";
+import { emitSubAgentEvent } from "./sub-agent-emitter";
 
 interface ExtractAndStoreMemoriesDeps {
   readAppFile: typeof readAppFile;
@@ -20,6 +22,15 @@ export async function extractAndStoreMemories(
 ): Promise<{ memoriesStored: number }> {
   const _readAppFile = deps?.readAppFile ?? readAppFile;
   const _writeAppFile = deps?.writeAppFile ?? writeAppFile;
+  const saId = createSubAgentId();
+
+  emitSubAgentEvent({
+    type: "start",
+    id: saId,
+    name: "Memory Extraction",
+    toolName: "memory_agent",
+    parentMessageId: "transport",
+  });
 
   try {
     const { text } = await generateText({
@@ -28,6 +39,8 @@ export async function extractAndStoreMemories(
       prompt: userMessage,
       abortSignal,
     });
+
+    emitSubAgentEvent({ type: "text-delta", id: saId, delta: text });
 
     let newFacts: string[];
     try {
@@ -56,8 +69,10 @@ export async function extractAndStoreMemories(
     const content = formatMemoriesContent(merged);
     await _writeAppFile({ subfolder, filename: "memories.md", content });
 
+    emitSubAgentEvent({ type: "complete", id: saId });
     return { memoriesStored: merged.length - existingFacts.length };
   } catch {
+    emitSubAgentEvent({ type: "error", id: saId, error: "Memory extraction failed" });
     return { memoriesStored: 0 };
   }
 }

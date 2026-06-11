@@ -11,7 +11,7 @@ import type { UIMessage } from "ai";
 import { SettingsProvider, useSettings } from "@/hooks/use-settings";
 import { PromptTemplatesProvider } from "@/hooks/use-prompt-templates";
 import { SkillsProvider } from "@/hooks/use-skills";
-import { setupMenu } from "@/lib/setup-menu";
+import { setupMenu } from "@/lib/tauri-bridge";
 import { subscribeResearchLibraryChanged } from "@/lib/research-library-events";
 import {
   getChatModelOptions,
@@ -28,6 +28,8 @@ import { AppUpdateButton } from "@/components/app-update-button";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
 import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
 import { ResearchSidebar } from "@/components/research-sidebar";
+import { SubAgentProvider, useSubAgentStore } from "@/lib/sub-agent-store";
+import { SubAgentSidebar } from "@/components/sub-agent-sidebar";
 import {
   compareResearchFolders,
   createResearchChatId,
@@ -249,6 +251,7 @@ function AppInner() {
   const researchChatsStatusRef = useRef(researchChatsStatus);
   researchChatsStatusRef.current = researchChatsStatus;
   const [selectedModelId, setSelectedModelId] = useState("");
+  const [subAgentSidebarOpen, setSubAgentSidebarOpen] = useState(false);
   const chatModelOptions = useMemo(
     () => getChatModelOptions(settings),
     [settings],
@@ -391,6 +394,13 @@ function AppInner() {
     activateSession,
     switchToTab,
   });
+
+  const subAgentStore = useSubAgentStore();
+  useEffect(() => {
+    if (subAgentStore.selectedRunId) {
+      setSubAgentSidebarOpen(true);
+    }
+  }, [subAgentStore.selectedRunId]);
 
   if (loading) return null;
 
@@ -670,41 +680,49 @@ function AppInner() {
             onDeleteFolder={handleDeleteResearchFolder}
             onReindexFolder={handleReindexResearchFolder}
           />
-          <div className="md-flex-fill">
-            {visibleChatSessions.map((session) => (
-              <div
-                key={session.sessionId}
-                style={{ height: "100%" }}
-                hidden={session.sessionId !== activeSessionId}
-              >
-                <Suspense fallback={<div style={{ height: "100%" }} />}>
-                  <LazyChat
-                    sessionId={session.sessionId}
-                    runtimeChatId={session.runtimeChatId}
-                    researchChatId={session.researchChatId}
-                    modelOptions={chatModelOptions}
-                    defaultModelId={defaultChatModelId}
-                    researchApiKey={settings.openrouter_api_key}
-                    researchFolder={session.researchFolder}
-                    selectedModelId={effectiveSelectedModelId}
-                    initialMessages={session.initialMessages}
-                    onResearchFolderChange={handleResearchFolderChange}
-                    onRunStateChange={handleRunStateChange}
-                    onAttentionStateChange={handleAttentionStateChange}
-                    onSelectedModelIdChange={handleSelectedModelChange}
-                    searchKeys={searchKeys}
-                    currency={settings.currency}
-                    embeddingConfig={embeddingConfig}
-                    rerankerConfig={rerankerConfig}
-                    onResearchChatSaved={(folderName) => {
-                      if (folderName === activeResearchFolderRef.current) {
-                        void refreshResearchChats(folderName);
-                      }
-                    }}
-                  />
-                </Suspense>
-              </div>
-            ))}
+          <div className="md-flex-fill" style={{ display: "flex" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {visibleChatSessions.map((session) => (
+                <div
+                  key={session.sessionId}
+                  style={{ height: "100%" }}
+                  hidden={session.sessionId !== activeSessionId}
+                >
+                  <Suspense fallback={<div style={{ height: "100%" }} />}>
+                    <LazyChat
+                      sessionId={session.sessionId}
+                      runtimeChatId={session.runtimeChatId}
+                      researchChatId={session.researchChatId}
+                      modelOptions={chatModelOptions}
+                      defaultModelId={defaultChatModelId}
+                      researchApiKey={settings.openrouter_api_key}
+                      researchFolder={session.researchFolder}
+                      selectedModelId={effectiveSelectedModelId}
+                      initialMessages={session.initialMessages}
+                      onResearchFolderChange={handleResearchFolderChange}
+                      onRunStateChange={handleRunStateChange}
+                      onAttentionStateChange={handleAttentionStateChange}
+                      onSelectedModelIdChange={handleSelectedModelChange}
+                      searchKeys={searchKeys}
+                      currency={settings.currency}
+                      embeddingConfig={embeddingConfig}
+                      rerankerConfig={rerankerConfig}
+                      onResearchChatSaved={(folderName) => {
+                        if (folderName === activeResearchFolderRef.current) {
+                          void refreshResearchChats(folderName);
+                        }
+                      }}
+                    />
+                  </Suspense>
+                </div>
+              ))}
+            </div>
+            {subAgentSidebarOpen && activeResearchChatId && (
+              <SubAgentSidebar
+                chatId={activeResearchChatId}
+                onClose={() => setSubAgentSidebarOpen(false)}
+              />
+            )}
           </div>
         </div>
       }
@@ -792,7 +810,9 @@ function App() {
     <SettingsProvider>
       <PromptTemplatesProvider>
         <SkillsProvider>
-          <AppInner />
+          <SubAgentProvider>
+            <AppInner />
+          </SubAgentProvider>
         </SkillsProvider>
       </PromptTemplatesProvider>
     </SettingsProvider>

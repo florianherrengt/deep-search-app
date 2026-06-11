@@ -1,5 +1,7 @@
 import { generateText, type LanguageModel } from "ai";
 import { slugifyFolderName, resolveUniqueFolderName } from "./research-folder";
+import { createSubAgentId } from "../sub-agent-types";
+import { emitSubAgentEvent } from "../sub-agent-emitter";
 
 const NAMER_SYSTEM = `You name research folders. Given the user's research question, return a short kebab-case folder name that captures the general topic. Max 5 words. Return ONLY the name, nothing else. No explanation, no quotes, no punctuation.`;
 
@@ -34,34 +36,55 @@ export async function nameFolderFromMessage(
   userMessage: string,
   options?: { abortSignal?: AbortSignal },
 ): Promise<string> {
+  const saId = createSubAgentId();
+  emitSubAgentEvent({
+    type: "start",
+    id: saId,
+    name: "Folder Naming",
+    toolName: "name_folder",
+    parentMessageId: "transport",
+  });
+
   let lastError: FolderNameError | null = null;
 
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const prompt =
-      attempt === 0
-        ? userMessage
-        : `Your previous answer "${lastError!.raw}" was rejected: ${lastError!.message}. Try again. Return ONLY a valid kebab-case folder name.`;
+  try {
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const prompt =
+        attempt === 0
+          ? userMessage
+          : `Your previous answer "${lastError!.raw}" was rejected: ${lastError!.message}. Try again. Return ONLY a valid kebab-case folder name.`;
 
-    const result = await generateText({
-      model,
-      system: NAMER_SYSTEM,
-      prompt,
-      maxOutputTokens: 30,
-      abortSignal: options?.abortSignal,
-    });
+      const result = await generateText({
+        model,
+        system: NAMER_SYSTEM,
+        prompt,
+        maxOutputTokens: 30,
+        abortSignal: options?.abortSignal,
+      });
 
-    const raw = result.text.trim();
-    const slug = slugifyFolderName(raw);
-    const validationError = validateName(slug);
+      const raw = result.text.trim();
+      emitSubAgentEvent({ type: "text-delta", id: saId, delta: raw });
+      const slug = slugifyFolderName(raw);
+      const validationError = validateName(slug);
 
-    if (!validationError) {
-      return resolveUniqueFolderName(slug);
+      if (!validationError) {
+        const resolved = resolveUniqueFolderName(slug);
+        emitSubAgentEvent({ type: "complete", id: saId });
+        return resolved;
+      }
+
+      lastError = validationError;
     }
 
-    lastError = validationError;
+    throw new Error(
+      `Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts. Last issue: ${lastError?.message}`,
+    );
+  } catch (error) {
+    emitSubAgentEvent({
+      type: "error",
+      id: saId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-
-  throw new Error(
-    `Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts. Last issue: ${lastError?.message}`,
-  );
 }

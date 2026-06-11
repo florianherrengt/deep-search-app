@@ -4,6 +4,8 @@ import { readAppFile, listAppFiles, SafePathSegmentSchema } from "@/lib/app-file
 import type { SearchResult } from "@/lib/research-search";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import retrievalAgentPrompt from "./retrieval-agent-prompt.md?raw";
+import { createSubAgentId } from "./sub-agent-types";
+import { emitSubAgentEvent } from "./sub-agent-emitter";
 
 export interface RetrievalResult {
   relevant_folders: string[];
@@ -64,6 +66,15 @@ export async function runRetrievalAgent(
 
   const _readAppFile = deps?.readAppFile ?? readAppFile;
   const _listAppFiles = deps?.listAppFiles ?? listAppFiles;
+  const saId = createSubAgentId();
+
+  emitSubAgentEvent({
+    type: "start",
+    id: saId,
+    name: "Research Recall",
+    toolName: "retrieval_agent",
+    parentMessageId: "transport",
+  });
 
   try {
     const contexts = buildFolderContexts(results);
@@ -125,8 +136,13 @@ export async function runRetrievalAgent(
       abortSignal,
     });
 
-    return parseRetrievalResult(text, candidateFolders);
+    emitSubAgentEvent({ type: "text-delta", id: saId, delta: text });
+
+    const result = parseRetrievalResult(text, candidateFolders);
+    emitSubAgentEvent({ type: "complete", id: saId });
+    return result;
   } catch {
+    emitSubAgentEvent({ type: "error", id: saId, error: "Retrieval agent failed" });
     return { relevant_folders: [], relevant_memories: [] };
   }
 }

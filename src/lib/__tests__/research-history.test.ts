@@ -14,18 +14,15 @@ const tauriMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-fs", () => ({
+vi.mock("@/lib/tauri-bridge", () => ({
   ...fsMocks,
+  ...tauriMocks,
   BaseDirectory: {
     AppData: "AppData",
   },
 }));
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: tauriMocks.invoke,
-}));
 
-import { BaseDirectory } from "@tauri-apps/plugin-fs";
 import {
   createResearchChatId,
   deleteResearchFolder,
@@ -234,17 +231,11 @@ describe("research history", () => {
 
     expect(fsMocks.mkdir).toHaveBeenCalledWith(
       "search-results/market-map/chats",
-      {
-        baseDir: BaseDirectory.AppData,
-        recursive: true,
-      },
+      { recursive: true },
     );
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/market-map/chats/2026-05-22T10-11-12.123Z.json",
       expect.any(String),
-      {
-        baseDir: BaseDirectory.AppData,
-      },
     );
     expect(JSON.parse(fsMocks.writeTextFile.mock.calls[0][1])).toEqual(
       expect.objectContaining({
@@ -266,10 +257,6 @@ describe("research history", () => {
     expect(fsMocks.rename).toHaveBeenCalledWith(
       "search-results/market-map",
       "search-results/pricing-review",
-      {
-        oldPathBaseDir: BaseDirectory.AppData,
-        newPathBaseDir: BaseDirectory.AppData,
-      },
     );
     expect(tauriMocks.invoke).toHaveBeenCalledWith(
       "rename_research_folder_index",
@@ -286,7 +273,6 @@ describe("research history", () => {
     await deleteResearchFolder("market-map");
 
     expect(fsMocks.remove).toHaveBeenCalledWith("search-results/market-map", {
-      baseDir: BaseDirectory.AppData,
       recursive: true,
     });
     expect(tauriMocks.invoke).toHaveBeenCalledWith(
@@ -391,15 +377,11 @@ describe("research history", () => {
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/final-folder/chats/2026-05-22T10-11-12.123Z.json",
       expect.any(String),
-      { baseDir: BaseDirectory.AppData },
     );
 
     expect(fsMocks.remove).toHaveBeenCalledWith(
       "search-results/provisional-folder",
-      {
-        baseDir: BaseDirectory.AppData,
-        recursive: true,
-      },
+      { recursive: true },
     );
 
     expect(tauriMocks.invoke).toHaveBeenCalledWith(
@@ -427,7 +409,6 @@ describe("research history", () => {
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/market-map/chats/2026-05-22T10-11-12.123Z.json",
       expect.any(String),
-      { baseDir: BaseDirectory.AppData },
     );
 
     expect(fsMocks.remove).not.toHaveBeenCalled();
@@ -604,11 +585,9 @@ describe("chat history metadata index", () => {
 
     expect(fsMocks.readTextFile).toHaveBeenCalledWith(
       `search-results/${folderName}/chats/index.json`,
-      { baseDir: BaseDirectory.AppData },
     );
     expect(fsMocks.readTextFile).not.toHaveBeenCalledWith(
       `search-results/${folderName}/chats/${chatId}.json`,
-      { baseDir: BaseDirectory.AppData },
     );
   });
 
@@ -701,11 +680,9 @@ describe("chat history metadata index", () => {
     );
     expect(fsMocks.readTextFile).toHaveBeenCalledWith(
       `search-results/${folderName}/chats/index.json`,
-      { baseDir: BaseDirectory.AppData },
     );
     expect(fsMocks.readTextFile).toHaveBeenCalledWith(
       `search-results/${folderName}/chats/${chatId}.json`,
-      { baseDir: BaseDirectory.AppData },
     );
   });
 });

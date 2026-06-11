@@ -1,4 +1,4 @@
-import type { Child, Command } from "@tauri-apps/plugin-shell";
+import type { SidecarCommand, SidecarChild } from "@/lib/tauri-bridge";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 
@@ -10,12 +10,12 @@ export class TauriStdioTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
   sessionId?: string;
 
-  private child: Child | null = null;
+  private child: SidecarChild | null = null;
   private stdoutBuffer = "";
   private _stderrTail = "";
   private started = false;
 
-  constructor(private readonly command: Command<string>) {}
+  constructor(private readonly command: SidecarCommand) {}
 
   get stderrTail(): string {
     return this._stderrTail;

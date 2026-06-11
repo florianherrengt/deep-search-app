@@ -31,15 +31,13 @@ const chatProviderMocks = vi.hoisted(() => ({
   createChatLanguageModel: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-fs", () => ({
+vi.mock("@/lib/tauri-bridge", () => ({
   ...fsMocks,
+  invoke: tauriMocks.invoke,
+  fetch: vi.fn(),
   BaseDirectory: {
     AppData: "AppData",
   },
-}));
-
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: tauriMocks.invoke,
 }));
 
 vi.mock("@/lib/chat-providers", async (importOriginal) => {
@@ -105,7 +103,6 @@ describe("DirectTransport research folder lifecycle", () => {
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/acme-earnings-calls/chats/2026-05-22T10-11-12.123Z.json",
       expect.any(String),
-      expect.any(Object),
     );
     expect(fsMocks.rename).not.toHaveBeenCalled();
     expect(onFolderChange).toHaveBeenCalledWith("acme-earnings-calls", {});
@@ -163,7 +160,7 @@ describe("DirectTransport research folder lifecycle", () => {
 
     expect(fsMocks.remove).toHaveBeenCalledWith(
       "search-results/earnings-research",
-      expect.any(Object),
+      { recursive: true },
     );
     expect(onFolderChange).toHaveBeenCalledWith("market-map", {
       previousFolderName: "earnings-research",
@@ -246,7 +243,6 @@ describe("DirectTransport research folder lifecycle", () => {
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       expect.stringContaining("search-results/existing-folder"),
       expect.any(String),
-      expect.any(Object),
     );
   });
 

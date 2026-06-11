@@ -18,8 +18,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
-import { appDataDir, join } from "@tauri-apps/api/path";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { appDataDir, join, openPath } from "@/lib/tauri-bridge";
 import {
   Box,
   Button,

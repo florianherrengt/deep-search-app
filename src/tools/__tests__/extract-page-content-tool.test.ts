@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@tauri-apps/api/core", () => ({
+vi.mock("@/lib/tauri-bridge", () => ({
   invoke: vi.fn(),
 }));
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/tauri-bridge";
 import {
   extractPageContent,
   fetchHtml,

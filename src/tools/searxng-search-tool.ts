@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/tauri-bridge";
 import { z } from "zod";
 import { abortablePromise } from "@/lib/abort";
 import { createSearchTool } from "./create-search-tool";
