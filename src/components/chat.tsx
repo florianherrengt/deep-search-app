@@ -42,6 +42,7 @@ export function Chat({
   onAttentionStateChange,
   onSelectedModelIdChange,
   onModelChange,
+  onConfigure,
   searchKeys,
   currency,
   embeddingConfig,
@@ -65,6 +66,7 @@ export function Chat({
   onAttentionStateChange?: (sessionId: string, needsAttention: boolean) => void;
   onSelectedModelIdChange: (modelId: string) => void;
   onModelChange?: (model: ConfiguredChatModelOption) => void;
+  onConfigure?: () => void;
   searchKeys: SearchToolKeys;
   currency: Currency;
   embeddingConfig: EmbeddingConfig;
@@ -269,13 +271,17 @@ export function Chat({
   }, [needsAttention, onAttentionStateChange, sessionId]);
 
   const subAgentStore = useSubAgentStore();
-  const processedSubAgentPartsRef = useRef(0);
+  const processedPartsByMessageRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     for (const message of chat.messages) {
       if (!("parts" in message) || !Array.isArray(message.parts)) continue;
+      if (!("id" in message) || typeof message.id !== "string") continue;
 
-      for (let i = processedSubAgentPartsRef.current; i < message.parts.length; i++) {
+      const msgId = message.id;
+      const startIdx = processedPartsByMessageRef.current[msgId] ?? 0;
+
+      for (let i = startIdx; i < message.parts.length; i++) {
         const part = message.parts[i];
         if (!isRecord(part)) continue;
         const type = part.type as string;
@@ -287,7 +293,7 @@ export function Chat({
         if (!isRecord(dataPart.data)) continue;
 
         subAgentStore.processEvent(researchChatId, dataPart.data as unknown as SubAgentEvent);
-        processedSubAgentPartsRef.current = i + 1;
+        processedPartsByMessageRef.current[msgId] = i + 1;
       }
     }
   }, [chat.messages, researchChatId]);
@@ -327,6 +333,8 @@ export function Chat({
           models={modelsWithContextWindows}
           selectedModelId={selectedModelId}
           onSelectedModelIdChange={handleModelChange}
+          onConfigure={onConfigure}
+          hasEnabledModel={enabledModels.length > 0}
           tokenCount={tokenCount}
         />
       </Box>

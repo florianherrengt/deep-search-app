@@ -22,7 +22,7 @@ import { SettingsPanel } from "@/components/settings-panel";
 import { ToolsPanel } from "@/components/tools-panel";
 import { PromptTemplatesSection } from "@/components/prompt-templates-section";
 import { SkillsSection } from "@/components/skills-section";
-import { SettingsDialog } from "@/components/settings-dialog";
+
 import { TabPanel } from "@/components/tab-panel";
 import { AppUpdateButton } from "@/components/app-update-button";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
@@ -260,9 +260,6 @@ function AppInner() {
     () => getDefaultChatModelId(settings, chatModelOptions),
     [settings, chatModelOptions],
   );
-  const hasConfiguredChatProvider = chatModelOptions.some(
-    (option) => !option.disabled,
-  );
 
   const activateSession = useCallback(
     (input: CreateChatSessionInput & { forceNew?: boolean }) => {
@@ -442,26 +439,6 @@ function AppInner() {
     updateDefaultChatProvider(selected.provider);
   };
 
-  if (!hasConfiguredChatProvider) {
-    return (
-      <>
-        <main style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", paddingTop: "10vh", textAlign: "center" }}>
-          <h1 style={{ fontSize: 24, fontWeight: 700 }}>Deep Search</h1>
-          <p style={{ marginTop: 8, fontSize: 14, color: "var(--mantine-color-dimmed)" }}>
-            Press{" "}
-            <kbd style={{ borderRadius: 4, border: "1px solid var(--mantine-color-gray-4)", padding: "2px 6px", fontSize: 12 }}>
-              Cmd+,
-            </kbd>{" "}
-            to open settings and add at least one chat provider API key.
-          </p>
-        </main>
-        <SettingsDialog
-          open={true}
-          onOpenChange={() => {}}
-        />
-      </>
-    );
-  }
 
   const handleSelectResearchFolder = async (folderName: string) => {
     setResearchChatsStatus("loading");
@@ -703,6 +680,7 @@ function AppInner() {
                       onRunStateChange={handleRunStateChange}
                       onAttentionStateChange={handleAttentionStateChange}
                       onSelectedModelIdChange={handleSelectedModelChange}
+                      onConfigure={() => switchToTab("settings")}
                       searchKeys={searchKeys}
                       currency={settings.currency}
                       embeddingConfig={embeddingConfig}

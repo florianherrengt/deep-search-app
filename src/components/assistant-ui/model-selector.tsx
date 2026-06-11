@@ -53,14 +53,18 @@ export type ModelSelectorProps = {
   models: ModelOption[];
   value?: string;
   onValueChange?: (value: string) => void;
+  onConfigure?: () => void;
   defaultValue?: string;
   variant?: string;
   size?: string;
 };
 
+const CONFIGURE_VALUE = "__configure__";
+
 const ModelSelectorImpl = ({
   value: controlledValue,
   onValueChange: controlledOnValueChange,
+  onConfigure,
   defaultValue,
   models,
   variant,
@@ -85,17 +89,28 @@ const ModelSelectorImpl = ({
     <MantineSelect
       value={value}
       onChange={(v) => {
+        if (v === CONFIGURE_VALUE) {
+          onConfigure?.();
+          return;
+        }
         if (v) setValue(v);
       }}
-      data={models.map((model) => {
-        const contextWindowLabel = formatContextWindowTokens(model.contextWindowTokens);
-        const metadata = [model.description, contextWindowLabel].filter(Boolean).join(" - ");
-        return {
-          value: model.id,
-          label: metadata ? `${model.name} — ${metadata}` : model.name,
-          disabled: model.disabled,
-        };
-      })}
+      data={[
+        ...models.map((model) => {
+          const contextWindowLabel = formatContextWindowTokens(model.contextWindowTokens);
+          const metadata = [model.description, contextWindowLabel].filter(Boolean).join(" - ");
+          return {
+            value: model.id,
+            label: metadata ? `${model.name} — ${metadata}` : model.name,
+            disabled: model.disabled,
+          };
+        }),
+        {
+          value: CONFIGURE_VALUE,
+          label: "Configure providers...",
+          disabled: false,
+        },
+      ]}
       size={size === "sm" ? "xs" : "sm"}
       variant={variant === "ghost" ? "unstyled" : "default"}
       allowDeselect={false}

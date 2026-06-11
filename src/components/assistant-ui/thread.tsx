@@ -53,6 +53,8 @@ interface ThreadProps {
   models: ModelOption[];
   selectedModelId: string;
   onSelectedModelIdChange: (modelId: string) => void;
+  onConfigure?: () => void;
+  hasEnabledModel?: boolean;
   tokenCount: number;
 }
 
@@ -60,6 +62,8 @@ export function Thread({
   models,
   selectedModelId,
   onSelectedModelIdChange,
+  onConfigure,
+  hasEnabledModel = true,
   tokenCount,
 }: ThreadProps) {
   const selectedModel = models.find((model) => model.id === selectedModelId);
@@ -73,7 +77,11 @@ export function Thread({
         <AuiIf condition={(s) => s.thread.isEmpty}>
           <div style={{ display: "flex", height: "60vh", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", color: "var(--mantine-color-dimmed)" }}>
             <h1 style={{ marginBottom: 4, fontSize: 24, fontWeight: 700 }}>Deep Search</h1>
-            <p style={{ fontSize: 18 }}>Ask something...</p>
+            {hasEnabledModel ? (
+              <p style={{ fontSize: 18 }}>Ask something...</p>
+            ) : (
+              <p style={{ fontSize: 18 }}>Select a provider below to get started.</p>
+            )}
           </div>
         </AuiIf>
         <ThreadPrimitive.Messages>
@@ -106,13 +114,33 @@ export function Thread({
           <ComposerInput />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={{ display: "flex", minWidth: 0, alignItems: "center", gap: 8 }}>
-              <ModelSelector
-                models={models}
-                value={selectedModelId}
-                onValueChange={onSelectedModelIdChange}
-                size="sm"
-                variant="ghost"
-              />
+              {hasEnabledModel ? (
+                <ModelSelector
+                  models={models}
+                  value={selectedModelId}
+                  onValueChange={onSelectedModelIdChange}
+                  onConfigure={onConfigure}
+                  size="sm"
+                  variant="ghost"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={onConfigure}
+                  style={{
+                    borderRadius: 12,
+                    backgroundColor: "var(--mantine-color-blue-filled)",
+                    padding: "6px 14px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--mantine-color-white)",
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  Add Provider
+                </button>
+              )}
               <ContextWindowBadge model={selectedModel} tokenCount={tokenCount} />
             </div>
             <div style={{ display: "flex", flexShrink: 0, alignItems: "center", gap: 8 }}>
@@ -120,7 +148,7 @@ export function Thread({
                 <PromptTemplateButton />
               </AuiIf>
               <AuiIf condition={(s) => !s.thread.isRunning}>
-                <ComposerPrimitive.Send aria-label="Send message" style={{ borderRadius: 12, backgroundColor: "var(--mantine-color-blue-filled)", padding: "8px 16px", fontSize: 14, color: "var(--mantine-color-white)", border: "none", cursor: "pointer" }}>
+                <ComposerPrimitive.Send disabled={!hasEnabledModel} aria-label="Send message" style={{ borderRadius: 12, backgroundColor: hasEnabledModel ? "var(--mantine-color-blue-filled)" : "var(--mantine-color-disabled)", padding: "8px 16px", fontSize: 14, color: "var(--mantine-color-white)", border: "none", cursor: hasEnabledModel ? "pointer" : "not-allowed" }}>
                   Send
                 </ComposerPrimitive.Send>
               </AuiIf>
@@ -355,10 +383,12 @@ function SubAgentOrToolFallback({
 }) {
   const store = useSubAgentStore();
   const runs = Object.values(store.runsByChat).flat();
+
+  const statusMatch = status === "running" ? "running" : status === "complete" ? "complete" : "error";
   const matchedRun = runs.find(
     (r) =>
       r.toolName === toolName &&
-      r.status === (status === "running" ? "running" : status === "complete" ? "complete" : "error") &&
+      r.status === statusMatch &&
       (!result || r.status !== "running"),
   );
 
