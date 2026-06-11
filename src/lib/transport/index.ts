@@ -1,4 +1,4 @@
-import { isToolUIPart, type ChatTransport, type UIMessage } from "ai";
+import { isToolUIPart, type ChatTransport, type UIMessage, type UIMessageChunk } from "ai";
 import {
   createChatLanguageModel,
   type ChatModelConfig,
@@ -6,6 +6,8 @@ import {
 import { SafePathSegmentSchema } from "@/lib/app-file-storage";
 import { throwIfAborted } from "@/lib/abort";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
+import { setActiveSubAgentEmitter } from "@/lib/sub-agent-emitter";
+import type { SubAgentEvent } from "@/lib/sub-agent-types";
 import { createGuardedStream } from "./guarded-stream";
 import type { SearchToolKeys } from "./tool-registry";
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
@@ -75,56 +77,93 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     const embeddingConfig = this.getEmbeddingConfig();
     const rerankerConfig = this.getRerankerConfig();
     const firstMessage = getFirstUserMessage(messages);
+    const transport = this;
 
-    if (!this.researchFolder) {
-      if (firstMessage) {
-        const folderName = await nameFolderFromMessage(model, firstMessage, {
-          abortSignal,
-        });
-        this.researchFolder = folderName;
-        this.onResearchFolderChange?.(folderName, {});
+    return new ReadableStream<UIMessageChunk>({
+      async start(controller) {
+        const subAgentEmitter = (event: SubAgentEvent) => {
+          controller.enqueue({
+            type: "data-subagent_event" as const,
+            id: `subagent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            data: event,
+          });
+        };
 
-        await saveResearchChatMessages(
-          folderName,
-          this.researchChatId,
-          messages,
-        );
-      }
-    } else {
-      const previousResearchChoice = getPreviousResearchChoice(messages);
-      if (previousResearchChoice.type === "continue") {
-        await this.switchResearchFolder(previousResearchChoice.folder, messages);
-      }
-    }
+        setActiveSubAgentEmitter(subAgentEmitter, null);
 
-    if (this.researchFolder) {
-      void saveResearchChatMessages(
-        this.researchFolder,
-        this.researchChatId,
-        messages,
-      ).catch(() => {});
+        try {
+          if (!transport.researchFolder) {
+            if (firstMessage) {
+              const folderName = await nameFolderFromMessage(model, firstMessage, {
+                abortSignal,
+              });
+              transport.researchFolder = folderName;
+              transport.onResearchFolderChange?.(folderName, {});
 
-      const lastUserMessage = getLastUserMessage(messages);
-      if (lastUserMessage) {
-        void extractAndStoreMemories(
-          lastUserMessage,
-          async () => this.researchFolder!,
-          model,
-          abortSignal,
-        ).catch(() => {});
-      }
-    }
+              await saveResearchChatMessages(
+                folderName,
+                transport.researchChatId,
+                messages,
+              );
+            }
+          } else {
+            const previousResearchChoice = getPreviousResearchChoice(messages);
+            if (previousResearchChoice.type === "continue") {
+              await transport.switchResearchFolder(previousResearchChoice.folder, messages);
+            }
+          }
 
-    return createGuardedStream({
-      model,
-      researchFolder: this.researchFolder,
-      embeddingConfig,
-      rerankerConfig,
-      messages,
-      abortSignal,
-      searchKeys: this.getSearchKeys(),
-      onResearchFolderChange: async (folderName) => {
-        await this.switchResearchFolder(folderName, messages);
+          if (transport.researchFolder) {
+            void saveResearchChatMessages(
+              transport.researchFolder,
+              transport.researchChatId,
+              messages,
+            ).catch(() => {});
+
+            const lastUserMessage = getLastUserMessage(messages);
+            if (lastUserMessage) {
+              void extractAndStoreMemories(
+                lastUserMessage,
+                async () => transport.researchFolder!,
+                model,
+                abortSignal,
+              ).catch(() => {});
+            }
+          }
+
+          await createGuardedStream({
+            model,
+            researchFolder: transport.researchFolder,
+            embeddingConfig,
+            rerankerConfig,
+            messages,
+            abortSignal,
+            searchKeys: transport.getSearchKeys(),
+            onResearchFolderChange: async (folderName) => {
+              await transport.switchResearchFolder(folderName, messages);
+            },
+            controller,
+          });
+
+          if (abortSignal?.aborted) {
+            controller.enqueue({ type: "abort", reason: "aborted" });
+          } else {
+            controller.enqueue({ type: "finish", finishReason: "stop" });
+          }
+        } catch (error) {
+          if (abortSignal?.aborted) {
+            controller.enqueue({ type: "abort", reason: "aborted" });
+          } else {
+            controller.enqueue({
+              type: "error",
+              errorText: error instanceof Error ? error.message : "Transport failed.",
+            });
+            controller.enqueue({ type: "finish", finishReason: "error" });
+          }
+        } finally {
+          setActiveSubAgentEmitter(null, null);
+          controller.close();
+        }
       },
     });
   }

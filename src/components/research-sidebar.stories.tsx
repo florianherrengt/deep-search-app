@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fn, userEvent, within } from "storybook/test";
+import { userEvent, within } from "storybook/test";
 import { ResearchSidebar } from "./research-sidebar";
 import type { SearchResult } from "@/lib/research-search";
 import { setBridgeMock } from "@/lib/tauri-bridge";
+
+const noop = () => undefined;
 
 const embeddingConfig = {
   api_key: "storybook-key",
@@ -79,10 +81,10 @@ const meta = {
     runningChatIds: [],
     attentionFolderNames: [],
     attentionChatIds: [],
-    onNewChat: fn(),
-    onSelectFolder: fn(),
-    onNewResearchChat: fn(),
-    onSelectChat: fn(),
+    onNewChat: noop,
+    onSelectFolder: noop,
+    onNewResearchChat: noop,
+    onSelectChat: noop,
     onRenameFolder: async () => undefined,
     onDeleteFolder: async () => undefined,
     onReindexFolder: async () => undefined,

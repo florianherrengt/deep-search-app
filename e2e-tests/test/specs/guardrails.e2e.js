@@ -42,7 +42,7 @@ describe('Visible Agent Guardrails', () => {
     await waitForText('Blue');
 
     const logs = await browser.execute(() => window.__logs || []);
-    expect(logs.filter((entry) => entry.kind === 'openrouter')).toHaveLength(2);
+    expect(logs.filter((entry) => entry.kind === 'openrouter')).toHaveLength(3);
   });
 
   it('shows a visible research-depth reminder and checkpoint guidance path', async () => {
@@ -69,6 +69,6 @@ describe('Visible Agent Guardrails', () => {
     const logs = await browser.execute(() => window.__logs || []);
     expect(
       logs.filter((entry) => entry.kind === 'openrouter').length,
-    ).toBeGreaterThanOrEqual(2);
+    ).toBeGreaterThanOrEqual(3);
   });
 });

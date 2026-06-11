@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button, Center, Paper, Text } from "@mantine/core";
-import { fn } from "storybook/test";
 import { TabPanel } from "./tab-panel";
+
+const noop = () => undefined;
 
 function PanelPlaceholder({ label }: { label: string }) {
   return (
@@ -41,8 +42,8 @@ const meta = {
     skillsPanel: <PanelPlaceholder label="Skills" />,
     toolsPanel: <PanelPlaceholder label="Tools" />,
     toolbarEnd: <Button size="compact-xs">Update available</Button>,
-    onSwitchTab: fn(),
-    onCloseTab: fn(),
+    onSwitchTab: noop,
+    onCloseTab: noop,
   },
   argTypes: {
     activeTabId: {

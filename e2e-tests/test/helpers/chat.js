@@ -21,12 +21,15 @@ export async function ensureChatUI() {
       }),
     );
 
+  });
+  await browser.refresh();
+  await $('textarea').waitForExist({ timeout: 10000 });
+  await browser.execute(() => {
     window.__deepSearchDisambiguateMock = async () => 'mocked disambiguation result';
     window.__deepSearchCurrencyMock = async (_from, _to, amount) => (amount * 1.1).toFixed(2);
     window.__deepSearchFetchHtmlMock = async () => null;
   });
-  await browser.refresh();
-  await $('textarea').waitForExist({ timeout: 10000 });
+  await installBridgeMockDefaults();
 }
 
 export async function clearChatTestState() {
@@ -37,6 +40,12 @@ export async function clearChatTestState() {
     delete window.__deepSearchResearchSearchMock;
     delete window.__deepSearchProviderFetchMock;
     delete window.__deepSearchOpenRouterReleases;
+    delete window.__deepSearchBridgeMock;
+    delete window.__deepSearchBridgeFileStore;
+    delete window.__deepSearchBridgeDirectories;
+    delete window.__deepSearchStoreMockData;
+    delete window.__deepSearchBrowserErrors;
+    delete window.__deepSearchBrowserErrorListenersInstalled;
     delete window.__deepSearchWebviewExtractionMock;
     delete window.__deepSearchReleaseExtraction;
     delete window.__deepSearchWebviewExtractionLog;
@@ -46,6 +55,267 @@ export async function clearChatTestState() {
     delete window.__logs;
     delete window.__allFetchLogs;
   });
+}
+
+export async function installBridgeMockDefaults(initialFiles = null) {
+  await browser.execute((files) => {
+    const existingBridgeMock = window.__deepSearchBridgeMock || {};
+
+    if (files !== null || !window.__deepSearchBridgeFileStore) {
+      window.__deepSearchBridgeFileStore = { ...(files || {}) };
+      window.__deepSearchBridgeDirectories = [];
+      for (const path of Object.keys(window.__deepSearchBridgeFileStore)) {
+        addParentDirectories(path);
+      }
+    }
+
+    window.__deepSearchAppFileStorageLog ||= [];
+    window.__deepSearchStoreMockData ||= {};
+    window.__deepSearchBrowserErrors ||= [];
+    if (!window.__deepSearchBrowserErrorListenersInstalled) {
+      window.addEventListener('error', (event) => {
+        window.__deepSearchBrowserErrors.push({
+          type: 'error',
+          message: event.message,
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+        });
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        window.__deepSearchBrowserErrors.push({
+          type: 'unhandledrejection',
+          message: event.reason?.message || String(event.reason),
+          stack: event.reason?.stack || null,
+        });
+      });
+      window.__deepSearchBrowserErrorListenersInstalled = true;
+    }
+
+    function normalizePath(path) {
+      return String(path || '')
+        .replace(/^\.\//, '')
+        .replace(/^\/+/, '')
+        .replace(/\/+$/, '');
+    }
+
+    function directorySet() {
+      return new Set(window.__deepSearchBridgeDirectories || []);
+    }
+
+    function saveDirectories(dirs) {
+      window.__deepSearchBridgeDirectories = Array.from(dirs).sort((a, b) => a.localeCompare(b));
+    }
+
+    function addDirectory(path) {
+      const normalized = normalizePath(path);
+      if (!normalized) return;
+      const dirs = directorySet();
+      const segments = normalized.split('/');
+      for (let i = 1; i <= segments.length; i += 1) {
+        dirs.add(segments.slice(0, i).join('/'));
+      }
+      saveDirectories(dirs);
+    }
+
+    function addParentDirectories(path) {
+      const normalized = normalizePath(path);
+      const parent = normalized.split('/').slice(0, -1).join('/');
+      addDirectory(parent);
+    }
+
+    function splitPath(path) {
+      const normalized = normalizePath(path);
+      const parts = normalized.split('/');
+      const filename = parts.pop() || '';
+      return { subfolder: parts.join('/'), filename };
+    }
+
+    async function invoke(cmd, args = {}) {
+      if (cmd === 'search_research') {
+        return window.__deepSearchResearchSearchMock?.searchResearch?.(args) ?? [];
+      }
+      if (cmd === 'search_research_with_diagnostics') {
+        return { results: [], diagnostics: [] };
+      }
+      if (cmd === 'index_research_file') {
+        return window.__deepSearchResearchSearchMock?.indexResearchFile?.(args);
+      }
+      if (cmd === 'register_research_folder') {
+        return window.__deepSearchResearchSearchMock?.registerResearchFolder?.(args) ?? 1;
+      }
+      if (cmd === 'fetch_html') {
+        return window.__deepSearchFetchHtmlMock?.(args.url) ?? null;
+      }
+      if (cmd === 'open_tab') {
+        return window.__deepSearchWebviewExtractionMock?.openTab?.(args);
+      }
+      if (cmd === 'switch_tab') {
+        return window.__deepSearchWebviewExtractionMock?.switchTab?.(args);
+      }
+      if (cmd === 'extract_content') {
+        return window.__deepSearchWebviewExtractionMock?.extractContent?.(args) ?? '';
+      }
+      if (cmd === 'close_tab') {
+        return window.__deepSearchWebviewExtractionMock?.closeTab?.(args);
+      }
+      return undefined;
+    }
+
+    async function loadStore(filename, options = {}) {
+      const stores = window.__deepSearchStoreMockData;
+      stores[filename] ||= { ...(options.defaults || {}) };
+      const data = stores[filename];
+
+      return {
+        get: async (key) => (Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null),
+        set: async (key, value) => {
+          data[key] = value;
+        },
+        save: async () => undefined,
+      };
+    }
+
+    async function writeTextFile(path, content) {
+      const normalized = normalizePath(path);
+      window.__deepSearchBridgeFileStore[normalized] = content;
+      addParentDirectories(normalized);
+      const { subfolder, filename } = splitPath(normalized);
+      window.__deepSearchAppFileStorageLog.push({
+        action: 'write',
+        subfolder,
+        filename,
+      });
+    }
+
+    async function readTextFile(path) {
+      return window.__deepSearchBridgeFileStore[normalizePath(path)] ?? '';
+    }
+
+    async function exists(path) {
+      const normalized = normalizePath(path);
+      const store = window.__deepSearchBridgeFileStore;
+      const dirs = directorySet();
+      if (!normalized) return true;
+      if (Object.prototype.hasOwnProperty.call(store, normalized)) return true;
+      if (dirs.has(normalized)) return true;
+      const prefix = `${normalized}/`;
+      return Object.keys(store).some((file) => file.startsWith(prefix));
+    }
+
+    async function readDir(path) {
+      const normalized = normalizePath(path);
+      const prefix = normalized ? `${normalized}/` : '';
+      const entries = new Map();
+      const dirs = directorySet();
+
+      for (const dir of dirs) {
+        if (dir === normalized || !dir.startsWith(prefix)) continue;
+        const rest = dir.slice(prefix.length);
+        const name = rest.split('/')[0];
+        if (name) {
+          entries.set(name, { name, isDirectory: true, isFile: false });
+        }
+      }
+
+      for (const file of Object.keys(window.__deepSearchBridgeFileStore)) {
+        if (!file.startsWith(prefix)) continue;
+        const rest = file.slice(prefix.length);
+        const parts = rest.split('/');
+        const name = parts[0];
+        if (!name) continue;
+        if (parts.length > 1) {
+          entries.set(name, { name, isDirectory: true, isFile: false });
+        } else if (!entries.has(name)) {
+          entries.set(name, { name, isDirectory: false, isFile: true });
+        }
+      }
+
+      return Array.from(entries.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    async function remove(path, opts = {}) {
+      const normalized = normalizePath(path);
+      const prefix = `${normalized}/`;
+      const store = window.__deepSearchBridgeFileStore;
+      if (opts.recursive) {
+        for (const file of Object.keys(store)) {
+          if (file === normalized || file.startsWith(prefix)) {
+            delete store[file];
+          }
+        }
+        const dirs = directorySet();
+        for (const dir of Array.from(dirs)) {
+          if (dir === normalized || dir.startsWith(prefix)) {
+            dirs.delete(dir);
+          }
+        }
+        saveDirectories(dirs);
+      } else {
+        delete store[normalized];
+      }
+      window.__deepSearchAppFileStorageLog.push({ action: 'delete', subfolder: normalized });
+    }
+
+    async function rename(oldPath, newPath) {
+      const oldNormalized = normalizePath(oldPath);
+      const newNormalized = normalizePath(newPath);
+      const oldPrefix = `${oldNormalized}/`;
+      const store = window.__deepSearchBridgeFileStore;
+
+      if (Object.prototype.hasOwnProperty.call(store, oldNormalized)) {
+        store[newNormalized] = store[oldNormalized];
+        delete store[oldNormalized];
+      }
+
+      for (const file of Object.keys(store)) {
+        if (file.startsWith(oldPrefix)) {
+          store[`${newNormalized}/${file.slice(oldPrefix.length)}`] = store[file];
+          delete store[file];
+        }
+      }
+
+      const dirs = directorySet();
+      for (const dir of Array.from(dirs)) {
+        if (dir === oldNormalized || dir.startsWith(oldPrefix)) {
+          dirs.delete(dir);
+          dirs.add(dir === oldNormalized ? newNormalized : `${newNormalized}/${dir.slice(oldPrefix.length)}`);
+        }
+      }
+      saveDirectories(dirs);
+      addParentDirectories(newNormalized);
+      window.__deepSearchAppFileStorageLog.push({
+        action: 'rename',
+        oldSubfolder: oldNormalized,
+        newSubfolder: newNormalized,
+      });
+    }
+
+    async function mkdir(path) {
+      addDirectory(path);
+    }
+
+    window.__deepSearchBridgeMock = {
+      fetch: existingBridgeMock.fetch || ((input, init) => globalThis.fetch(input, init)),
+      invoke: existingBridgeMock.invoke || invoke,
+      loadStore: existingBridgeMock.loadStore || loadStore,
+      writeTextFile,
+      readTextFile,
+      exists,
+      readDir,
+      remove,
+      rename,
+      mkdir,
+      appDataDir: existingBridgeMock.appDataDir || (async () => '/tmp/deep-search-e2e'),
+      join: existingBridgeMock.join || (async (...paths) => paths.join('/')),
+      openUrl: existingBridgeMock.openUrl || (async () => undefined),
+      openPath: existingBridgeMock.openPath || (async () => undefined),
+      setupMenu: existingBridgeMock.setupMenu || (async () => undefined),
+      sendNotification: existingBridgeMock.sendNotification || (() => undefined),
+      checkForUpdate: existingBridgeMock.checkForUpdate || (async () => null),
+      relaunchApp: existingBridgeMock.relaunchApp || (async () => undefined),
+    };
+  }, initialFiles);
 }
 
 export async function clearPromptTemplates() {
@@ -59,6 +329,7 @@ export async function clearPromptTemplates() {
 }
 
 export async function installAppFileStorageMock(initialFiles = {}) {
+  await installBridgeMockDefaults(initialFiles);
   await browser.execute((files) => {
     const store = { ...files };
     window.__deepSearchAppFileStorageLog = [];
@@ -335,12 +606,30 @@ export async function clickButtonWithText(text) {
 }
 
 export async function waitForText(text, timeout = 15000) {
-  await browser.waitUntil(
-    async () => {
-      const bodyText = await $('body').getText();
-      return bodyText.includes(text);
-    },
-    { timeout, interval: 500 },
+  try {
+    await browser.waitUntil(
+      async () => {
+        const bodyText = await getPageText();
+        return bodyText.includes(text);
+      },
+      { timeout, interval: 500 },
+    );
+  } catch (error) {
+    const [bodyText, logs, browserErrors] = await Promise.all([
+      getPageText().catch(() => ''),
+      browser.execute(() => window.__logs || []).catch(() => []),
+      browser.execute(() => window.__deepSearchBrowserErrors || []).catch(() => []),
+    ]);
+    throw new Error(
+      `Expected text "${text}" within ${timeout}ms. Body: ${bodyText.slice(0, 1000)}. OpenRouter logs: ${JSON.stringify(logs)}. Browser errors: ${JSON.stringify(browserErrors)}`,
+      { cause: error },
+    );
+  }
+}
+
+async function getPageText() {
+  return browser.execute(
+    () => document.body?.innerText || document.body?.textContent || '',
   );
 }
 
@@ -350,6 +639,7 @@ export async function installOpenRouterMock(responses) {
     window.__deepSearchOpenRouterReleases = {};
     const originalFetch = window.fetch.bind(window);
     let callIndex = 0;
+    let streamResponseIndex = 0;
 
     const mockFetch = async (url, options) => {
       const href = typeof url === 'string' ? url : url?.url || String(url);
@@ -357,9 +647,23 @@ export async function installOpenRouterMock(responses) {
         return originalFetch(url, options);
       }
 
-      const response =
-        mockResponses[Math.min(callIndex, mockResponses.length - 1)];
+      const requestBody = await parseRequestBody(url, options?.body);
       callIndex += 1;
+
+      if (requestBody && requestBody.stream !== true) {
+        const content = nonStreamingContent(requestBody);
+        window.__logs.push({
+          kind: 'openrouter',
+          callIndex,
+          responseType: 'non-stream-text',
+          releaseKey: null,
+        });
+        return jsonTextResponse(content);
+      }
+
+      const response =
+        mockResponses[Math.min(streamResponseIndex, mockResponses.length - 1)];
+      streamResponseIndex += 1;
       window.__logs.push({
         kind: 'openrouter',
         callIndex,
@@ -371,6 +675,104 @@ export async function installOpenRouterMock(responses) {
 
     window.fetch = mockFetch;
     window.__deepSearchProviderFetchMock = mockFetch;
+    window.__deepSearchBridgeMock = {
+      ...(window.__deepSearchBridgeMock || {}),
+      fetch: mockFetch,
+    };
+
+    async function parseRequestBody(input, body) {
+      const raw =
+        typeof body === 'string'
+          ? body
+          : typeof Request !== 'undefined' && input instanceof Request
+            ? await input.clone().text()
+            : null;
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    }
+
+    function nonStreamingContent(body) {
+      const text = requestText(body);
+      const serialized = JSON.stringify(body || {});
+
+      if (serialized.includes('You name research folders')) {
+        return slugifyFolderName(text);
+      }
+
+      if (serialized.includes('Memory Extraction') || serialized.includes('memories')) {
+        return '[]';
+      }
+
+      if (serialized.includes('research checkpoint')) {
+        return 'Continue researching if more evidence would materially improve the answer.';
+      }
+
+      return 'OK';
+    }
+
+    function requestText(body) {
+      if (!body || typeof body !== 'object') return 'e2e research';
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (messages[i]?.role === 'user') {
+          return contentText(messages[i].content) || 'e2e research';
+        }
+      }
+      return contentText(body.prompt) || 'e2e research';
+    }
+
+    function contentText(content) {
+      if (typeof content === 'string') return content;
+      if (Array.isArray(content)) {
+        return content.map(contentText).filter(Boolean).join(' ');
+      }
+      if (content && typeof content === 'object') {
+        if (typeof content.text === 'string') return content.text;
+        if (typeof content.content === 'string') return content.content;
+      }
+      return '';
+    }
+
+    function slugifyFolderName(text) {
+      const words = String(text)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 5);
+
+      return words.join('-') || 'e2e-research';
+    }
+
+    function jsonTextResponse(content) {
+      return new Response(
+        JSON.stringify({
+          id: 'mock-non-stream',
+          object: 'chat.completion',
+          choices: [
+            {
+              index: 0,
+              message: { role: 'assistant', content },
+              finish_reason: 'stop',
+            },
+          ],
+          usage: {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: 2,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
 
     function streamResponse(response, callIndex) {
       const encoder = new TextEncoder();
@@ -457,8 +859,20 @@ export async function installOpenRouterMock(responses) {
             }
           };
 
+          const emitEventsNow = (startIndex, endIndex, onDone) => {
+            if (startIndex > endIndex) {
+              onDone();
+              return;
+            }
+
+            for (let index = startIndex; index <= endIndex; index += 1) {
+              enqueueEvent(events[index]);
+            }
+            onDone();
+          };
+
           const emitRemainingAndFinish = () => {
-            emitEvents(
+            emitEventsNow(
               (holdAfterEventIndex ?? -1) + 1,
               events.length - 1,
               finish,
@@ -479,7 +893,7 @@ export async function installOpenRouterMock(responses) {
               };
             });
           } else {
-            emitEvents(0, events.length - 1, finish);
+            emitEventsNow(0, events.length - 1, finish);
           }
         },
         cancel() {

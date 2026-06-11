@@ -26,7 +26,9 @@ export const config = {
   path: '/',
   specs: ['./test/specs/**/*.js'],
   maxInstances: 1,
-  capabilities: [{}],
+  capabilities: [{
+    'wdio:enforceWebDriverClassic': true,
+  }],
   reporters: ['spec'],
   framework: 'mocha',
   mochaOpts: {

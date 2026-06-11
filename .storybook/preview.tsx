@@ -1,5 +1,6 @@
 import type { Preview } from "@storybook/react-vite";
 import { MantineProvider } from "@mantine/core";
+import { SubAgentProvider } from "@/lib/sub-agent-store";
 import { theme } from "@/lib/theme";
 import "../src/index.css";
 
@@ -8,9 +9,11 @@ const preview: Preview = {
   decorators: [
     (Story) => (
       <MantineProvider theme={theme} defaultColorScheme="auto">
-        <div style={{ minHeight: "100vh", background: "var(--mantine-color-body)" }}>
-          <Story />
-        </div>
+        <SubAgentProvider>
+          <div style={{ minHeight: "100vh", background: "var(--mantine-color-body)" }}>
+            <Story />
+          </div>
+        </SubAgentProvider>
       </MantineProvider>
     ),
   ],

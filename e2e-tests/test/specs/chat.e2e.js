@@ -40,8 +40,8 @@ describe('Chat Flow', () => {
     const textarea = await $('textarea');
     await textarea.waitForExist({ timeout: 5000 });
 
-    const sidebarBox = await sidebar.getBoundingClientRect();
-    const textareaBox = await textarea.getBoundingClientRect();
+    const sidebarBox = await getElementRect(sidebar);
+    const textareaBox = await getElementRect(textarea);
 
     expect(sidebarBox.right).toBeLessThan(textareaBox.left);
     expect(sidebarBox.y).toBeLessThanOrEqual(textareaBox.y + 10);
@@ -57,3 +57,19 @@ describe('Chat Flow', () => {
     await waitForText('Hello from test');
   });
 });
+
+async function getElementRect(element) {
+  return element.execute((node) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    };
+  });
+}

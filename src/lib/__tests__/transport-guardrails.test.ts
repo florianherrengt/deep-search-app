@@ -34,6 +34,41 @@ vi.mock("@/lib/tauri-bridge", () => ({
 }));
 
 import { createGuardedStream } from "@/lib/transport";
+import type { SearchToolKeys } from "@/lib/transport/tool-registry";
+
+interface RunGuardedStreamOptions {
+  model: Parameters<typeof createGuardedStream>[0]["model"];
+  researchFolder: string | null;
+  embeddingConfig: EmbeddingConfig;
+  rerankerConfig: RerankerConfig;
+  messages: UIMessage[];
+  abortSignal: AbortSignal | undefined;
+  searchKeys?: SearchToolKeys;
+}
+
+async function runGuardedStream(options: RunGuardedStreamOptions): Promise<UIMessageChunk[]> {
+  const stream = new ReadableStream<UIMessageChunk>({
+    async start(controller) {
+      try {
+        await createGuardedStream({ ...options, controller });
+        if (options.abortSignal?.aborted) {
+          controller.enqueue({ type: "abort", reason: "aborted" });
+        } else {
+          controller.enqueue({ type: "finish", finishReason: "stop" });
+        }
+      } catch (_error) {
+        if (options.abortSignal?.aborted) {
+          controller.enqueue({ type: "abort", reason: "aborted" });
+        } else {
+          controller.enqueue({ type: "finish", finishReason: "error" });
+        }
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return convertReadableStreamToArray(stream) as Promise<UIMessageChunk[]>;
+}
 
 describe("createGuardedStream", () => {
   it("retries when a provider calls a gated tool before its prerequisite", async () => {
@@ -70,15 +105,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Research the market")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Research the market")],
+      abortSignal: undefined,
+    });
 
     expect(callCount).toBe(2);
     expect(chunks).toContainEqual(
@@ -134,15 +167,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Pick a color")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Pick a color")],
+      abortSignal: undefined,
+    });
 
     expect(callCount).toBe(2);
     expect(chunks).toContainEqual(
@@ -177,15 +208,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Find the latest pricing for Acme Search")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Find the latest pricing for Acme Search")],
+      abortSignal: undefined,
+    });
 
     const guardEvents = chunks.filter(
       (chunk) => chunk.type === "data-guardrail_event",
@@ -233,15 +262,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Hello")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Hello")],
+      abortSignal: undefined,
+    });
 
     expect(callCount).toBe(1);
     expect(chunks.some((chunk) => chunk.type === "data-guardrail_event")).toBe(
@@ -262,15 +289,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Pick a color")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Pick a color")],
+      abortSignal: undefined,
+    });
 
     const guardEvents = chunks.filter(
       (chunk) => chunk.type === "data-guardrail_event",
@@ -353,15 +378,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Find the latest pricing for Acme Search")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Find the latest pricing for Acme Search")],
+      abortSignal: undefined,
+    });
 
     expect(callCount).toBe(2);
     const guardEvents = chunks.filter(
@@ -420,15 +443,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Find the latest pricing for Acme Search")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Find the latest pricing for Acme Search")],
+      abortSignal: undefined,
+    });
 
     expect(callCount).toBe(1);
     expect(chunks.some((chunk) => chunk.type === "data-guardrail_event")).toBe(
@@ -452,15 +473,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Hello")],
-        abortSignal: abortController.signal,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Hello")],
+      abortSignal: abortController.signal,
+    });
 
     expect(chunks).toContainEqual({ type: "abort", reason: "aborted" });
     expect(chunks).not.toContainEqual(
@@ -484,15 +503,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Hello")],
-        abortSignal: abortController.signal,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Hello")],
+      abortSignal: abortController.signal,
+    });
 
     expect(called).toBe(false);
     expect(chunks).toContainEqual({ type: "abort", reason: "aborted" });
@@ -505,15 +522,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Hello")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Hello")],
+      abortSignal: undefined,
+    });
 
     expect(chunks).toContainEqual(
       expect.objectContaining({
@@ -531,15 +546,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Hello")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Hello")],
+      abortSignal: undefined,
+    });
 
     expect(chunks).toContainEqual(
       expect.objectContaining({
@@ -556,15 +569,13 @@ describe("createGuardedStream", () => {
       }),
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Hello")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Hello")],
+      abortSignal: undefined,
+    });
 
     expect(chunks).toContainEqual(
       expect.objectContaining({
@@ -590,15 +601,13 @@ describe("createGuardedStream", () => {
       }),
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Find pricing")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Find pricing")],
+      abortSignal: undefined,
+    });
 
     expect(chunks.some((chunk) => chunk.type === "data-agent_diagnostic")).toBe(
       false,
@@ -630,16 +639,14 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("How much does the premium plan cost?")],
-        abortSignal: undefined,
-        searchKeys: { currency: "GBP" },
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("How much does the premium plan cost?")],
+      abortSignal: undefined,
+      searchKeys: { currency: "GBP" },
+    });
 
     expect(callCount).toBe(2);
 
@@ -678,16 +685,14 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Summarize this laptop spec")],
-        abortSignal: undefined,
-        searchKeys: { currency: "GBP" },
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Summarize this laptop spec")],
+      abortSignal: undefined,
+      searchKeys: { currency: "GBP" },
+    });
 
     expect(callCount).toBe(1);
     expect(
@@ -717,15 +722,13 @@ describe("createGuardedStream", () => {
       },
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Research the market")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Research the market")],
+      abortSignal: undefined,
+    });
 
     const guardEvents = chunks.filter(
       (chunk) => chunk.type === "data-guardrail_event",
@@ -771,15 +774,13 @@ describe("createGuardedStream", () => {
       }),
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Hello")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Hello")],
+      abortSignal: undefined,
+    });
 
     expect(chunks).toContainEqual(
       expect.objectContaining({
@@ -806,15 +807,13 @@ describe("createGuardedStream", () => {
       }),
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Find pricing")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Find pricing")],
+      abortSignal: undefined,
+    });
 
     expect(chunks).toContainEqual(
       expect.objectContaining({
@@ -851,15 +850,13 @@ describe("createGuardedStream", () => {
         }),
       });
 
-      const chunks = await collectChunks(
-        createGuardedStream({
-          model,
-          researchFolder: "test-folder",
-          embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
-          messages: scenario.messages,
-          abortSignal: undefined,
-        }),
-      );
+      const chunks = await runGuardedStream({
+        model,
+        researchFolder: "test-folder",
+        embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+        messages: scenario.messages,
+        abortSignal: undefined,
+      });
 
       const terminal = chunks.filter(
         (c) => c.type === "finish" || c.type === "abort",
@@ -880,16 +877,14 @@ describe("buildSystemPrompt", () => {
       }),
     });
 
-    const chunks = await collectChunks(
-      createGuardedStream({
-        model,
-        researchFolder: "test-folder",
-        embeddingConfig: mockEmbeddingConfig,
-        rerankerConfig: mockRerankerConfig,
-        messages: [userMessage("Hello")],
-        abortSignal: undefined,
-      }),
-    );
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig,
+      rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Hello")],
+      abortSignal: undefined,
+    });
 
     expect(chunks).toContainEqual(
       expect.objectContaining({ type: "finish" }),
@@ -965,8 +960,4 @@ function finishChunk(
 
 function lastChunk(chunks: UIMessageChunk[]) {
   return chunks[chunks.length - 1];
-}
-
-async function collectChunks(stream: ReadableStream<UIMessageChunk>): Promise<UIMessageChunk[]> {
-  return convertReadableStreamToArray(stream) as Promise<UIMessageChunk[]>;
 }

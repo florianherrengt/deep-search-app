@@ -48,9 +48,13 @@ export async function createTools({
   rerankerConfig: RerankerConfig;
   searchKeys?: SearchToolKeys;
 }) {
-  const chromeDevToolsTools = await createChromeDevToolsMcpTools({
+  const chromeDevToolsToolsRaw = await createChromeDevToolsMcpTools({
     enabled: Boolean(searchKeys?.chromeDevToolsMcpEnabled),
   });
+  const chromeDevToolsTools: ToolSet = {};
+  for (const [name, t] of Object.entries(chromeDevToolsToolsRaw)) {
+    chromeDevToolsTools[name] = wrapToolWithSubAgentTracking(name, t as any);
+  }
   const tools = {
     ask_questions: wrapToolWithSubAgentTracking("ask_questions", questionsTool),
     disambiguate: wrapToolWithSubAgentTracking("disambiguate", disambiguateTool),

@@ -25,6 +25,9 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   create_research_plan: "Research Plan",
   facts_check: "Facts Check",
   currency_conversion: "Currency Conversion",
+  memory_agent: "Memory Extraction",
+  retrieval_agent: "Research Recall",
+  name_folder: "Folder Naming",
 };
 
 export function getToolDisplayName(toolName: string): string {
