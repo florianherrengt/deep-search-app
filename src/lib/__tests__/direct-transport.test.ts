@@ -98,7 +98,7 @@ describe("DirectTransport research folder lifecycle", () => {
       messages: [userMessage("Find earnings calls for ACME?")],
       abortSignal: undefined,
     });
-    await stream.cancel();
+    await consumeStream(stream);
 
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/acme-earnings-calls/chats/2026-05-22T10-11-12.123Z.json",
@@ -130,7 +130,7 @@ describe("DirectTransport research folder lifecycle", () => {
     const onFolderChange = vi.fn();
     const transport = createTransport(onFolderChange);
 
-    await cancelStream(
+    await consumeStream(
       await transport.sendMessages({
         trigger: "submit-message",
         chatId: "runtime-chat",
@@ -145,7 +145,7 @@ describe("DirectTransport research folder lifecycle", () => {
 
     fsMocks.exists.mockResolvedValue(true);
 
-    await cancelStream(
+    await consumeStream(
       await transport.sendMessages({
         trigger: "submit-message",
         chatId: "runtime-chat",
@@ -189,7 +189,7 @@ describe("DirectTransport research folder lifecycle", () => {
     const onFolderChange = vi.fn();
     const transport = createTransport(onFolderChange);
 
-    await cancelStream(
+    await consumeStream(
       await transport.sendMessages({
         trigger: "submit-message",
         chatId: "runtime-chat",
@@ -201,7 +201,7 @@ describe("DirectTransport research folder lifecycle", () => {
 
     expect(onFolderChange).toHaveBeenCalledWith("earnings-research", {});
 
-    await cancelStream(
+    await consumeStream(
       await transport.sendMessages({
         trigger: "submit-message",
         chatId: "runtime-chat",
@@ -237,8 +237,7 @@ describe("DirectTransport research folder lifecycle", () => {
       messages: [userMessage("Continue my research")],
       abortSignal: undefined,
     });
-    await stream.cancel();
-    await vi.runAllTimersAsync();
+    await consumeStream(stream);
 
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       expect.stringContaining("search-results/existing-folder"),
@@ -271,7 +270,151 @@ describe("DirectTransport research folder lifecycle", () => {
     await expect(transport.reconnectToStream()).resolves.toBeNull();
   });
 
-  it("rejects promptly when aborted during folder naming", async () => {
+  it("does not call nameFolderFromMessage when folder already set", async () => {
+    const model = createModel("unused-name");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = new DirectTransport(
+      () => ({ provider: "openrouter", apiKey: "chat-key", model: "test-model" }) as never,
+      () => mockEmbeddingConfig,
+      () => mockRerankerConfig,
+      () => ({}),
+      "2026-05-22T10-11-12.123Z",
+      "preset-folder",
+      onFolderChange,
+    );
+
+    const stream = await transport.sendMessages({
+      trigger: "submit-message",
+      chatId: "runtime-chat",
+      messageId: "user-1",
+      messages: [userMessage("Continue my research")],
+      abortSignal: undefined,
+    });
+    await consumeStream(stream);
+
+    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
+      expect.stringContaining("search-results/preset-folder"),
+      expect.any(String),
+    );
+    expect(onFolderChange).not.toHaveBeenCalled();
+  });
+
+  it("emits sub-agent events through the stream during naming", async () => {
+    const model = createModel("acme-research");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const transport = createTransport(vi.fn());
+
+    const stream = await transport.sendMessages({
+      trigger: "submit-message",
+      chatId: "runtime-chat",
+      messageId: "user-1",
+      messages: [userMessage("Research ACME")],
+      abortSignal: undefined,
+    });
+    const chunks = await collectChunks(stream);
+
+    const subAgentChunks = chunks.filter(
+      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "data-subagent_event",
+    );
+    expect(subAgentChunks.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("emits error chunk when folder naming fails after retries", async () => {
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "The folder should be named something very descriptive with many words" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: tokenUsage(),
+        warnings: [],
+      }),
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({ chunks: textChunks("Done.") }),
+      }),
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = createTransport(onFolderChange);
+
+    const stream = await transport.sendMessages({
+      trigger: "submit-message",
+      chatId: "runtime-chat",
+      messageId: "user-1",
+      messages: [userMessage("Research ACME")],
+      abortSignal: undefined,
+    });
+    const chunks = await collectChunks(stream);
+
+    const errorChunk = chunks.find(
+      (c) =>
+        typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "error",
+    );
+    expect(errorChunk).toBeTruthy();
+    expect(onFolderChange).not.toHaveBeenCalled();
+  });
+
+  it("names folder only once on the first message, reuses on subsequent", async () => {
+    const model = createModel("acme-earnings");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = createTransport(onFolderChange);
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Find earnings calls for ACME?")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(onFolderChange).toHaveBeenCalledWith("acme-earnings", {});
+    onFolderChange.mockClear();
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-2",
+        messages: [
+          userMessage("Find earnings calls for ACME?"),
+          userMessage("Tell me more"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(onFolderChange).not.toHaveBeenCalled();
+    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
+      expect.stringContaining("search-results/acme-earnings"),
+      expect.any(String),
+    );
+  });
+
+  it("names folder from the first user message in the conversation", async () => {
+    const model = createModel("first-msg-topic");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = createTransport(onFolderChange);
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [
+          userMessage("Research topic A"),
+          userMessage("But also tell me about topic B"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(onFolderChange).toHaveBeenCalledWith("first-msg-topic", {});
+  });
+
+  it("emits an abort chunk when aborted during folder naming", async () => {
     const abortController = new AbortController();
     let generateStarted!: () => void;
     const generateStartedPromise = new Promise<void>((resolve) => {
@@ -293,7 +436,7 @@ describe("DirectTransport research folder lifecycle", () => {
     chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
     const transport = createTransport(vi.fn());
 
-    const pending = transport.sendMessages({
+    const streamPromise = transport.sendMessages({
       trigger: "submit-message",
       chatId: "runtime-chat",
       messageId: "user-1",
@@ -304,7 +447,17 @@ describe("DirectTransport research folder lifecycle", () => {
     await generateStartedPromise;
     abortController.abort();
 
-    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    const stream = await streamPromise;
+    const chunks = await collectChunks(stream);
+
+    const hasAbortChunk = chunks.some(
+      (c) =>
+        typeof c === "object" &&
+        c !== null &&
+        "type" in c &&
+        (c as { type: string }).type === "abort",
+    );
+    expect(hasAbortChunk).toBe(true);
   });
 });
 
@@ -409,6 +562,29 @@ function tokenUsage() {
   };
 }
 
-async function cancelStream(stream: ReadableStream<unknown>): Promise<void> {
-  await stream.cancel().catch(() => {});
+async function consumeStream(stream: ReadableStream<unknown>): Promise<void> {
+  const reader = stream.getReader();
+  try {
+    while (true) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function collectChunks(stream: ReadableStream<unknown>): Promise<unknown[]> {
+  const reader = stream.getReader();
+  const chunks: unknown[] = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return chunks;
 }
