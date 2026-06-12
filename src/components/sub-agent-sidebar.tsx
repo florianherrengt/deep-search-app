@@ -5,6 +5,7 @@ import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { MarkdownContent } from "@/components/assistant-ui/markdown-text";
 import { useSubAgentStore } from "@/lib/sub-agent-store";
 import type { SubAgentRun } from "@/lib/sub-agent-types";
+import type { SubAgentReport } from "@/lib/sub-agent-report";
 
 interface SubAgentSidebarProps {
   chatId: string;
@@ -23,7 +24,7 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
       let changed = false;
 
       for (const run of runs) {
-        if (run.status === "running" && !next.has(run.id)) {
+        if ((run.status === "running" || run.status === "streaming") && !next.has(run.id)) {
           next.add(run.id);
           changed = true;
         }
@@ -39,7 +40,7 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   }, [runs, selectedRun]);
 
   const visibleRuns = useMemo(
-    () => [...runs].sort(compareSubAgentRuns),
+    () => [...runs].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
     [runs],
   );
 
@@ -92,14 +93,20 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
                   onToggle={() => {
                     setOpenRunIds((current) => {
                       const next = new Set(current);
-                      if (next.has(run.id)) {
+                      const wasOpen = next.has(run.id);
+                      if (wasOpen) {
                         next.delete(run.id);
                       } else {
                         next.add(run.id);
                       }
                       return next;
                     });
-                    store.selectRun(run.id);
+                    const isOpen = openRunIds.has(run.id);
+                    if (isOpen) {
+                      store.selectRun(null);
+                    } else {
+                      store.selectRun(run.id);
+                    }
                   }}
                 />
               );
@@ -145,9 +152,9 @@ function SubAgentRunCard({
             {run.chatId}
           </Text>
         </Box>
-        {run.status === "running" ? (
+        {(run.status === "running" || run.status === "streaming") ? (
           <span
-            aria-label="running"
+            aria-label={run.status}
             style={{
               width: 12,
               height: 12,
@@ -188,6 +195,7 @@ function SubAgentRunCard({
 
 function SubAgentTranscript({ run }: { run: SubAgentRun }) {
   const hasContent = run.text.trim().length > 0;
+  const isActive = run.status === "running" || run.status === "streaming";
 
   return (
     <Box style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -195,37 +203,149 @@ function SubAgentTranscript({ run }: { run: SubAgentRun }) {
         <Box style={{ overflowX: "auto", fontSize: 13, lineHeight: 1.55 }}>
           <MarkdownContent text={run.text} />
         </Box>
-      ) : run.status === "running" ? (
+      ) : isActive ? (
         <Text size="sm" c="dimmed">
           Waiting for sub-agent output...
         </Text>
       ) : null}
 
-      {run.toolCalls.map((toolCall, index) => (
-        <ToolFallback
-          key={toolCall.toolCallId ?? `${toolCall.toolName}-${index}`}
-          toolName={toolCall.toolName}
-          args={toolCall.args}
-          result={toolCall.result}
-          status={toToolFallbackStatus(toolCall.status)}
-        />
-      ))}
+      {run.toolCalls.length > 0 && (
+        <SubAgentToolCallsDebug toolCalls={run.toolCalls} />
+      )}
 
       {run.error && (
-        <Box
-          className="md-card-sm"
-          style={{
-            border: "1px solid light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))",
-            backgroundColor: "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))",
-            color: "var(--mantine-color-red-text)",
-          }}
-        >
-          <Text size="xs" fw={600} mb={4}>
-            Error
-          </Text>
-          <Text size="sm">{run.error}</Text>
-        </Box>
+        <SubAgentErrorDisplay error={run.error} report={run.report} />
       )}
+    </Box>
+  );
+}
+
+function SubAgentToolCallsDebug({ toolCalls }: { toolCalls: SubAgentRun["toolCalls"] }) {
+  const [opened, setOpened] = useState(false);
+
+  return (
+    <Box>
+      <UnstyledButton
+        onClick={() => setOpened(!opened)}
+        style={{ display: "flex", alignItems: "center", gap: 4 }}
+      >
+        <ChevronDownIcon
+          size={12}
+          style={{
+            transform: opened ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 0.2s",
+          }}
+        />
+        <Text size="xs" c="dimmed">
+          Tool calls ({toolCalls.length})
+        </Text>
+      </UnstyledButton>
+      <Collapse in={opened}>
+        <Box mt={4} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {toolCalls.map((toolCall, index) => (
+            <ToolFallback
+              key={toolCall.toolCallId ?? `${toolCall.toolName}-${index}`}
+              toolName={toolCall.toolName}
+              args={toolCall.args}
+              result={toolCall.result}
+              status={toToolFallbackStatus(toolCall.status)}
+            />
+          ))}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+function SubAgentErrorDisplay({
+  error,
+  report,
+}: {
+  error: string;
+  report?: SubAgentReport | null;
+}) {
+  return (
+    <Box
+      className="md-card-sm"
+      style={{
+        border: "1px solid light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))",
+        backgroundColor: "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))",
+        color: "var(--mantine-color-red-text)",
+      }}
+    >
+      <Text size="xs" fw={600} mb={4}>
+        Error
+      </Text>
+      {report?.safeForUiMessage ? (
+        <Text size="sm">{report.safeForUiMessage}</Text>
+      ) : (
+        <Text size="sm">{error}</Text>
+      )}
+      {report && report.attempts.length > 0 && (
+        <SubAgentDebugDetails report={report} />
+      )}
+    </Box>
+  );
+}
+
+function SubAgentDebugDetails({ report }: { report: SubAgentReport }) {
+  const [opened, setOpened] = useState(false);
+
+  return (
+    <Box mt={8}>
+      <UnstyledButton
+        onClick={() => setOpened(!opened)}
+        style={{ display: "flex", alignItems: "center", gap: 4 }}
+      >
+        <ChevronDownIcon
+          size={12}
+          style={{
+            transform: opened ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 0.2s",
+          }}
+        />
+        <Text size="xs" c="dimmed">
+          Debug details
+        </Text>
+      </UnstyledButton>
+      <Collapse in={opened}>
+        <Box mt={4} style={{ fontSize: 12, lineHeight: 1.5 }}>
+          {report.attempts.map((a) => (
+            <Box key={a.attempt} mb={4}>
+              <Text size="xs" fw={500}>
+                Attempt {a.attempt}: {a.accepted ? "accepted" : a.rejectedReasonCode ?? "error"}
+              </Text>
+              {a.rejectedReasonMessage && (
+                <Text size="xs" c="dimmed">{a.rejectedReasonMessage}</Text>
+              )}
+              {a.errorMessage && (
+                <Text size="xs" c="dimmed">{a.errorMessage}</Text>
+              )}
+              {a.rawOutputPreview && (
+                <Text size="xs" c="dimmed">Output: {a.rawOutputPreview}</Text>
+              )}
+              {a.sanitizedOutputPreview && (
+                <Text size="xs" c="dimmed">Sanitized: {a.sanitizedOutputPreview}</Text>
+              )}
+            </Box>
+          ))}
+          {report.debugSummary && (
+            <Box
+              mt={4}
+              p="xs"
+              style={{
+                backgroundColor: "var(--mantine-color-default-hover)",
+                borderRadius: 4,
+                fontFamily: "monospace",
+                whiteSpace: "pre-wrap",
+                fontSize: 11,
+              }}
+            >
+              {report.debugSummary}
+            </Box>
+          )}
+        </Box>
+      </Collapse>
     </Box>
   );
 }
@@ -243,6 +363,8 @@ function getStatusMeta(status: SubAgentRun["status"]): {
   switch (status) {
     case "running":
       return { label: "running", color: "blue" };
+    case "streaming":
+      return { label: "streaming", color: "blue" };
     case "completed":
       return { label: "completed", color: "teal" };
     case "failed":
@@ -250,14 +372,9 @@ function getStatusMeta(status: SubAgentRun["status"]): {
   }
 }
 
-function compareSubAgentRuns(a: SubAgentRun, b: SubAgentRun) {
-  if (a.status === "running" && b.status !== "running") return -1;
-  if (a.status !== "running" && b.status === "running") return 1;
-  return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
-}
-
 function getDuration(run: SubAgentRun): string {
-  if (run.status === "running") return "now";
+  const isActive = run.status === "running" || run.status === "streaming";
+  if (isActive) return "now";
   if (!run.startedAt) return "";
   const start = new Date(run.startedAt).getTime();
   const end = run.finishedAt

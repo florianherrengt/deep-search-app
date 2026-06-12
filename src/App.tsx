@@ -405,9 +405,8 @@ function AppInner() {
     ? subAgentStore.runsByChat[activeResearchChatId]
     : undefined;
   useEffect(() => {
-    if (activeSubAgentRuns?.some((run) => run.status === "running")) {
-      setSubAgentSidebarOpen(true);
-    }
+    if (!activeSubAgentRuns || activeSubAgentRuns.length === 0) return;
+    setSubAgentSidebarOpen(true);
   }, [activeSubAgentRuns]);
 
   if (loading) return null;

@@ -140,6 +140,7 @@ describe("DirectTransport research folder lifecycle", () => {
       return { memoriesStored: 0 };
     });
 
+    let streamCallIndex = 0;
     const model = new MockLanguageModelV3({
       doGenerate: async () => ({
         content: [{ type: "text", text: "acme-ordering" }],
@@ -148,6 +149,12 @@ describe("DirectTransport research folder lifecycle", () => {
         warnings: [],
       }),
       doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        streamCallIndex++;
+        if (streamCallIndex === 1) {
+          return {
+            stream: simulateReadableStream({ chunks: textChunks("acme-ordering") }),
+          };
+        }
         events.push("stream-started");
         return {
           stream: simulateReadableStream({ chunks: textChunks("Done.") }),
@@ -196,6 +203,7 @@ describe("DirectTransport research folder lifecycle", () => {
       }
     });
 
+    let streamCallIndex = 0;
     const model = new MockLanguageModelV3({
       doGenerate: async () => ({
         content: [{ type: "text", text: "acme-tools" }],
@@ -204,6 +212,12 @@ describe("DirectTransport research folder lifecycle", () => {
         warnings: [],
       }),
       doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        streamCallIndex++;
+        if (streamCallIndex === 1) {
+          return {
+            stream: simulateReadableStream({ chunks: textChunks("acme-tools") }),
+          };
+        }
         events.push("tool-stream-started");
         return {
           stream: simulateReadableStream({
@@ -374,12 +388,17 @@ describe("DirectTransport research folder lifecycle", () => {
       messages: [userMessage("Continue my research")],
       abortSignal: undefined,
     });
-    await consumeStream(stream);
+    const chunks = await collectChunks(stream);
 
-    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
-      expect.stringContaining("search-results/existing-folder"),
-      expect.any(String),
+    expect(fsMocks.rename).not.toHaveBeenCalled();
+    expect(fsMocks.mkdir).toHaveBeenCalledWith(
+      "search-results/existing-folder",
+      { recursive: true },
     );
+    const finishChunks = chunks.filter(
+      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "finish",
+    );
+    expect(finishChunks.length).toBeGreaterThanOrEqual(1);
   });
 
   it("reuses an existing folder on resume without generating a second folder", async () => {
@@ -482,9 +501,9 @@ describe("DirectTransport research folder lifecycle", () => {
     });
     await consumeStream(stream);
 
-    expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
-      expect.stringContaining("search-results/preset-folder"),
-      expect.any(String),
+    expect(fsMocks.mkdir).toHaveBeenCalledWith(
+      "search-results/preset-folder",
+      { recursive: true },
     );
     expect(onFolderChange).not.toHaveBeenCalled();
   });
@@ -509,10 +528,17 @@ describe("DirectTransport research folder lifecycle", () => {
     expect(subAgentChunks.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("emits error chunk when folder naming fails after retries", async () => {
-    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => ({
-      stream: simulateReadableStream({ chunks: textChunks("Done.") }),
-    }));
+  it("uses deterministic fallback when model output fails validation", async () => {
+    let streamCallIndex = 0;
+    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {
+      streamCallIndex++;
+      const text = streamCallIndex === 1
+        ? "The folder should be named something very descriptive with many words"
+        : "Done.";
+      return {
+        stream: simulateReadableStream({ chunks: textChunks(text) }),
+      };
+    });
     const model = new MockLanguageModelV3({
       doGenerate: async () => ({
         content: [{ type: "text", text: "The folder should be named something very descriptive with many words" }],
@@ -535,27 +561,24 @@ describe("DirectTransport research folder lifecycle", () => {
     });
     const chunks = await collectChunks(stream);
 
-    const errorChunk = chunks.find(
-      (c) =>
-        typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "error",
+    const finishChunks = chunks.filter(
+      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "finish",
     );
-    expect(errorChunk).toBeTruthy();
-    expect(errorChunk).toEqual(
-      expect.objectContaining({
-        errorText: expect.stringContaining("research folder name could not be generated"),
-      }),
-    );
-    expect(fsMocks.mkdir).not.toHaveBeenCalled();
-    expect(fsMocks.writeTextFile).not.toHaveBeenCalled();
-    expect(mockedExtractAndStoreMemories).not.toHaveBeenCalled();
-    expect(doStream).not.toHaveBeenCalled();
-    expect(onFolderChange).not.toHaveBeenCalled();
+    expect(finishChunks.length).toBeGreaterThanOrEqual(1);
+    expect(fsMocks.mkdir).toHaveBeenCalled();
+    expect(fsMocks.writeTextFile).toHaveBeenCalled();
+    expect(onFolderChange).toHaveBeenCalled();
   });
 
-  it("does not create a fallback folder after empty folder naming output", async () => {
-    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => ({
-      stream: simulateReadableStream({ chunks: textChunks("Done.") }),
-    }));
+  it("uses deterministic fallback when model returns empty output", async () => {
+    let streamCallIndex = 0;
+    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {
+      streamCallIndex++;
+      const text = streamCallIndex === 1 ? "" : "Done.";
+      return {
+        stream: simulateReadableStream({ chunks: textChunks(text) }),
+      };
+    });
     const model = new MockLanguageModelV3({
       doGenerate: async () => ({
         content: [{ type: "text", text: "" }],
@@ -577,25 +600,24 @@ describe("DirectTransport research folder lifecycle", () => {
       }),
     );
 
-    expect(chunks).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorText: expect.stringContaining("research folder name could not be generated"),
-      }),
+    const finishChunks = chunks.filter(
+      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "finish",
     );
-    expect(fsMocks.mkdir).not.toHaveBeenCalledWith(
-      "search-results/research",
-      expect.anything(),
-    );
-    expect(fsMocks.mkdir).not.toHaveBeenCalled();
-    expect(fsMocks.writeTextFile).not.toHaveBeenCalled();
-    expect(doStream).not.toHaveBeenCalled();
+    expect(finishChunks.length).toBeGreaterThanOrEqual(1);
+    expect(fsMocks.mkdir).toHaveBeenCalled();
+    expect(fsMocks.writeTextFile).toHaveBeenCalled();
+    expect(doStream).toHaveBeenCalled();
   });
 
   it("stops startup with a clear error when folder creation fails", async () => {
-    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => ({
-      stream: simulateReadableStream({ chunks: textChunks("Done.") }),
-    }));
+    let streamCallIndex = 0;
+    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {
+      streamCallIndex++;
+      const text = streamCallIndex === 1 ? "acme-failure" : "Done.";
+      return {
+        stream: simulateReadableStream({ chunks: textChunks(text) }),
+      };
+    });
     fsMocks.mkdir.mockImplementation(async (path: string) => {
       if (path === "search-results/acme-failure") {
         throw new Error("disk denied");
@@ -637,7 +659,7 @@ describe("DirectTransport research folder lifecycle", () => {
     );
     expect(fsMocks.writeTextFile).not.toHaveBeenCalled();
     expect(mockedExtractAndStoreMemories).not.toHaveBeenCalled();
-    expect(doStream).not.toHaveBeenCalled();
+    expect(doStream).toHaveBeenCalledTimes(1);
     expect(onFolderChange).not.toHaveBeenCalled();
   });
 
@@ -704,22 +726,26 @@ describe("DirectTransport research folder lifecycle", () => {
 
   it("emits an abort chunk when aborted during folder naming", async () => {
     const abortController = new AbortController();
-    let generateStarted!: () => void;
-    const generateStartedPromise = new Promise<void>((resolve) => {
-      generateStarted = resolve;
+    let streamStarted!: () => void;
+    const streamStartedPromise = new Promise<void>((resolve) => {
+      streamStarted = resolve;
     });
     const model = new MockLanguageModelV3({
       doGenerate: async () => {
-        generateStarted();
         return new Promise<never>((_, reject) => {
           abortController.signal.addEventListener("abort", () =>
             reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
           );
         });
       },
-      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
-        stream: simulateReadableStream({ chunks: textChunks("Done.") }),
-      }),
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        streamStarted();
+        return new Promise<never>((_, reject) => {
+          abortController.signal.addEventListener("abort", () =>
+            reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+          );
+        });
+      },
     });
     chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
     const transport = createTransport(vi.fn());
@@ -732,7 +758,7 @@ describe("DirectTransport research folder lifecycle", () => {
       abortSignal: abortController.signal,
     });
 
-    await generateStartedPromise;
+    await streamStartedPromise;
     abortController.abort();
 
     const stream = await streamPromise;
@@ -746,6 +772,162 @@ describe("DirectTransport research folder lifecycle", () => {
         (c as { type: string }).type === "abort",
     );
     expect(hasAbortChunk).toBe(true);
+  });
+});
+
+describe("DirectTransport coffee beans scenario", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fsMocks.exists.mockResolvedValue(false);
+    fsMocks.readDir.mockResolvedValue([]);
+    fsMocks.mkdir.mockResolvedValue(undefined);
+    fsMocks.writeTextFile.mockResolvedValue(undefined);
+    fsMocks.rename.mockResolvedValue(undefined);
+    fsMocks.remove.mockResolvedValue(undefined);
+    tauriMocks.invoke.mockResolvedValue(undefined);
+    mockedExtractAndStoreMemories.mockResolvedValue({ memoriesStored: 0 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("uses LLM folder name for coffee beans query", async () => {
+    const model = createModel("best-coffee-beans-espresso");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = createTransport(onFolderChange);
+
+    const stream = await transport.sendMessages({
+      trigger: "submit-message",
+      chatId: "runtime-chat",
+      messageId: "user-1",
+      messages: [userMessage("I'm looking for the best coffee beans for espresso")],
+      abortSignal: undefined,
+    });
+    await consumeStream(stream);
+
+    expect(fsMocks.mkdir).toHaveBeenCalledWith(
+      "search-results/best-coffee-beans-espresso",
+      { recursive: true },
+    );
+    expect(onFolderChange).toHaveBeenCalledWith("best-coffee-beans-espresso", {});
+  });
+
+  it("triggers memory extraction with the raw user query", async () => {
+    const model = createModel("best-coffee-beans-espresso");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    mockedExtractAndStoreMemories.mockResolvedValue({ memoriesStored: 1 });
+    const transport = createTransport(vi.fn());
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("I'm looking for the best coffee beans for espresso")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(mockedExtractAndStoreMemories).toHaveBeenCalledTimes(1);
+    expect(mockedExtractAndStoreMemories).toHaveBeenCalledWith(
+      "I'm looking for the best coffee beans for espresso",
+      expect.any(Function),
+      expect.anything(),
+      undefined,
+    );
+  });
+
+  it("uses deterministic fallback with topic words when model fails", async () => {
+    let streamCallIndex = 0;
+    const maxFolderNamingAttempts = 3;
+    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {
+      streamCallIndex++;
+      const text = streamCallIndex <= maxFolderNamingAttempts
+        ? "invalid output with spaces and special chars!"
+        : "Done.";
+      return {
+        stream: simulateReadableStream({ chunks: textChunks(text) }),
+      };
+    });
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [{ type: "text", text: "invalid output with spaces and special chars!" }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: tokenUsage(),
+        warnings: [],
+      }),
+      doStream,
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = createTransport(onFolderChange);
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("I'm looking for the best coffee beans for espresso")],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(onFolderChange).toHaveBeenCalled();
+    const folderName = onFolderChange.mock.calls[0][0];
+    expect(folderName).not.toBe("im-looking-for-the-best");
+    expect(folderName).toContain("coffee");
+  });
+
+  it("does not extract memory from assistant or tool messages", async () => {
+    const model = createModel("coffee-beans");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const transport = createTransport(vi.fn());
+
+    const assistantMsg: UIMessage = {
+      id: "assistant-1",
+      role: "assistant",
+      parts: [{ type: "text", text: "Here are some results about coffee beans" }],
+    };
+    const toolMsg: UIMessage = {
+      id: "tool-1",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-invocation",
+          toolInvocation: {
+            toolCallId: "tc-1",
+            toolName: "search",
+            args: {},
+            result: { items: [] },
+            state: "result",
+          },
+        } as unknown as UIMessage["parts"][number],
+      ],
+    };
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [
+          userMessage("I'm looking for the best coffee beans for espresso"),
+          assistantMsg,
+          toolMsg,
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(mockedExtractAndStoreMemories).toHaveBeenCalledTimes(1);
+    expect(mockedExtractAndStoreMemories).toHaveBeenCalledWith(
+      "I'm looking for the best coffee beans for espresso",
+      expect.any(Function),
+      expect.anything(),
+      undefined,
+    );
   });
 });
 
@@ -769,6 +951,7 @@ function createTransport(
 }
 
 function createModel(folderNameResponse: string) {
+  let streamCallCount = 0;
   return new MockLanguageModelV3({
     doGenerate: async () => ({
       content: [{ type: "text", text: folderNameResponse }],
@@ -776,11 +959,15 @@ function createModel(folderNameResponse: string) {
       usage: tokenUsage(),
       warnings: [],
     }),
-    doStream: async (): Promise<LanguageModelV3StreamResult> => ({
-      stream: simulateReadableStream({
-        chunks: textChunks("Done."),
-      }),
-    }),
+    doStream: async (): Promise<LanguageModelV3StreamResult> => {
+      streamCallCount++;
+      const text = streamCallCount === 1 ? folderNameResponse : "Done.";
+      return {
+        stream: simulateReadableStream({
+          chunks: textChunks(text),
+        }),
+      };
+    },
   });
 }
 

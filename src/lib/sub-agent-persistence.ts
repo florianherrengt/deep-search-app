@@ -1,4 +1,5 @@
 import { isSubAgentRunToolName, type SubAgentRun } from "./sub-agent-types";
+import type { SubAgentReport } from "./sub-agent-report";
 import { readAppFile, writeAppFile, SafePathSegmentSchema } from "./app-file-storage";
 import { SEARCH_RESULTS_SUBFOLDER } from "./research-history";
 import { isRecord, tryParseJson } from "./json";
@@ -66,6 +67,7 @@ function normalizeSubAgentRun(
     startedAt: getString(value.startedAt) ?? new Date(0).toISOString(),
     finishedAt: getString(value.finishedAt),
     text: getString(value.text) ?? "",
+    chunksReceived: typeof value.chunksReceived === "number" ? value.chunksReceived : 0,
     toolCalls: Array.isArray(value.toolCalls)
       ? value.toolCalls
           .map(normalizeToolCall)
@@ -76,6 +78,7 @@ function normalizeSubAgentRun(
       : [],
     error: getString(value.error),
     parentMessageId: getString(value.parentMessageId) ?? "unknown",
+    report: normalizeReport(value.report),
   };
 }
 
@@ -96,7 +99,7 @@ function normalizeToolCall(value: unknown): SubAgentRun["toolCalls"][number] | n
 }
 
 function normalizeStatus(value: unknown): SubAgentRun["status"] | null {
-  if (value === "running" || value === "completed" || value === "failed") {
+  if (value === "running" || value === "streaming" || value === "completed" || value === "failed") {
     return value;
   }
   if (value === "complete") return "completed";
@@ -117,6 +120,44 @@ function normalizeToolCallStatus(
 
 function getString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function normalizeReport(value: unknown): SubAgentReport | null {
+  if (!isRecord(value)) return null;
+  const name = getString(value.name);
+  const status = getString(value.status);
+  const startedAt = getString(value.startedAt);
+  if (!name || !status || !startedAt) return null;
+
+  return {
+    name,
+    status: status as SubAgentReport["status"],
+    failureCategory: getString(value.failureCategory) as SubAgentReport["failureCategory"] ?? undefined,
+    startedAt,
+    finishedAt: getString(value.finishedAt) ?? undefined,
+    durationMs: typeof value.durationMs === "number" ? value.durationMs : undefined,
+    attempts: Array.isArray(value.attempts)
+      ? value.attempts.filter(isRecord).map((a, i) => ({
+          attempt: typeof a.attempt === "number" ? a.attempt : i + 1,
+          startedAt: getString(a.startedAt) ?? "",
+          finishedAt: getString(a.finishedAt) ?? undefined,
+          durationMs: typeof a.durationMs === "number" ? a.durationMs : undefined,
+          rawOutputPreview: getString(a.rawOutputPreview) ?? undefined,
+          rawOutputLength: typeof a.rawOutputLength === "number" ? a.rawOutputLength : undefined,
+          parsedOutputPreview: getString(a.parsedOutputPreview) ?? undefined,
+          sanitizedOutputPreview: getString(a.sanitizedOutputPreview) ?? undefined,
+          accepted: a.accepted === true,
+          rejectedReasonCode: getString(a.rejectedReasonCode) ?? undefined,
+          rejectedReasonMessage: getString(a.rejectedReasonMessage) ?? undefined,
+          errorMessage: getString(a.errorMessage) ?? undefined,
+        }))
+      : [],
+    finalOutputPreview: getString(value.finalOutputPreview) ?? undefined,
+    finalAcceptedValue: getString(value.finalAcceptedValue) ?? undefined,
+    errorMessage: getString(value.errorMessage) ?? undefined,
+    safeForUiMessage: getString(value.safeForUiMessage) ?? undefined,
+    debugSummary: getString(value.debugSummary) ?? undefined,
+  };
 }
 
 export async function writeSubAgentRuns(

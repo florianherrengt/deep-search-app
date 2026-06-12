@@ -89,6 +89,7 @@ const baseRun: SubAgentRun = {
   startedAt: "2026-01-01T00:00:00.000Z",
   finishedAt: "2026-01-01T00:00:01.000Z",
   text: "Here is the research output.",
+  chunksReceived: 5,
   toolCalls: [],
   error: null,
   parentMessageId: "msg-1",
@@ -173,7 +174,13 @@ describe("SubAgentSidebar", () => {
       ],
     };
     renderSidebar({ runs: [runWithTools], selectRunId: "run-tools" });
-    expect(screen.queryByText("Tool Calls")).not.toBeInTheDocument();
+    expect(screen.getByText(/Tool calls \(2\)/)).toBeInTheDocument();
+    expect(screen.getByText("web_search")).not.toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Tool calls/,
+      }),
+    );
     expect(screen.getByText("web_search")).toBeInTheDocument();
     expect(screen.getByText("extract_page_content")).toBeInTheDocument();
     fireEvent.click(
@@ -185,15 +192,16 @@ describe("SubAgentSidebar", () => {
   });
 
   it("shows running streamed text inside an open sub-agent card", () => {
-    const runningRun: SubAgentRun = {
+    const streamingRun: SubAgentRun = {
       ...baseRun,
       id: "run-live",
       chatId: "run-live",
-      status: "running",
+      status: "streaming",
+      chunksReceived: 2,
       finishedAt: null,
       text: "Streaming update 1",
     };
-    const { rerender } = renderSidebar({ runs: [runningRun] });
+    const { rerender } = renderSidebar({ runs: [streamingRun] });
     expect(screen.getByText("Streaming update 1")).toBeInTheDocument();
 
     rerender(
@@ -201,7 +209,7 @@ describe("SubAgentSidebar", () => {
         <SubAgentProvider>
           <StoreSetup
             chatId="chat-1"
-            runs={[{ ...runningRun, text: "Streaming update 1\nStreaming update 2" }]}
+            runs={[{ ...streamingRun, text: "Streaming update 1\nStreaming update 2", chunksReceived: 3 }]}
           />
           <SubAgentSidebar chatId="chat-1" onClose={vi.fn()} />
         </SubAgentProvider>
@@ -218,5 +226,57 @@ describe("SubAgentSidebar", () => {
     );
     fireEvent.click(closeBtn!);
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("shows streaming status indicator for streaming runs", () => {
+    const streamingRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-streaming",
+      chatId: "run-streaming",
+      status: "streaming",
+      chunksReceived: 5,
+      finishedAt: null,
+      text: "Generating text...",
+    };
+    renderSidebar({ runs: [streamingRun] });
+    expect(screen.getByText("Generating text...")).toBeInTheDocument();
+    expect(screen.getByLabelText("streaming")).toBeInTheDocument();
+  });
+
+  it("preserves partial text when run fails after streaming", () => {
+    const failedRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-fail-stream",
+      chatId: "run-fail-stream",
+      status: "failed",
+      chunksReceived: 3,
+      text: "Partial streamed text that was saved",
+      error: "Connection lost",
+    };
+    renderSidebar({ runs: [failedRun], selectRunId: "run-fail-stream" });
+    expect(screen.getByText("Partial streamed text that was saved")).toBeInTheDocument();
+    expect(screen.getByText("Connection lost")).toBeInTheDocument();
+  });
+
+  it("allows collapsing the currently selected run", () => {
+    const completedRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-collapse",
+      chatId: "run-collapse",
+      status: "completed",
+    };
+    renderSidebar({ runs: [completedRun] });
+
+    const runBtn = screen.getAllByRole("button").find((b) =>
+      b.textContent?.includes("Research pricing"),
+    );
+    expect(runBtn).toBeDefined();
+    fireEvent.click(runBtn!);
+
+    expect(screen.getByText("Here is the research output.")).toBeVisible();
+
+    fireEvent.click(runBtn!);
+
+    expect(screen.getByText("Here is the research output.")).not.toBeVisible();
   });
 });

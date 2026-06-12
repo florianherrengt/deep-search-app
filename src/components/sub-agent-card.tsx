@@ -34,8 +34,9 @@ export function SubAgentCard({
         <Text size="sm" fw={500}>
           {run.name}
         </Text>
-        {run.status === "running" && (
+        {(run.status === "running" || run.status === "streaming") && (
           <span
+            aria-label={run.status}
             style={{
               marginLeft: "auto",
               width: 12,

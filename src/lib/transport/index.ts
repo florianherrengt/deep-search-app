@@ -28,8 +28,15 @@ export interface ResearchFolderChangeOptions {
   previousFolderName?: string;
 }
 
+const LOG_PREFIX = "[transport]";
+
+function logDebug(message: string, ...args: unknown[]) {
+  console.debug(`${LOG_PREFIX} ${message}`, ...args);
+}
+
 export class DirectTransport implements ChatTransport<UIMessage> {
   private researchFolder: string | null = null;
+  private processedMemoryMessageIds = new Set<string>();
 
   constructor(
     private getChatModel: () => ChatModelConfig | null,
@@ -57,6 +64,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   async sendMessages({
     messages,
     abortSignal,
+    trigger,
   }: {
     trigger: "submit-message" | "regenerate-message";
     chatId: string;
@@ -93,8 +101,6 @@ export class DirectTransport implements ChatTransport<UIMessage> {
         setActiveSubAgentEmitter(subAgentEmitter, null);
 
         try {
-          let initialMessagesSaved = false;
-
           if (!transport.researchFolder) {
             if (firstMessage) {
               const folderName = await nameFolderFromMessage(model, firstMessage, {
@@ -110,7 +116,6 @@ export class DirectTransport implements ChatTransport<UIMessage> {
 
               transport.researchFolder = folderName;
               transport.onResearchFolderChange?.(folderName, {});
-              initialMessagesSaved = true;
             } else {
               throw new Error(
                 "Research could not start because the research folder name could not be generated. No user message was available for folder naming.",
@@ -128,23 +133,35 @@ export class DirectTransport implements ChatTransport<UIMessage> {
             }
           }
 
-          if (transport.researchFolder) {
-            if (!initialMessagesSaved) {
-              void saveResearchChatMessages(
-                transport.researchFolder,
-                transport.researchChatId,
-                messages,
-              ).catch(() => {});
-            }
-
-            const lastUserMessage = getLastUserMessage(messages);
-            if (lastUserMessage) {
+          if (transport.researchFolder && trigger === "submit-message") {
+            const candidate = findLastUserMessageForExtraction(messages);
+            if (
+              candidate &&
+              !transport.processedMemoryMessageIds.has(candidate.id)
+            ) {
+              transport.processedMemoryMessageIds.add(candidate.id);
+              logDebug("triggering memory extraction", {
+                messageId: candidate.id,
+                messageLength: candidate.text.length,
+                messagePreview: candidate.text.slice(0, 100),
+              });
               void extractAndStoreMemories(
-                lastUserMessage,
+                candidate.text,
                 async () => transport.researchFolder!,
                 model,
                 abortSignal,
-              ).catch(() => {});
+              ).catch((err) => {
+                logDebug("memory extraction failed", {
+                  messageId: candidate.id,
+                  error: err instanceof Error ? err.message : "unknown",
+                });
+              });
+            } else if (!candidate) {
+              logDebug("no eligible user message for memory extraction");
+            } else {
+              logDebug("skipping already-processed message", {
+                messageId: candidate.id,
+              });
             }
           }
 
@@ -305,16 +322,22 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error.";
 }
 
-function getLastUserMessage(messages: UIMessage[]): string | null {
+export function isEligibleForMemoryExtraction(message: UIMessage): boolean {
+  return message.role === "user";
+}
+
+function findLastUserMessageForExtraction(
+  messages: UIMessage[],
+): { id: string; text: string } | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (msg.role === "user") {
+    if (isEligibleForMemoryExtraction(msg)) {
       const text = msg.parts
         .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
         .map((p) => p.text)
         .join(" ")
         .trim();
-      if (text) return text;
+      if (text) return { id: msg.id, text };
     }
   }
   return null;

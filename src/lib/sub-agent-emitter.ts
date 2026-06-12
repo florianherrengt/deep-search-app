@@ -4,6 +4,7 @@ type SubAgentEmitter = (event: SubAgentEvent) => void;
 
 let currentEmitter: SubAgentEmitter | null = null;
 let currentMessageId: string | null = null;
+let directHandler: SubAgentEmitter | null = null;
 
 export function setActiveSubAgentEmitter(
   emitter: SubAgentEmitter | null,
@@ -13,9 +14,18 @@ export function setActiveSubAgentEmitter(
   currentMessageId = parentMessageId;
 }
 
+export function setDirectEventHandler(
+  handler: SubAgentEmitter | null,
+): void {
+  directHandler = handler;
+}
+
 export function emitSubAgentEvent(event: SubAgentEvent): void {
   if (currentEmitter) {
     currentEmitter(event);
+  }
+  if (directHandler) {
+    directHandler(event);
   }
 }
 

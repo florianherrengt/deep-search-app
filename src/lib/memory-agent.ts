@@ -1,4 +1,4 @@
-import { generateText, type LanguageModel } from "ai";
+import { streamText, type LanguageModel } from "ai";
 import {
   readAppFile,
   writeAppFile,
@@ -7,6 +7,16 @@ import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import memoryAgentPrompt from "./memory-agent-prompt.md?raw";
 import { createSubAgentId } from "./sub-agent-types";
 import { emitSubAgentEvent } from "./sub-agent-emitter";
+
+const LOG_PREFIX = "[memory-extraction]";
+
+function logDebug(message: string, ...args: unknown[]) {
+  console.debug(`${LOG_PREFIX} ${message}`, ...args);
+}
+
+function logWarn(message: string, ...args: unknown[]) {
+  console.warn(`${LOG_PREFIX} ${message}`, ...args);
+}
 
 interface ExtractAndStoreMemoriesDeps {
   readAppFile: typeof readAppFile;
@@ -24,6 +34,11 @@ export async function extractAndStoreMemories(
   const _writeAppFile = deps?.writeAppFile ?? writeAppFile;
   const saId = createSubAgentId();
 
+  logDebug("starting extraction", {
+    subAgentId: saId,
+    messageLength: userMessage.length,
+  });
+
   emitSubAgentEvent({
     type: "start",
     id: saId,
@@ -34,34 +49,54 @@ export async function extractAndStoreMemories(
   });
 
   try {
-    const { text } = await generateText({
+    const result = streamText({
       model,
       system: memoryAgentPrompt,
       prompt: userMessage,
       abortSignal,
     });
 
-    emitSubAgentEvent({ type: "text-delta", id: saId, delta: text });
+    let chunksReceived = 0;
+    for await (const textPart of result.textStream) {
+      chunksReceived++;
+      emitSubAgentEvent({ type: "text-delta", id: saId, delta: textPart });
+    }
+
+    const text = await result.text;
+
+    logDebug("stream completed", {
+      chunksReceived,
+      resultLength: text.length,
+      resultPreview: text.slice(0, 200),
+    });
 
     let newFacts: string[];
     try {
       const parsed = JSON.parse(text.trim());
       if (!Array.isArray(parsed)) {
+        logWarn("LLM returned non-array", { type: typeof parsed });
         emitSubAgentEvent({ type: "complete", id: saId });
         return { memoriesStored: 0 };
       }
       newFacts = parsed.filter(
         (f): f is string => typeof f === "string" && f.trim().length > 0,
       );
-    } catch {
+    } catch (parseError) {
+      logWarn("LLM output is not valid JSON", {
+        error: parseError instanceof Error ? parseError.message : "unknown",
+        rawPreview: text.slice(0, 100),
+      });
       emitSubAgentEvent({ type: "complete", id: saId });
       return { memoriesStored: 0 };
     }
 
     if (newFacts.length === 0) {
+      logDebug("no facts extracted");
       emitSubAgentEvent({ type: "complete", id: saId });
       return { memoriesStored: 0 };
     }
+
+    logDebug("parsed facts", { factCount: newFacts.length, facts: newFacts });
 
     const folder = await getResearchFolder();
     const subfolder = `${SEARCH_RESULTS_SUBFOLDER}/${folder}`;
@@ -77,9 +112,15 @@ export async function extractAndStoreMemories(
     const content = formatMemoriesContent(merged);
     await _writeAppFile({ subfolder, filename: "memories.md", content });
 
+    const stored = merged.length - existingFacts.length;
+    logDebug("memories stored", { stored, total: merged.length });
+
     emitSubAgentEvent({ type: "complete", id: saId });
-    return { memoriesStored: merged.length - existingFacts.length };
-  } catch {
+    return { memoriesStored: stored };
+  } catch (error) {
+    logWarn("extraction failed", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
     emitSubAgentEvent({ type: "error", id: saId, error: "Memory extraction failed" });
     return { memoriesStored: 0 };
   }

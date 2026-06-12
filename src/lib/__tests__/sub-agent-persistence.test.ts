@@ -33,9 +33,11 @@ describe("sub-agent persistence", () => {
         startedAt: "2026-01-01T00:00:00.000Z",
         finishedAt: "2026-01-01T00:00:01.000Z",
         text: "Done",
+        chunksReceived: 4,
         toolCalls: [],
         error: null,
         parentMessageId: "transport",
+        report: null,
       },
     ];
 
@@ -108,5 +110,53 @@ describe("sub-agent persistence", () => {
       { id: "sa-complete", chatId: "sa-complete", parentChatId: "chat-1", status: "completed" },
       { id: "sa-error", chatId: "sa-error", parentChatId: "chat-1", status: "failed" },
     ]);
+  });
+
+  it("preserves streaming status from persisted runs", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-streaming",
+          name: "Folder Naming",
+          toolName: "name_folder",
+          status: "streaming",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          text: "best-coffee",
+          chunksReceived: 3,
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+        },
+      ]),
+    );
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+
+    expect(runs).toMatchObject([
+      { id: "sa-streaming", status: "streaming", chunksReceived: 3 },
+    ]);
+  });
+
+  it("defaults chunksReceived to 0 when missing from persisted data", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-old",
+          name: "Memory Extraction",
+          toolName: "memory_agent",
+          status: "completed",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          finishedAt: "2026-01-01T00:00:01.000Z",
+          text: "[]",
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+        },
+      ]),
+    );
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+
+    expect(runs[0].chunksReceived).toBe(0);
   });
 });

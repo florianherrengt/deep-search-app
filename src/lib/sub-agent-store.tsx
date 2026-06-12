@@ -20,6 +20,7 @@ import {
 interface SubAgentStoreState {
   runsByChat: Record<string, SubAgentRun[]>;
   selectedRunId: string | null;
+  processedEventFingerprints: Set<string>;
 }
 
 interface SubAgentStoreActions {
@@ -41,6 +42,7 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SubAgentStoreState>({
     runsByChat: {},
     selectedRunId: null,
+    processedEventFingerprints: new Set(),
   });
 
   const loadRuns = useCallback((chatId: string, runs: SubAgentRun[]) => {
@@ -66,14 +68,39 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
 
   const processEvent = useCallback(
     (chatId: string, event: SubAgentEvent) => {
-      setState((prev) => {
-        const chatRuns = prev.runsByChat[chatId] ?? [];
-        const updated = applyEvent(chatRuns, event, chatId);
-        return {
-          ...prev,
-          runsByChat: { ...prev.runsByChat, [chatId]: updated },
-        };
-      });
+      const fingerprint = getEventFingerprint(event);
+      if (fingerprint !== null) {
+        setState((prev) => {
+          if (prev.processedEventFingerprints.has(fingerprint)) {
+            return prev;
+          }
+          const nextFingerprints = new Set(prev.processedEventFingerprints);
+          nextFingerprints.add(fingerprint);
+          if (nextFingerprints.size > 10_000) {
+            const iter = nextFingerprints.values();
+            for (let i = 0; i < 5000; i++) iter.next();
+            const toDelete = [];
+            for (const v of iter) toDelete.push(v);
+            for (const v of toDelete) nextFingerprints.delete(v);
+          }
+          const chatRuns = prev.runsByChat[chatId] ?? [];
+          const updated = applyEvent(chatRuns, event, chatId);
+          return {
+            ...prev,
+            processedEventFingerprints: nextFingerprints,
+            runsByChat: { ...prev.runsByChat, [chatId]: updated },
+          };
+        });
+      } else {
+        setState((prev) => {
+          const chatRuns = prev.runsByChat[chatId] ?? [];
+          const updated = applyEvent(chatRuns, event, chatId);
+          return {
+            ...prev,
+            runsByChat: { ...prev.runsByChat, [chatId]: updated },
+          };
+        });
+      }
     },
     [],
   );
@@ -150,7 +177,7 @@ function applyEvent(
 
       const runChatId = event.chatId ?? event.id;
       const existingRun = runs.find(
-        (run) => run.chatId === runChatId || run.id === runChatId,
+        (run) => run.id === runChatId,
       );
       if (existingRun) return runs;
 
@@ -167,6 +194,7 @@ function applyEvent(
           startedAt: new Date().toISOString(),
           finishedAt: null,
           text: "",
+          chunksReceived: 0,
           toolCalls: [],
           error: null,
           parentMessageId: event.parentMessageId,
@@ -179,10 +207,12 @@ function applyEvent(
         const next = run.text + event.delta;
         return {
           ...run,
+          status: run.status === "running" ? "streaming" as const : run.status,
           text:
             next.length > MAX_SUB_AGENT_TEXT_LENGTH
               ? next.slice(0, MAX_SUB_AGENT_TEXT_LENGTH)
               : next,
+          chunksReceived: run.chunksReceived + 1,
         };
       });
 
@@ -217,6 +247,12 @@ function applyEvent(
         finishedAt: new Date().toISOString(),
       }));
 
+    case "report":
+      return updateRun(runs, event.id, (run) => ({
+        ...run,
+        report: event.report,
+      }));
+
     case "error":
       return updateRun(runs, event.id, (run) => ({
         ...run,
@@ -233,6 +269,27 @@ function updateRun(
   updater: (run: SubAgentRun) => SubAgentRun,
 ): SubAgentRun[] {
   return runs.map((run) =>
-    run.id === id || run.chatId === id ? updater(run) : run,
+    run.id === id ? updater(run) : run,
   );
+}
+
+function getEventFingerprint(event: SubAgentEvent): string | null {
+  switch (event.type) {
+    case "start":
+      return `start:${event.id}`;
+    case "text-delta": {
+      const run = event as { id: string; delta: string };
+      return `td:${run.id}:${run.delta}`;
+    }
+    case "tool-call":
+      return `tc:${event.id}:${event.toolCall.toolName}`;
+    case "tool-result":
+      return `tr:${event.id}:${event.toolCallIndex ?? ""}:${event.toolCallId ?? ""}`;
+    case "complete":
+      return `done:${event.id}`;
+    case "error":
+      return `err:${event.id}`;
+    case "report":
+      return null;
+  }
 }

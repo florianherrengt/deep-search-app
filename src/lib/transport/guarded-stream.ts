@@ -25,8 +25,6 @@ import { createTools, type AppToolSet, type SearchToolKeys } from "./tool-regist
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import { skillsStore } from "@/lib/skills-store";
-import { setActiveSubAgentEmitter, emitSubAgentEvent as _emitSubAgentEvent } from "@/lib/sub-agent-emitter";
-import type { SubAgentEvent } from "@/lib/sub-agent-types";
 
 const MAX_GUARD_RETRIES = 2;
 
@@ -75,13 +73,7 @@ export function createGuardedStream({
       let sendStart = true;
       let lastFinish: AttemptFinish | undefined;
 
-      const subAgentEmitter = (event: SubAgentEvent) => {
-        writeSubAgentEvent(controller, event);
-      };
-
       try {
-        setActiveSubAgentEmitter(subAgentEmitter, null);
-
         const tools = await createTools({
           model,
           getResearchFolder: async () => {
@@ -172,8 +164,6 @@ export function createGuardedStream({
                 : "Agent guardrail stream failed.",
           });
         }
-      } finally {
-        setActiveSubAgentEmitter(null, null);
       }
     })();
 }
@@ -279,17 +269,6 @@ async function pipeUIMessageStream(
     }),
     { signal: abortSignal, preventClose: true },
   );
-}
-
-function writeSubAgentEvent(
-  controller: ReadableStreamDefaultController<UIMessageChunk>,
-  event: SubAgentEvent,
-) {
-  controller.enqueue({
-    type: "data-subagent_event",
-    id: `subagent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    data: event,
-  });
 }
 
 function writeGuardrailEvent(

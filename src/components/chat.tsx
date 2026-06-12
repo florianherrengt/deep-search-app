@@ -24,6 +24,7 @@ import { getCurrentTokenCount } from "@/lib/token-usage";
 import { hasPendingQuestionTool } from "@/lib/chat-attention";
 import { useSubAgentStore } from "@/lib/sub-agent-store";
 import type { SubAgentEvent, SubAgentRun } from "@/lib/sub-agent-types";
+import { setDirectEventHandler } from "@/lib/sub-agent-emitter";
 import { isRecord } from "@/lib/json";
 
 const EMPTY_SUB_AGENT_RUNS: SubAgentRun[] = [];
@@ -273,6 +274,15 @@ export function Chat({
   }, [needsAttention, onAttentionStateChange, sessionId]);
 
   const subAgentStore = useSubAgentStore();
+
+  useEffect(() => {
+    const handler = (event: SubAgentEvent) => {
+      subAgentStore.processEvent(researchChatId, event);
+    };
+    setDirectEventHandler(handler);
+    return () => setDirectEventHandler(null);
+  }, [researchChatId, subAgentStore.processEvent]);
+
   const processedPartsByMessageRef = useRef<Record<string, number>>(
     getProcessedPartCounts(initialMessages),
   );
@@ -314,7 +324,7 @@ export function Chat({
     } else {
       subAgentStore.loadRuns(researchChatId, []);
     }
-  }, [researchChatId]);
+  }, [researchChatId, researchFolder]);
 
   const subAgentRunsForChat =
     subAgentStore.runsByChat[researchChatId] ?? EMPTY_SUB_AGENT_RUNS;
@@ -325,7 +335,7 @@ export function Chat({
     if (!folderName || !researchChatId) return;
 
     const terminalRuns = subAgentRunsForChat.filter(
-      (run) => run.status !== "running",
+      (run) => run.status !== "running" && run.status !== "streaming",
     );
     if (terminalRuns.length === 0) return;
 

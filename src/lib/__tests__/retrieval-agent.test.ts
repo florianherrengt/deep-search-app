@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockGenerateText = vi.hoisted(() => vi.fn());
+const mockStreamText = vi.hoisted(() => vi.fn());
 const mockEmitSubAgentEvent = vi.hoisted(() => vi.fn());
 
 vi.mock("ai", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ai")>();
   return {
     ...actual,
-    generateText: mockGenerateText,
+    streamText: mockStreamText,
   };
 });
 
@@ -17,6 +17,13 @@ vi.mock("@/lib/sub-agent-emitter", () => ({
 
 import { runRetrievalAgent } from "@/lib/retrieval-agent";
 import type { SearchResult } from "@/lib/research-search";
+
+function streamTextResult(text: string) {
+  return {
+    textStream: (async function* () { yield text; })(),
+    text: Promise.resolve(text),
+  };
+}
 
 type ReadAppFileFn = (input: { subfolder: string; filename: string }) => Promise<string | null>;
 type ListAppFilesFn = (input: { subfolder: string }) => Promise<string[]>;
@@ -53,7 +60,7 @@ describe("runRetrievalAgent", () => {
   });
 
   it("returns relevant folders from agent output", async () => {
-    mockGenerateText.mockResolvedValue({ text: '{"relevant_folders": ["hiking-trails"], "relevant_memories": []}' });
+    mockStreamText.mockReturnValue(streamTextResult('{"relevant_folders": ["hiking-trails"], "relevant_memories": []}'));
 
     const result = await runRetrievalAgent(
       "Find my hiking research",
@@ -67,23 +74,12 @@ describe("runRetrievalAgent", () => {
   });
 
   it("emits nested tool calls from agent tool callbacks", async () => {
-    mockGenerateText.mockImplementation(
-      async ({ experimental_onToolCallStart, experimental_onToolCallFinish }) => {
-        const toolCall = {
-          type: "tool-call",
-          toolCallId: "tc-list-files",
-          toolName: "list_files",
-          input: { folder: "hiking-trails" },
-        };
+    mockStreamText.mockImplementation(
+      ({ onChunk }: any) => {
+        onChunk?.({ chunk: { type: "tool-call", toolCallId: "tc-list-files", toolName: "list_files", input: { folder: "hiking-trails" } } } as any);
+        onChunk?.({ chunk: { type: "tool-result", toolCallId: "tc-list-files", output: ["notes.md"] } } as any);
 
-        experimental_onToolCallStart?.({ toolCall } as never);
-        experimental_onToolCallFinish?.({
-          toolCall,
-          success: true,
-          output: ["notes.md"],
-        } as never);
-
-        return { text: '{"relevant_folders": ["hiking-trails"], "relevant_memories": []}' };
+        return streamTextResult('{"relevant_folders": ["hiking-trails"], "relevant_memories": []}');
       },
     );
 
@@ -119,7 +115,7 @@ describe("runRetrievalAgent", () => {
   });
 
   it("returns relevant memories from agent output", async () => {
-    mockGenerateText.mockResolvedValue({ text: '{"relevant_folders": [], "relevant_memories": ["User has a dog."]}' });
+    mockStreamText.mockReturnValue(streamTextResult('{"relevant_folders": [], "relevant_memories": ["User has a dog."]}'));
 
     const result = await runRetrievalAgent(
       "Find dog-friendly hikes",
@@ -133,7 +129,7 @@ describe("runRetrievalAgent", () => {
   });
 
   it("returns both folders and memories", async () => {
-    mockGenerateText.mockResolvedValue({ text: '{"relevant_folders": ["hiking-trails"], "relevant_memories": ["User has a dog."]}' });
+    mockStreamText.mockReturnValue(streamTextResult('{"relevant_folders": ["hiking-trails"], "relevant_memories": ["User has a dog."]}'));
 
     const result = await runRetrievalAgent(
       "Find dog-friendly hikes",
@@ -147,7 +143,7 @@ describe("runRetrievalAgent", () => {
   });
 
   it("returns empty defaults when agent returns no matches", async () => {
-    mockGenerateText.mockResolvedValue({ text: '{"relevant_folders": [], "relevant_memories": []}' });
+    mockStreamText.mockReturnValue(streamTextResult('{"relevant_folders": [], "relevant_memories": []}'));
 
     const result = await runRetrievalAgent(
       "Query",
@@ -161,7 +157,9 @@ describe("runRetrievalAgent", () => {
   });
 
   it("returns empty defaults on failure", async () => {
-    mockGenerateText.mockRejectedValue(new Error("API error"));
+    mockStreamText.mockImplementation(() => {
+      throw new Error("API error");
+    });
 
     const result = await runRetrievalAgent(
       "Query",
@@ -185,7 +183,7 @@ describe("runRetrievalAgent", () => {
   });
 
   it("filters out folder names not in candidates", async () => {
-    mockGenerateText.mockResolvedValue({ text: '{"relevant_folders": ["hiking-trails", "nonexistent-folder"], "relevant_memories": []}' });
+    mockStreamText.mockReturnValue(streamTextResult('{"relevant_folders": ["hiking-trails", "nonexistent-folder"], "relevant_memories": []}'));
 
     const result = await runRetrievalAgent(
       "Query",
@@ -199,9 +197,9 @@ describe("runRetrievalAgent", () => {
   });
 
   it("parses JSON embedded in text", async () => {
-    mockGenerateText.mockResolvedValue({
-      text: 'Here are the results:\n{"relevant_folders": ["hiking-trails"], "relevant_memories": ["User has a dog."]}\nDone.',
-    });
+    mockStreamText.mockReturnValue(
+      streamTextResult('Here are the results:\n{"relevant_folders": ["hiking-trails"], "relevant_memories": ["User has a dog."]}\nDone.'),
+    );
 
     const result = await runRetrievalAgent(
       "Query",
@@ -215,7 +213,7 @@ describe("runRetrievalAgent", () => {
   });
 
   it("handles malformed JSON gracefully", async () => {
-    mockGenerateText.mockResolvedValue({ text: "not json at all" });
+    mockStreamText.mockReturnValue(streamTextResult("not json at all"));
 
     const result = await runRetrievalAgent(
       "Query",
@@ -260,9 +258,9 @@ describe("runRetrievalAgent", () => {
       });
 
       let capturedTools: Record<string, any> = {};
-      mockGenerateText.mockImplementation(async ({ tools }) => {
+      mockStreamText.mockImplementation(({ tools }: any) => {
         capturedTools = tools;
-        return { text: '{"relevant_folders": ["pet-research"], "relevant_memories": ["User has a golden retriever named Max", "User lives in Zurich"]}' };
+        return streamTextResult('{"relevant_folders": ["pet-research"], "relevant_memories": ["User has a golden retriever named Max", "User lives in Zurich"]}');
       });
 
       const result = await runRetrievalAgent(
@@ -282,14 +280,14 @@ describe("runRetrievalAgent", () => {
     });
 
     it("scoped tools reject folders not in candidate set", async () => {
-      mockGenerateText.mockImplementation(async ({ tools }) => {
+      mockStreamText.mockImplementation(async ({ tools }: any) => {
         const listResult = await tools.list_files.execute({ folder: "unrelated-folder" }, { toolCallId: "t1", messages: [] });
         const readResult = await tools.read_file.execute({ folder: "unrelated-folder", filename: "memories.md" }, { toolCallId: "t2", messages: [] });
 
         expect(listResult).toMatch(/not in the candidate list/);
         expect(readResult).toMatch(/not in the candidate list/);
 
-        return { text: '{"relevant_folders": [], "relevant_memories": []}' };
+        return streamTextResult('{"relevant_folders": [], "relevant_memories": []}');
       });
 
       await runRetrievalAgent(
@@ -311,9 +309,15 @@ describe("runRetrievalAgent", () => {
       });
 
       let readFileResult: any = null;
-      mockGenerateText.mockImplementation(async ({ tools }) => {
-        readFileResult = await tools.read_file.execute({ folder: "pet-research", filename: "memories.md" }, { toolCallId: "t1", messages: [] });
-        return { text: '{"relevant_folders": ["pet-research"], "relevant_memories": ["User has a golden retriever named Max"]}' };
+      mockStreamText.mockImplementation(({ tools }: any) => {
+        const textPromise = (async () => {
+          readFileResult = await tools.read_file.execute({ folder: "pet-research", filename: "memories.md" }, { toolCallId: "t1", messages: [] });
+          return '{"relevant_folders": ["pet-research"], "relevant_memories": ["User has a golden retriever named Max"]}';
+        })();
+        return {
+          textStream: (async function* () { yield await textPromise; })(),
+          text: textPromise,
+        };
       });
 
       const result = await runRetrievalAgent(

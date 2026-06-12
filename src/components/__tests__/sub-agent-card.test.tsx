@@ -36,6 +36,7 @@ const baseRun: SubAgentRun = {
   startedAt: "2026-01-01T00:00:00.000Z",
   finishedAt: null,
   text: "",
+  chunksReceived: 0,
   toolCalls: [],
   error: null,
   parentMessageId: "msg-1",
@@ -54,6 +55,18 @@ describe("SubAgentCard", () => {
       wrap(
         <SubAgentCard
           run={{ ...baseRun, status: "running" }}
+          onClick={vi.fn()}
+        />,
+      ),
+    );
+    expect(html).toContain("spin 1s linear infinite");
+  });
+
+  it("shows spinner for streaming status", () => {
+    const html = renderToStaticMarkup(
+      wrap(
+        <SubAgentCard
+          run={{ ...baseRun, status: "streaming", chunksReceived: 5 }}
           onClick={vi.fn()}
         />,
       ),

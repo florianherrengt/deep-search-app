@@ -95,6 +95,29 @@ describe("wrapToolWithSubAgentTracking", () => {
     expect(errorCall![0]).toMatchObject({ type: "error", error: "API failure" });
   });
 
+  it("tool-result event has status error when execute throws", async () => {
+    const error = new Error("API failure");
+    const tool = {
+      description: "test tool",
+      execute: vi.fn().mockRejectedValue(error),
+    };
+
+    const wrapped = wrapToolWithSubAgentTracking("serper_search", tool as unknown as Tool);
+
+    await expect(wrapped.execute!({ query: "test" }, { toolCallId: "tc-3", messages: [] } as any)).rejects.toThrow("API failure");
+
+    const calls = vi.mocked(emitSubAgentEvent).mock.calls;
+    const toolResultCall = calls.find((c) => c[0].type === "tool-result");
+    expect(toolResultCall).toBeDefined();
+    expect(toolResultCall![0]).toMatchObject({
+      type: "tool-result",
+      id: "sa-test-id",
+      toolCallIndex: 0,
+      result: "API failure",
+      status: "error",
+    });
+  });
+
   it("emitted events have correct structure", async () => {
     const tool = {
       description: "test tool",

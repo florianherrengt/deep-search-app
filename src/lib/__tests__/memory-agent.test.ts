@@ -1,15 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockGenerateText = vi.hoisted(() => vi.fn());
+const mockStreamText = vi.hoisted(() => vi.fn());
 const mockEmitSubAgentEvent = vi.hoisted(() => vi.fn());
 
 vi.mock("ai", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ai")>();
   return {
     ...actual,
-    generateText: mockGenerateText,
+    streamText: mockStreamText,
   };
 });
+
+function streamTextResult(text: string) {
+  return {
+    textStream: (async function* () { yield text; })(),
+    text: Promise.resolve(text),
+  };
+}
+
+function streamTextError(error: Error) {
+  return {
+    textStream: (async function* () { throw error; })(),
+    text: new Promise(() => {}),
+  };
+}
 
 vi.mock("@/lib/sub-agent-emitter", () => ({
   emitSubAgentEvent: mockEmitSubAgentEvent,
@@ -33,7 +47,7 @@ describe("extractAndStoreMemories", () => {
   });
 
   it("extracts facts from explicit statement", async () => {
-    mockGenerateText.mockResolvedValue({ text: '["User has a dog."]' });
+    mockStreamText.mockReturnValue(streamTextResult('["User has a dog."]'));
     mockReadAppFile.mockResolvedValue(null);
 
     const result = await extractAndStoreMemories(
@@ -53,7 +67,7 @@ describe("extractAndStoreMemories", () => {
   });
 
   it("skips task-specific details", async () => {
-    mockGenerateText.mockResolvedValue({ text: "[]" });
+    mockStreamText.mockReturnValue(streamTextResult("[]"));
 
     const result = await extractAndStoreMemories(
       "Find the latest news about AI.",
@@ -71,7 +85,7 @@ describe("extractAndStoreMemories", () => {
   });
 
   it("merges with existing memories.md", async () => {
-    mockGenerateText.mockResolvedValue({ text: '["User has a dog."]' });
+    mockStreamText.mockReturnValue(streamTextResult('["User has a dog."]'));
     mockReadAppFile.mockResolvedValue("# Memories\n\n- User uses macOS.\n");
 
     const result = await extractAndStoreMemories(
@@ -91,7 +105,7 @@ describe("extractAndStoreMemories", () => {
   });
 
   it("deduplicates", async () => {
-    mockGenerateText.mockResolvedValue({ text: '["User has a dog."]' });
+    mockStreamText.mockReturnValue(streamTextResult('["User has a dog."]'));
     mockReadAppFile.mockResolvedValue("# Memories\n\n- User has a dog.\n");
 
     const result = await extractAndStoreMemories(
@@ -111,7 +125,7 @@ describe("extractAndStoreMemories", () => {
   });
 
   it("creates new file when none exists", async () => {
-    mockGenerateText.mockResolvedValue({ text: '["User uses macOS."]' });
+    mockStreamText.mockReturnValue(streamTextResult('["User uses macOS."]'));
     mockReadAppFile.mockResolvedValue(null);
 
     const result = await extractAndStoreMemories(
@@ -131,7 +145,7 @@ describe("extractAndStoreMemories", () => {
   });
 
   it("does not throw on failure", async () => {
-    mockGenerateText.mockRejectedValue(new Error("API error"));
+    mockStreamText.mockReturnValue(streamTextError(new Error("API error")));
 
     const result = await extractAndStoreMemories(
       "Hello",
@@ -145,7 +159,7 @@ describe("extractAndStoreMemories", () => {
   });
 
   it("skips non-array response", async () => {
-    mockGenerateText.mockResolvedValue({ text: '"not an array"' });
+    mockStreamText.mockReturnValue(streamTextResult('"not an array"'));
 
     const result = await extractAndStoreMemories(
       "Hello",
@@ -160,5 +174,112 @@ describe("extractAndStoreMemories", () => {
     expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "complete" }),
     );
+  });
+
+  it("sends the raw user message as the LLM prompt", async () => {
+    mockStreamText.mockReturnValue(streamTextResult("[]"));
+    mockReadAppFile.mockResolvedValue(null);
+
+    await extractAndStoreMemories(
+      "I'm looking for the best coffee beans for espresso",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockStreamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "I'm looking for the best coffee beans for espresso",
+      }),
+    );
+  });
+
+  it("saves a preference extracted from a research query when the LLM returns one", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('["User drinks espresso."]'));
+    mockReadAppFile.mockResolvedValue(null);
+
+    const result = await extractAndStoreMemories(
+      "I'm looking for the best coffee beans for espresso",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).toHaveBeenCalledWith({
+      subfolder: "search-results/test-folder",
+      filename: "memories.md",
+      content: "# Memories\n\n- User drinks espresso.\n",
+    });
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("accepts and saves a concise preference over a task restatement", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('["User is interested in espresso."]'));
+    mockReadAppFile.mockResolvedValue(null);
+
+    const result = await extractAndStoreMemories(
+      "I'm looking for the best coffee beans for espresso",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).toHaveBeenCalledWith({
+      subfolder: "search-results/test-folder",
+      filename: "memories.md",
+      content: "# Memories\n\n- User is interested in espresso.\n",
+    });
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("returns empty when the LLM returns empty array for a research query", async () => {
+    mockStreamText.mockReturnValue(streamTextResult("[]"));
+
+    const result = await extractAndStoreMemories(
+      "Find me the latest news about AI",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).not.toHaveBeenCalled();
+    expect(result).toEqual({ memoriesStored: 0 });
+  });
+
+  it("handles malformed LLM output gracefully", async () => {
+    mockStreamText.mockReturnValue(streamTextResult("This is not JSON at all"));
+
+    const result = await extractAndStoreMemories(
+      "I'm looking for the best coffee beans for espresso",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).not.toHaveBeenCalled();
+    expect(result).toEqual({ memoriesStored: 0 });
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "complete" }),
+    );
+  });
+
+  it("handles empty LLM text output gracefully", async () => {
+    mockStreamText.mockReturnValue(streamTextResult(""));
+
+    const result = await extractAndStoreMemories(
+      "I'm looking for the best coffee beans for espresso",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).not.toHaveBeenCalled();
+    expect(result).toEqual({ memoriesStored: 0 });
   });
 });

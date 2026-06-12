@@ -9,12 +9,14 @@ export interface SubAgentRun {
   startedAt: string;
   finishedAt: string | null;
   text: string;
+  chunksReceived: number;
   toolCalls: SubAgentToolCall[];
   error: string | null;
   parentMessageId: string;
+  report?: import("./sub-agent-report").SubAgentReport | null;
 }
 
-export type SubAgentStatus = "running" | "completed" | "failed";
+export type SubAgentStatus = "running" | "streaming" | "completed" | "failed";
 
 export interface SubAgentToolCall {
   toolCallId?: string;
@@ -30,7 +32,8 @@ export type SubAgentEvent =
   | { type: "tool-call"; id: string; toolCall: SubAgentToolCall }
   | { type: "tool-result"; id: string; toolCallIndex?: number; toolCallId?: string; result: unknown; status?: "complete" | "error" }
   | { type: "complete"; id: string }
-  | { type: "error"; id: string; error: string };
+  | { type: "error"; id: string; error: string }
+  | { type: "report"; id: string; report: import("./sub-agent-report").SubAgentReport };
 
 export const MAX_SUB_AGENT_TEXT_LENGTH = 10_000;
 
@@ -38,6 +41,8 @@ const SUB_AGENT_TOOL_NAMES = new Set([
   "memory_agent",
   "name_folder",
   "retrieval_agent",
+  "create_research_plan",
+  "extract_page_content",
 ]);
 
 export function isSubAgentRunToolName(toolName: string): boolean {

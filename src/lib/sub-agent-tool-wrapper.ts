@@ -82,6 +82,7 @@ export function wrapToolWithSubAgentTracking<T extends Tool>(
         id: subAgentId,
         toolCallIndex: 0,
         result: error instanceof Error ? error.message : String(error),
+        status: "error",
       });
 
       emitSubAgentEvent({

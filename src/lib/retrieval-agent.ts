@@ -1,12 +1,9 @@
 import {
-  generateText,
+  streamText,
   tool,
   zodSchema,
   stepCountIs,
-  type GenerateTextOnToolCallFinishCallback,
-  type GenerateTextOnToolCallStartCallback,
   type LanguageModel,
-  type ToolSet,
 } from "ai";
 import { z } from "zod";
 import { readAppFile, listAppFiles, SafePathSegmentSchema } from "@/lib/app-file-storage";
@@ -16,6 +13,12 @@ import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import retrievalAgentPrompt from "./retrieval-agent-prompt.md?raw";
 import { createSubAgentId } from "./sub-agent-types";
 import { emitSubAgentEvent } from "./sub-agent-emitter";
+
+const LOG_PREFIX = "[retrieval-agent]";
+
+function logDebug(message: string, ...args: unknown[]) {
+  console.debug(`${LOG_PREFIX} ${message}`, ...args);
+}
 
 export interface RetrievalResult {
   relevant_folders: string[];
@@ -139,89 +142,61 @@ export async function runRetrievalAgent(
       list_files: scopedListFiles,
       read_file: scopedReadFile,
     };
-    const { handleToolCallStart, handleToolCallFinish } =
-      createSubAgentToolCallbacks<typeof scopedTools>(saId);
 
-    const { text } = await generateText({
+    const toolCallIndices = new Map<string, number>();
+    let nextToolCallIndex = 0;
+
+    const result = streamText({
       model,
       system: retrievalAgentPrompt,
       prompt: userPrompt,
       tools: scopedTools,
       stopWhen: stepCountIs(5),
       abortSignal,
-      experimental_onToolCallStart: handleToolCallStart,
-      experimental_onToolCallFinish: handleToolCallFinish,
+      onChunk({ chunk }) {
+        if (chunk.type === "text-delta") {
+          emitSubAgentEvent({ type: "text-delta", id: saId, delta: chunk.text });
+        } else if (chunk.type === "tool-call") {
+          const toolCallIndex = nextToolCallIndex++;
+          toolCallIndices.set(chunk.toolCallId, toolCallIndex);
+          emitSubAgentEvent({
+            type: "tool-call",
+            id: saId,
+            toolCall: {
+              toolCallId: chunk.toolCallId,
+              toolName: chunk.toolName,
+              args: chunk.input,
+              status: "running",
+            },
+          });
+        } else if (chunk.type === "tool-result") {
+          const toolCallIndex = toolCallIndices.get(chunk.toolCallId) ?? nextToolCallIndex++;
+          emitSubAgentEvent({
+            type: "tool-result",
+            id: saId,
+            toolCallId: chunk.toolCallId,
+            toolCallIndex,
+            result: chunk.output,
+            status: "complete",
+          });
+        }
+      },
     });
 
-    emitSubAgentEvent({ type: "text-delta", id: saId, delta: text });
+    const text = await result.text;
 
-    const result = parseRetrievalResult(text, candidateFolders);
+    logDebug("stream completed", {
+      textLength: text.length,
+      toolCallCount: nextToolCallIndex,
+    });
+
+    const parsed = parseRetrievalResult(text, candidateFolders);
     emitSubAgentEvent({ type: "complete", id: saId });
-    return result;
+    return parsed;
   } catch {
     emitSubAgentEvent({ type: "error", id: saId, error: "Retrieval agent failed" });
     return { relevant_folders: [], relevant_memories: [] };
   }
-}
-
-function createSubAgentToolCallbacks<TOOLS extends ToolSet>(saId: string): {
-  handleToolCallStart: GenerateTextOnToolCallStartCallback<TOOLS>;
-  handleToolCallFinish: GenerateTextOnToolCallFinishCallback<TOOLS>;
-} {
-  const toolCallIndices = new Map<string, number>();
-  let nextToolCallIndex = 0;
-
-  const handleToolCallStart: GenerateTextOnToolCallStartCallback<TOOLS> = ({
-    toolCall,
-  }) => {
-    const toolCallIndex = nextToolCallIndex++;
-    toolCallIndices.set(toolCall.toolCallId, toolCallIndex);
-    emitSubAgentEvent({
-      type: "tool-call",
-      id: saId,
-      toolCall: {
-        toolCallId: toolCall.toolCallId,
-        toolName: toolCall.toolName,
-        args: toolCall.input,
-        status: "running",
-      },
-    });
-  };
-
-  const handleToolCallFinish: GenerateTextOnToolCallFinishCallback<TOOLS> = (
-    event,
-  ) => {
-    let toolCallIndex = toolCallIndices.get(event.toolCall.toolCallId);
-    if (toolCallIndex === undefined) {
-      toolCallIndex = nextToolCallIndex++;
-      toolCallIndices.set(event.toolCall.toolCallId, toolCallIndex);
-      emitSubAgentEvent({
-        type: "tool-call",
-        id: saId,
-        toolCall: {
-          toolCallId: event.toolCall.toolCallId,
-          toolName: event.toolCall.toolName,
-          args: event.toolCall.input,
-          status: "running",
-        },
-      });
-    }
-
-    emitSubAgentEvent({
-      type: "tool-result",
-      id: saId,
-      toolCallId: event.toolCall.toolCallId,
-      toolCallIndex,
-      result: event.success ? event.output : formatToolError(event.error),
-      status: event.success ? "complete" : "error",
-    });
-  };
-
-  return { handleToolCallStart, handleToolCallFinish };
-}
-
-function formatToolError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function parseRetrievalResult(text: string, candidates: Set<string>): RetrievalResult {

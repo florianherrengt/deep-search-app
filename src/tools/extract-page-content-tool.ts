@@ -1,8 +1,10 @@
-import { tool, zodSchema, generateText, type LanguageModel } from "ai";
+import { tool, zodSchema, streamText, type LanguageModel } from "ai";
 import { load, type CheerioAPI } from "cheerio";
 import type { AnyNode, Element, Text } from "domhandler";
 import { z } from "zod";
 import { invoke } from "@/lib/tauri-bridge";
+import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
+import { createSubAgentId } from "@/lib/sub-agent-types";
 import {
   abortableDelay,
   abortablePromise,
@@ -177,16 +179,22 @@ async function summarizeContent(
   markdown: string,
   query?: string,
   abortSignal?: AbortSignal,
+  subAgentId?: string,
 ): Promise<string> {
   if (!markdown.trim()) return "";
-  const { text } = await generateText({
+  const result = streamText({
     model,
     system:
       "You are a research assistant. Extract and summarize the key information from this page content. Be concise but thorough. Preserve factual details, names, dates, and numbers.",
     prompt: `${markdown}${query ? `\n\nFocus on information related to: ${query}` : ""}`,
     abortSignal,
   });
-  return text;
+  if (subAgentId) {
+    for await (const textPart of result.textStream) {
+      emitSubAgentEvent({ type: "text-delta", id: subAgentId, delta: textPart });
+    }
+  }
+  return result.text;
 }
 
 const STRUCTURAL_PRUNE_TAGS = [
@@ -648,11 +656,12 @@ async function trySummarizeContent(
   content: string,
   query: string | undefined,
   abortSignal?: AbortSignal,
+  subAgentId?: string,
 ): Promise<string | null> {
   if (!model || !content.trim()) return null;
 
   try {
-    return await summarizeContent(model, content, query, abortSignal);
+    return await summarizeContent(model, content, query, abortSignal, subAgentId);
   } catch (error) {
     if (isAbortError(error)) throw error;
     return null;
@@ -661,9 +670,15 @@ async function trySummarizeContent(
 
 export async function extractPageContent(
   url: string,
-  options: ExtractPageContentOptions = {},
+  options: ExtractPageContentOptions & { subAgentId?: string } = {},
 ): Promise<string> {
   const forced = options.method ?? "auto";
+  const saId = options.subAgentId;
+
+  if (saId) {
+    emitSubAgentEvent({ type: "text-delta", id: saId, delta: `Extracting content from ${url}...\n\n` });
+  }
+
   const { html, content, usedCustomExtractor } = await extractRawContent(
     url,
     forced,
@@ -683,6 +698,7 @@ export async function extractPageContent(
         content,
         options.query,
         options.abortSignal,
+        saId,
       )) ??
       content
     );
@@ -697,6 +713,7 @@ export async function extractPageContent(
       content,
       options.query,
       options.abortSignal,
+      saId,
     );
     if (summary) {
       await saveSummaryContent(location, summary);
@@ -746,14 +763,42 @@ export function createExtractPageContentTool(
         if (e instanceof UrlValidationError) return `Error: ${e.message}`;
         throw e;
       }
-      return extractPageContent(url, {
-        query,
-        summarize: doSummarize,
-        method,
-        model,
-        getResearchFolder,
-        abortSignal: options?.abortSignal,
+
+      const saId = createSubAgentId();
+      emitSubAgentEvent({
+        type: "start",
+        id: saId,
+        source: "sub-agent",
+        name: "Content Extraction",
+        toolName: "extract_page_content",
+        parentMessageId: "tool",
       });
+
+      try {
+        const result = await extractPageContent(url, {
+          query,
+          summarize: doSummarize,
+          method,
+          model,
+          getResearchFolder,
+          abortSignal: options?.abortSignal,
+          subAgentId: saId,
+        });
+
+        emitSubAgentEvent({ type: "complete", id: saId });
+        return result;
+      } catch (error) {
+        if (options?.abortSignal?.aborted) {
+          emitSubAgentEvent({ type: "error", id: saId, error: "Cancelled" });
+        } else {
+          emitSubAgentEvent({
+            type: "error",
+            id: saId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        throw error;
+      }
     },
   });
 }
