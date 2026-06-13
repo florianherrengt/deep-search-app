@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Collapse, ScrollArea, Text, UnstyledButton } from "@mantine/core";
 import { BotIcon, ChevronDownIcon, XIcon } from "lucide-react";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
@@ -17,6 +17,12 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   const runs = store.getRuns(chatId);
   const selectedRun = store.getSelectedRun(chatId);
   const [openRunIds, setOpenRunIds] = useState<Set<string>>(() => new Set());
+  const userCollapsedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    setOpenRunIds(new Set());
+    userCollapsedRef.current = new Set();
+  }, [chatId]);
 
   useEffect(() => {
     setOpenRunIds((current) => {
@@ -24,7 +30,7 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
       let changed = false;
 
       for (const run of runs) {
-        if ((run.status === "running" || run.status === "streaming") && !next.has(run.id)) {
+        if ((run.status === "running" || run.status === "streaming") && !next.has(run.id) && !userCollapsedRef.current.has(run.id)) {
           next.add(run.id);
           changed = true;
         }
@@ -32,6 +38,7 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
 
       if (selectedRun && !next.has(selectedRun.id)) {
         next.add(selectedRun.id);
+        userCollapsedRef.current.delete(selectedRun.id);
         changed = true;
       }
 
@@ -96,8 +103,10 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
                       const wasOpen = next.has(run.id);
                       if (wasOpen) {
                         next.delete(run.id);
+                        userCollapsedRef.current.add(run.id);
                       } else {
                         next.add(run.id);
+                        userCollapsedRef.current.delete(run.id);
                       }
                       return next;
                     });
@@ -118,7 +127,7 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   );
 }
 
-function SubAgentRunCard({
+const SubAgentRunCard = memo(function SubAgentRunCard({
   run,
   opened,
   onToggle,
@@ -191,11 +200,24 @@ function SubAgentRunCard({
       </Collapse>
     </Box>
   );
-}
+}, (prev, next) =>
+  prev.opened === next.opened &&
+  prev.run.id === next.run.id &&
+  prev.run.status === next.run.status &&
+  prev.run.text === next.run.text &&
+  prev.run.error === next.run.error &&
+  prev.run.name === next.run.name &&
+  prev.run.chatId === next.run.chatId &&
+  prev.run.startedAt === next.run.startedAt &&
+  prev.run.finishedAt === next.run.finishedAt &&
+  prev.run.toolCalls === next.run.toolCalls &&
+  prev.run.report === next.run.report
+);
 
 function SubAgentTranscript({ run }: { run: SubAgentRun }) {
   const hasContent = run.text.trim().length > 0;
   const isActive = run.status === "running" || run.status === "streaming";
+  const isCancelled = run.status === "cancelled";
 
   return (
     <Box style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -207,14 +229,23 @@ function SubAgentTranscript({ run }: { run: SubAgentRun }) {
         <Text size="sm" c="dimmed">
           Waiting for sub-agent output...
         </Text>
-      ) : null}
+      ) : (
+        <Text size="sm" c="dimmed" fs="italic">
+          No output produced.
+        </Text>
+      )}
 
       {run.toolCalls.length > 0 && (
         <SubAgentToolCallsDebug toolCalls={run.toolCalls} />
       )}
 
-      {run.error && (
+      {run.error && !isCancelled && (
         <SubAgentErrorDisplay error={run.error} report={run.report} />
+      )}
+      {isCancelled && (
+        <Text size="sm" c="dimmed" fs="italic">
+          Cancelled by user.
+        </Text>
       )}
     </Box>
   );
@@ -369,18 +400,19 @@ function getStatusMeta(status: SubAgentRun["status"]): {
       return { label: "completed", color: "teal" };
     case "failed":
       return { label: "failed", color: "red" };
+    case "cancelled":
+      return { label: "cancelled", color: "dimmed" };
   }
 }
 
 function getDuration(run: SubAgentRun): string {
-  const isActive = run.status === "running" || run.status === "streaming";
-  if (isActive) return "now";
   if (!run.startedAt) return "";
   const start = new Date(run.startedAt).getTime();
   const end = run.finishedAt
     ? new Date(run.finishedAt).getTime()
     : Date.now();
   const ms = end - start;
+  if (ms < 0) return "";
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.floor(ms / 60_000)}m`;

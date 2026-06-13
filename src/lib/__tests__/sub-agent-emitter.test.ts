@@ -3,28 +3,80 @@ import {
   emitSubAgentEvent,
   getParentMessageId,
   setActiveSubAgentEmitter,
+  setDirectEventHandler,
   withEmitter,
   withEmitterAsync,
 } from "@/lib/sub-agent-emitter";
 import type { SubAgentEvent } from "@/lib/sub-agent-types";
 
+const startEvent = (id: string): SubAgentEvent => ({
+  type: "start",
+  id,
+  name: "test",
+  toolName: "t",
+  parentMessageId: "msg",
+});
+
 describe("emitSubAgentEvent", () => {
   afterEach(() => {
     setActiveSubAgentEmitter(null, null);
+    setDirectEventHandler("chatA", null);
+    setDirectEventHandler("chatB", null);
   });
 
   it("does nothing when no emitter is set", () => {
-    expect(() =>
-      emitSubAgentEvent({ type: "start", id: "1", name: "test", toolName: "t", parentMessageId: "msg" }),
-    ).not.toThrow();
+    expect(() => emitSubAgentEvent(startEvent("1"))).not.toThrow();
   });
 
   it("calls the active emitter when set", () => {
     const emitter = vi.fn();
     setActiveSubAgentEmitter(emitter, "msg-1");
-    const event: SubAgentEvent = { type: "start", id: "1", name: "test", toolName: "t", parentMessageId: "msg-1" };
+    const event = startEvent("1");
     emitSubAgentEvent(event);
     expect(emitter).toHaveBeenCalledWith(event);
+  });
+
+  it("routes direct handler events to the correct chatId", () => {
+    const handlerA = vi.fn();
+    const handlerB = vi.fn();
+    setDirectEventHandler("chatA", handlerA);
+    setDirectEventHandler("chatB", handlerB);
+
+    setActiveSubAgentEmitter(vi.fn(), null, "chatA");
+    emitSubAgentEvent(startEvent("1"));
+    expect(handlerA).toHaveBeenCalledWith(startEvent("1"));
+    expect(handlerB).not.toHaveBeenCalled();
+  });
+
+  it("does not route to wrong chat when multiple handlers registered", () => {
+    const handlerA = vi.fn();
+    const handlerB = vi.fn();
+    setDirectEventHandler("chatA", handlerA);
+    setDirectEventHandler("chatB", handlerB);
+
+    setActiveSubAgentEmitter(vi.fn(), null, "chatB");
+    emitSubAgentEvent(startEvent("1"));
+    expect(handlerB).toHaveBeenCalledWith(startEvent("1"));
+    expect(handlerA).not.toHaveBeenCalled();
+  });
+
+  it("does not call any handler when chatId does not match", () => {
+    const handlerA = vi.fn();
+    setDirectEventHandler("chatA", handlerA);
+
+    setActiveSubAgentEmitter(vi.fn(), null, "chatUnknown");
+    emitSubAgentEvent(startEvent("1"));
+    expect(handlerA).not.toHaveBeenCalled();
+  });
+
+  it("unregisters handler when setDirectEventHandler is called with null", () => {
+    const handlerA = vi.fn();
+    setDirectEventHandler("chatA", handlerA);
+    setDirectEventHandler("chatA", null);
+
+    setActiveSubAgentEmitter(vi.fn(), null, "chatA");
+    emitSubAgentEvent(startEvent("1"));
+    expect(handlerA).not.toHaveBeenCalled();
   });
 });
 
@@ -56,7 +108,7 @@ describe("withEmitter", () => {
 
     const result = withEmitter(emitter, "new-msg", () => {
       expect(getParentMessageId()).toBe("new-msg");
-      emitSubAgentEvent({ type: "start", id: "1", name: "t", toolName: "t", parentMessageId: "new-msg" });
+      emitSubAgentEvent(startEvent("1"));
       expect(emitter).toHaveBeenCalled();
       return 42;
     });
@@ -64,7 +116,7 @@ describe("withEmitter", () => {
     expect(result).toBe(42);
     expect(getParentMessageId()).toBe("old-msg");
 
-    emitSubAgentEvent({ type: "start", id: "2", name: "t", toolName: "t", parentMessageId: "old-msg" });
+    emitSubAgentEvent(startEvent("2"));
     expect(prevEmitter).toHaveBeenCalled();
     expect(emitter).toHaveBeenCalledTimes(1);
   });
@@ -82,7 +134,7 @@ describe("withEmitterAsync", () => {
 
     const result = await withEmitterAsync(emitter, "new-msg", async () => {
       expect(getParentMessageId()).toBe("new-msg");
-      emitSubAgentEvent({ type: "start", id: "1", name: "t", toolName: "t", parentMessageId: "new-msg" });
+      emitSubAgentEvent(startEvent("1"));
       expect(emitter).toHaveBeenCalled();
       return "async-result";
     });
@@ -90,9 +142,43 @@ describe("withEmitterAsync", () => {
     expect(result).toBe("async-result");
     expect(getParentMessageId()).toBe("old-msg");
 
-    emitSubAgentEvent({ type: "start", id: "2", name: "t", toolName: "t", parentMessageId: "old-msg" });
+    emitSubAgentEvent(startEvent("2"));
     expect(prevEmitter).toHaveBeenCalled();
     expect(emitter).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("concurrent chat isolation", () => {
+  afterEach(() => {
+    setActiveSubAgentEmitter(null, null);
+    setDirectEventHandler("chatA", null);
+    setDirectEventHandler("chatB", null);
+  });
+
+  it("events from one chat do not leak to another chat's emitter", () => {
+    const emitterA = vi.fn();
+    const emitterB = vi.fn();
+
+    setActiveSubAgentEmitter(emitterA, "msg-a", "chatA");
+    setActiveSubAgentEmitter(emitterB, "msg-b", "chatB");
+
+    emitSubAgentEvent(startEvent("1"));
+    expect(emitterB).toHaveBeenCalledWith(startEvent("1"));
+    expect(emitterA).not.toHaveBeenCalled();
+
+    setActiveSubAgentEmitter(emitterA, "msg-a", "chatA");
+    emitSubAgentEvent(startEvent("2"));
+    expect(emitterA).toHaveBeenCalledWith(startEvent("2"));
+  });
+
+  it("captured emitter function continues routing after global is cleared", () => {
+    const capturedEmitter = vi.fn();
+
+    setActiveSubAgentEmitter(capturedEmitter, "msg-a", "chatA");
+    setActiveSubAgentEmitter(null, null, null);
+
+    capturedEmitter(startEvent("1"));
+    expect(capturedEmitter).toHaveBeenCalledWith(startEvent("1"));
   });
 });
 
@@ -110,13 +196,13 @@ describe("nested withEmitter", () => {
 
       withEmitter(innerEmitter, "inner-msg", () => {
         expect(getParentMessageId()).toBe("inner-msg");
-        emitSubAgentEvent({ type: "start", id: "1", name: "t", toolName: "t", parentMessageId: "inner-msg" });
+        emitSubAgentEvent(startEvent("1"));
         expect(innerEmitter).toHaveBeenCalled();
         expect(outerEmitter).not.toHaveBeenCalled();
       });
 
       expect(getParentMessageId()).toBe("outer-msg");
-      emitSubAgentEvent({ type: "start", id: "2", name: "t", toolName: "t", parentMessageId: "outer-msg" });
+      emitSubAgentEvent(startEvent("2"));
       expect(outerEmitter).toHaveBeenCalledTimes(1);
     });
   });

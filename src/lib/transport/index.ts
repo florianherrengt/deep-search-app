@@ -98,7 +98,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
           });
         };
 
-        setActiveSubAgentEmitter(subAgentEmitter, null);
+        setActiveSubAgentEmitter(subAgentEmitter, null, transport.researchChatId);
 
         try {
           if (!transport.researchFolder) {
@@ -145,11 +145,13 @@ export class DirectTransport implements ChatTransport<UIMessage> {
                 messageLength: candidate.text.length,
                 messagePreview: candidate.text.slice(0, 100),
               });
+              const extractionFolder = transport.researchFolder;
               void extractAndStoreMemories(
                 candidate.text,
-                async () => transport.researchFolder!,
+                async () => extractionFolder!,
                 model,
                 abortSignal,
+                { emitEvent: subAgentEmitter },
               ).catch((err) => {
                 logDebug("memory extraction failed", {
                   messageId: candidate.id,
@@ -195,7 +197,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
             controller.enqueue({ type: "finish", finishReason: "error" });
           }
         } finally {
-          setActiveSubAgentEmitter(null, null);
+          setActiveSubAgentEmitter(null, null, null);
           controller.close();
         }
       },

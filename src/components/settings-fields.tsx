@@ -166,7 +166,18 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
   );
 
   async function handleCommit(key: keyof Settings, value: string) {
-    if (value !== settings[key]) {
+    const currentValue = settings[key];
+    if (typeof currentValue === "number") {
+      const trimmed = value.trim();
+      if (trimmed === "") return;
+      const parsed = Number(trimmed);
+      if (Number.isNaN(parsed)) return;
+      if (!Number.isInteger(parsed) || parsed < 1) return;
+      if (parsed === currentValue) return;
+      await updateSetting(key, parsed as Settings[typeof key]);
+      return;
+    }
+    if (value !== currentValue) {
       await updateSetting(key, value as Settings[typeof key]);
     }
   }

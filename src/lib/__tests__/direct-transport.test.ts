@@ -310,6 +310,9 @@ describe("DirectTransport research folder lifecycle", () => {
     );
 
     expect(fsMocks.remove).toHaveBeenCalledWith(
+      "search-results/earnings-research/chats/2026-05-22T10-11-12.123Z.json",
+    );
+    expect(fsMocks.remove).not.toHaveBeenCalledWith(
       "search-results/earnings-research",
       { recursive: true },
     );
@@ -836,6 +839,7 @@ describe("DirectTransport coffee beans scenario", () => {
       expect.any(Function),
       expect.anything(),
       undefined,
+      { emitEvent: expect.any(Function) },
     );
   });
 
@@ -927,7 +931,103 @@ describe("DirectTransport coffee beans scenario", () => {
       expect.any(Function),
       expect.anything(),
       undefined,
+      { emitEvent: expect.any(Function) },
     );
+  });
+});
+
+describe("DirectTransport error handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fsMocks.exists.mockResolvedValue(true);
+    fsMocks.readDir.mockResolvedValue([]);
+    fsMocks.mkdir.mockResolvedValue(undefined);
+    fsMocks.writeTextFile.mockResolvedValue(undefined);
+    fsMocks.rename.mockResolvedValue(undefined);
+    fsMocks.remove.mockResolvedValue(undefined);
+    tauriMocks.invoke.mockResolvedValue(undefined);
+    mockedExtractAndStoreMemories.mockResolvedValue({ memoriesStored: 0 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("emits error + finish(error) when model streaming throws", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        throw new Error("Provider connection refused");
+      },
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const transport = createTransport(vi.fn());
+    transport.setResearchFolder("test-folder");
+
+    const chunks = await collectChunks(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("test query")],
+        abortSignal: undefined,
+      }),
+    );
+
+    const errorChunk = chunks.find(
+      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "error",
+    );
+    const finishChunk = chunks.find(
+      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "finish",
+    );
+
+    expect(errorChunk).toEqual(
+      expect.objectContaining({
+        type: "error",
+        errorText: "Provider connection refused",
+      }),
+    );
+    expect(finishChunk).toEqual(
+      expect.objectContaining({
+        type: "finish",
+        finishReason: "error",
+      }),
+    );
+  });
+
+  it("emits finish(stop) on successful completion", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async () => ({
+        stream: simulateReadableStream({ chunks: textChunks("All done.") }),
+      }),
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const transport = createTransport(vi.fn());
+    transport.setResearchFolder("test-folder");
+
+    const chunks = await collectChunks(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("test query")],
+        abortSignal: undefined,
+      }),
+    );
+
+    const finishChunk = chunks.find(
+      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "finish",
+    );
+    expect(finishChunk).toEqual(
+      expect.objectContaining({
+        type: "finish",
+        finishReason: "stop",
+      }),
+    );
+
+    const errorChunks = chunks.filter(
+      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "error",
+    );
+    expect(errorChunks).toHaveLength(0);
   });
 });
 

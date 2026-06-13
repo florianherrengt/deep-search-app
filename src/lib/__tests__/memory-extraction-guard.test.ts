@@ -126,6 +126,7 @@ describe("DirectTransport memory extraction guard", () => {
       expect.any(Function),
       expect.anything(),
       undefined,
+      { emitEvent: expect.any(Function) },
     );
   });
 
@@ -319,6 +320,7 @@ describe("DirectTransport memory extraction guard", () => {
       expect.any(Function),
       expect.anything(),
       undefined,
+      { emitEvent: expect.any(Function) },
     );
     expect(mockedExtractAndStoreMemories).toHaveBeenNthCalledWith(
       2,
@@ -326,6 +328,7 @@ describe("DirectTransport memory extraction guard", () => {
       expect.any(Function),
       expect.anything(),
       undefined,
+      { emitEvent: expect.any(Function) },
     );
     expect(mockedExtractAndStoreMemories).toHaveBeenNthCalledWith(
       3,
@@ -333,6 +336,7 @@ describe("DirectTransport memory extraction guard", () => {
       expect.any(Function),
       expect.anything(),
       undefined,
+      { emitEvent: expect.any(Function) },
     );
   });
 
@@ -367,6 +371,7 @@ describe("DirectTransport memory extraction guard", () => {
       expect.any(Function),
       expect.anything(),
       undefined,
+      { emitEvent: expect.any(Function) },
     );
   });
 
@@ -422,6 +427,7 @@ describe("DirectTransport memory extraction guard", () => {
       expect.any(Function),
       expect.anything(),
       undefined,
+      { emitEvent: expect.any(Function) },
     );
   });
 });

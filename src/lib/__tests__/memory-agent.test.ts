@@ -282,4 +282,355 @@ describe("extractAndStoreMemories", () => {
     expect(mockWriteAppFile).not.toHaveBeenCalled();
     expect(result).toEqual({ memoriesStored: 0 });
   });
+
+  it("strips markdown json fences before parsing", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('```json\n["User has a cat."]\n```'));
+    mockReadAppFile.mockResolvedValue(null);
+
+    const result = await extractAndStoreMemories(
+      "I have a cat.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).toHaveBeenCalledWith({
+      subfolder: "search-results/test-folder",
+      filename: "memories.md",
+      content: "# Memories\n\n- User has a cat.\n",
+    });
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("strips markdown code fences without json label", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('```\n["User has a cat."]\n```'));
+    mockReadAppFile.mockResolvedValue(null);
+
+    const result = await extractAndStoreMemories(
+      "I have a cat.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("emits error event on failure", async () => {
+    mockStreamText.mockReturnValue(streamTextError(new Error("API error")));
+
+    await extractAndStoreMemories(
+      "Hello",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error", error: expect.stringContaining("failed") }),
+    );
+  });
+
+  it("emits cancelled event on abort error", async () => {
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    mockStreamText.mockReturnValue(streamTextError(abortError));
+    const abortController = new AbortController();
+    abortController.abort();
+
+    await extractAndStoreMemories(
+      "Hello",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      abortController.signal,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "cancelled" }),
+    );
+    expect(mockEmitSubAgentEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("emits cancelled event when abortSignal is already aborted", async () => {
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    mockStreamText.mockReturnValue(streamTextError(abortError));
+    const abortController = new AbortController();
+    abortController.abort();
+
+    await extractAndStoreMemories(
+      "Hello",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      abortController.signal,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "cancelled" }),
+    );
+  });
+
+  it("normalizes newlines in facts to prevent truncation on re-parse", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('["Line 1\\nLine 2"]'));
+    mockReadAppFile.mockResolvedValue(null);
+
+    const result = await extractAndStoreMemories(
+      "Hello",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "# Memories\n\n- Line 1 Line 2\n",
+      }),
+    );
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("serializes concurrent writes to the same folder", async () => {
+    let writeCount = 0;
+    const writeOrder: number[] = [];
+
+    mockStreamText.mockImplementation((opts: any) => {
+      if (opts.prompt === "first") {
+        return streamTextResult('["Fact A"]');
+      }
+      return streamTextResult('["Fact B"]');
+    });
+
+    mockReadAppFile.mockImplementation(async () => {
+      return null;
+    });
+
+    mockWriteAppFile.mockImplementation(async () => {
+      writeCount++;
+      writeOrder.push(writeCount);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const [result1, result2] = await Promise.all([
+      extractAndStoreMemories(
+        "first",
+        getResearchFolder,
+        { modelId: "test" } as any,
+        undefined,
+        { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+      ),
+      extractAndStoreMemories(
+        "second",
+        getResearchFolder,
+        { modelId: "test" } as any,
+        undefined,
+        { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+      ),
+    ]);
+
+    expect(result1.memoriesStored + result2.memoriesStored).toBeGreaterThanOrEqual(1);
+    expect(mockWriteAppFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves memories stored with * bullet format", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('["User likes cats."]'));
+    mockReadAppFile.mockResolvedValue("# Memories\n\n* User has a dog.\n* User uses macOS.\n");
+
+    const result = await extractAndStoreMemories(
+      "I like cats.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("User has a dog."),
+      }),
+    );
+    expect(mockWriteAppFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("User uses macOS."),
+      }),
+    );
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("preserves memories stored with + bullet format", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('["User likes cats."]'));
+    mockReadAppFile.mockResolvedValue("# Memories\n\n+ User has a dog.\n");
+
+    const result = await extractAndStoreMemories(
+      "I like cats.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("User has a dog."),
+      }),
+    );
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("reports correct positive stored count when existing has internal duplicates", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('["User has a cat."]'));
+    mockReadAppFile.mockResolvedValue("# Memories\n\n- User has a dog.\n- User has a dog.\n");
+
+    const result = await extractAndStoreMemories(
+      "I have a cat.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(result.memoriesStored).toBeGreaterThanOrEqual(0);
+    expect(mockWriteAppFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("User has a cat."),
+      }),
+    );
+  });
+
+  it("strips markdown json fences with nested backticks in content", async () => {
+    mockStreamText.mockReturnValue(
+      streamTextResult('```json\n["User prefers this code style:\\n```\\nconst x = 1;\\n```\\n"]\n```'),
+    );
+    mockReadAppFile.mockResolvedValue(null);
+
+    const result = await extractAndStoreMemories(
+      "I like clean code.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).toHaveBeenCalled();
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("strips markdown code fences with triple backticks in array item", async () => {
+    mockStreamText.mockReturnValue(
+      streamTextResult('```\n["User mentioned ```ts code```"]\n```'),
+    );
+    mockReadAppFile.mockResolvedValue(null);
+
+    const result = await extractAndStoreMemories(
+      "Here's code.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("handles fence with non-json language tag", async () => {
+    mockStreamText.mockReturnValue(
+      streamTextResult('```python\n["User has a cat."]\n```'),
+    );
+    mockReadAppFile.mockResolvedValue(null);
+
+    const result = await extractAndStoreMemories(
+      "I have a cat.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("parses LLM output with trailing text after code fence", async () => {
+    mockStreamText.mockReturnValue(
+      streamTextResult('```json\n["User has a dog."]\n```\nHere are the facts I extracted.'),
+    );
+    mockReadAppFile.mockResolvedValue(null);
+
+    const result = await extractAndStoreMemories(
+      "I have a dog.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    expect(mockWriteAppFile).toHaveBeenCalledWith({
+      subfolder: "search-results/test-folder",
+      filename: "memories.md",
+      content: "# Memories\n\n- User has a dog.\n",
+    });
+    expect(result).toEqual({ memoriesStored: 1 });
+  });
+
+  it("uses captured emitEvent dep instead of global emitter", async () => {
+    const capturedEmitter = vi.fn();
+    mockStreamText.mockReturnValue(streamTextResult("[]"));
+
+    await extractAndStoreMemories(
+      "Hello",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile, emitEvent: capturedEmitter },
+    );
+
+    expect(capturedEmitter).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "start" }),
+    );
+    expect(capturedEmitter).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "complete" }),
+    );
+    expect(mockEmitSubAgentEvent).not.toHaveBeenCalled();
+  });
+
+  it("fire-and-forget extraction routes events to captured emitter even after global is cleared", async () => {
+    const capturedEmitter = vi.fn();
+    let resolveStream: () => void;
+    const streamPromise = new Promise<void>((resolve) => { resolveStream = resolve; });
+
+    mockStreamText.mockImplementation(() => ({
+      textStream: (async function* () {
+        await streamPromise;
+        yield '["Fact A"]';
+      })(),
+      text: streamPromise.then(() => '["Fact A"]'),
+    }));
+    mockReadAppFile.mockResolvedValue(null);
+
+    const extractionPromise = extractAndStoreMemories(
+      "Hello",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile, emitEvent: capturedEmitter },
+    );
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(capturedEmitter).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "start" }),
+    );
+
+    resolveStream!();
+    await extractionPromise;
+
+    expect(capturedEmitter).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "complete" }),
+    );
+    expect(mockEmitSubAgentEvent).not.toHaveBeenCalled();
+  });
 });

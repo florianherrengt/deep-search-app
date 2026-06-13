@@ -155,15 +155,10 @@ export function createGuardedStream({
           sendStart = false;
         }
       } catch (error) {
-        if (!abortSignal?.aborted) {
-          controller.enqueue({
-            type: "error",
-            errorText:
-              error instanceof Error
-                ? error.message
-                : "Agent guardrail stream failed.",
-          });
+        if (abortSignal?.aborted) {
+          return;
         }
+        throw error;
       }
     })();
 }
@@ -216,8 +211,18 @@ async function runAttempt({
 
   await pipeUIMessageStream(stream, controller, abortSignal);
 
-  const finishReason = await result.finishReason;
-  const totalUsage = await result.totalUsage;
+  let finishReason: FinishReason | undefined;
+  let totalUsage: Awaited<typeof result.totalUsage> | undefined;
+
+  try {
+    finishReason = await result.finishReason;
+    totalUsage = await result.totalUsage;
+  } catch (err) {
+    if (!abortSignal?.aborted) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Model attempt finished without a response message: ${message}`);
+    }
+  }
 
   if (!finish) {
     throw new Error("Model attempt finished without a response message.");
@@ -226,9 +231,9 @@ async function runAttempt({
   finish.finishReason = finish.finishReason ?? finishReason;
   if (totalUsage) {
     finish.usage = {
-      inputTokens: totalUsage.inputTokens,
-      outputTokens: totalUsage.outputTokens,
-      totalTokens: totalUsage.totalTokens,
+      inputTokens: totalUsage.inputTokens ?? undefined,
+      outputTokens: totalUsage.outputTokens ?? undefined,
+      totalTokens: totalUsage.totalTokens ?? undefined,
     };
   }
 
