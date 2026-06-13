@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
   type ReactNode,
@@ -21,7 +22,6 @@ import {
 interface SubAgentStoreState {
   runsByChat: Record<string, SubAgentRun[]>;
   selectedRunId: string | null;
-  processedEventFingerprints: Set<string>;
 }
 
 interface SubAgentStoreActions {
@@ -39,19 +39,120 @@ type SubAgentStore = SubAgentStoreState & SubAgentStoreActions;
 
 const SubAgentContext = createContext<SubAgentStore | null>(null);
 
+const TEXT_DELTA_FLUSH_DELAY_MS = 100;
+
+interface PendingTextDelta {
+  chatId: string;
+  runId: string;
+  delta: string;
+  chunksReceived: number;
+}
+
+interface PendingTextDeltaFilter {
+  chatId?: string;
+  runId?: string;
+}
+
 export function SubAgentProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SubAgentStoreState>({
     runsByChat: {},
     selectedRunId: null,
-    processedEventFingerprints: new Set(),
   });
 
   const stateRef = useRef(state);
   stateRef.current = state;
 
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const processedEventFingerprintsRef = useRef<Set<string>>(new Set());
+  const pendingTextDeltasRef = useRef<Map<string, PendingTextDelta>>(new Map());
+  const textDeltaFlushTimerRef = useRef<number | null>(null);
+
+  const clearScheduledTextDeltaFlush = useCallback(() => {
+    if (textDeltaFlushTimerRef.current !== null) {
+      window.clearTimeout(textDeltaFlushTimerRef.current);
+      textDeltaFlushTimerRef.current = null;
+    }
+  }, []);
+
+  const flushPendingTextDeltas = useCallback(
+    (filter: PendingTextDeltaFilter = {}) => {
+      const pending = pendingTextDeltasRef.current;
+      const batches: PendingTextDelta[] = [];
+
+      for (const [key, batch] of pending) {
+        if (filter.chatId && batch.chatId !== filter.chatId) continue;
+        if (filter.runId && batch.runId !== filter.runId) continue;
+
+        batches.push(batch);
+        pending.delete(key);
+      }
+
+      if (pending.size === 0) {
+        clearScheduledTextDeltaFlush();
+      }
+
+      if (batches.length === 0) return;
+
+      setState((prev) => {
+        let nextRunsByChat: Record<string, SubAgentRun[]> | null = null;
+
+        for (const batch of batches) {
+          const currentRunsByChat = nextRunsByChat ?? prev.runsByChat;
+          const chatRuns = currentRunsByChat[batch.chatId] ?? [];
+          const updated = applyTextDeltaBatch(
+            chatRuns,
+            batch.runId,
+            batch.delta,
+            batch.chunksReceived,
+            batch.chatId,
+          );
+
+          if (updated === chatRuns) continue;
+
+          nextRunsByChat ??= { ...prev.runsByChat };
+          nextRunsByChat[batch.chatId] = updated;
+        }
+
+        return nextRunsByChat ? { ...prev, runsByChat: nextRunsByChat } : prev;
+      });
+    },
+    [clearScheduledTextDeltaFlush],
+  );
+
+  const scheduleTextDeltaFlush = useCallback(() => {
+    if (textDeltaFlushTimerRef.current !== null) return;
+
+    textDeltaFlushTimerRef.current = window.setTimeout(() => {
+      textDeltaFlushTimerRef.current = null;
+      flushPendingTextDeltas();
+    }, TEXT_DELTA_FLUSH_DELAY_MS);
+  }, [flushPendingTextDeltas]);
+
+  const clearPendingTextDeltasForChat = useCallback(
+    (chatId: string) => {
+      const pending = pendingTextDeltasRef.current;
+      for (const [key, batch] of pending) {
+        if (batch.chatId === chatId) {
+          pending.delete(key);
+        }
+      }
+
+      if (pending.size === 0) {
+        clearScheduledTextDeltaFlush();
+      }
+    },
+    [clearScheduledTextDeltaFlush],
+  );
+
+  useEffect(
+    () => () => {
+      clearScheduledTextDeltaFlush();
+    },
+    [clearScheduledTextDeltaFlush],
+  );
 
   const loadRuns = useCallback((chatId: string, runs: SubAgentRun[]) => {
+    clearPendingTextDeltasForChat(chatId);
     setState((prev) => ({
       ...prev,
       runsByChat: {
@@ -59,11 +160,12 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
         [chatId]: normalizeSubAgentRuns(runs, chatId),
       },
     }));
-  }, []);
+  }, [clearPendingTextDeltasForChat]);
 
   const loadRunsFromDisk = useCallback(
     async (chatId: string, folderName: string) => {
       try {
+        flushPendingTextDeltas({ chatId });
         const runs = await readSubAgentRuns(folderName, chatId);
         setState((prev) => {
           const existing = prev.runsByChat[chatId] ?? [];
@@ -85,61 +187,60 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [],
+    [flushPendingTextDeltas],
   );
 
   const processEvent = useCallback(
     (chatId: string, event: SubAgentEvent) => {
       const fingerprint = getEventFingerprint(chatId, event);
       if (fingerprint !== null) {
-        setState((prev) => {
-          if (prev.processedEventFingerprints.has(fingerprint)) {
-            return prev;
-          }
-          const nextFingerprints = new Set(prev.processedEventFingerprints);
-          nextFingerprints.add(fingerprint);
-          if (nextFingerprints.size > 10_000) {
-            const toDelete: string[] = [];
-            let i = 0;
-            for (const v of nextFingerprints) {
-              if (i >= 5000) break;
-              toDelete.push(v);
-              i++;
-            }
-            for (const v of toDelete) nextFingerprints.delete(v);
-          }
-          const chatRuns = prev.runsByChat[chatId] ?? [];
-          const updated = applyEvent(chatRuns, event, chatId);
-          return {
-            ...prev,
-            processedEventFingerprints: nextFingerprints,
-            runsByChat: { ...prev.runsByChat, [chatId]: updated },
-          };
-        });
-      } else {
-        setState((prev) => {
-          const chatRuns = prev.runsByChat[chatId] ?? [];
-          const updated = applyEvent(chatRuns, event, chatId);
-          return {
-            ...prev,
-            runsByChat: { ...prev.runsByChat, [chatId]: updated },
-          };
-        });
+        const fingerprints = processedEventFingerprintsRef.current;
+        if (fingerprints.has(fingerprint)) return;
+
+        fingerprints.add(fingerprint);
+        pruneEventFingerprints(fingerprints);
       }
+
+      if (event.type === "text-delta") {
+        const pendingKey = getPendingTextDeltaKey(chatId, event.id);
+        const existing = pendingTextDeltasRef.current.get(pendingKey);
+        if (existing) {
+          existing.delta += event.delta;
+          existing.chunksReceived += 1;
+        } else {
+          pendingTextDeltasRef.current.set(pendingKey, {
+            chatId,
+            runId: event.id,
+            delta: event.delta,
+            chunksReceived: 1,
+          });
+        }
+        scheduleTextDeltaFlush();
+        return;
+      }
+
+      flushPendingTextDeltas({ chatId });
+      setState((prev) => {
+        const chatRuns = prev.runsByChat[chatId] ?? [];
+        const updated = applyEvent(chatRuns, event, chatId);
+        if (updated === chatRuns) return prev;
+        return {
+          ...prev,
+          runsByChat: { ...prev.runsByChat, [chatId]: updated },
+        };
+      });
     },
-    [],
+    [flushPendingTextDeltas, scheduleTextDeltaFlush],
   );
 
   const clearRuns = useCallback((chatId: string) => {
+    clearPendingTextDeltasForChat(chatId);
+    removeEventFingerprintsForChat(processedEventFingerprintsRef.current, chatId);
     setState((prev) => {
       const { [chatId]: _, ...rest } = prev.runsByChat;
-      const prefix = `${chatId}:`;
-      const nextFingerprints = new Set(
-        [...prev.processedEventFingerprints].filter((fp) => !fp.startsWith(prefix)),
-      );
-      return { ...prev, runsByChat: rest, processedEventFingerprints: nextFingerprints };
+      return { ...prev, runsByChat: rest };
     });
-  }, []);
+  }, [clearPendingTextDeltasForChat]);
 
   const selectRun = useCallback((runId: string | null) => {
     setState((prev) => ({ ...prev, selectedRunId: runId }));
@@ -148,8 +249,14 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
   const persistRuns = useCallback(
     (chatId: string, folderName: string): Promise<void> => {
       const doWrite = async () => {
-        const runs = stateRef.current.runsByChat[chatId];
-        if (!runs) return;
+        const storedRuns = stateRef.current.runsByChat[chatId];
+        if (!storedRuns && !hasPendingTextDeltasForChat(pendingTextDeltasRef.current, chatId)) return;
+
+        const runs = getRunsWithPendingTextDeltas(
+          storedRuns ?? [],
+          chatId,
+          pendingTextDeltasRef.current,
+        );
         await writeSubAgentRuns(folderName, chatId, runs);
       };
       const prev = writeQueueRef.current;
@@ -167,7 +274,11 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
   );
 
   const getRuns = useCallback(
-    (chatId: string) => state.runsByChat[chatId] ?? [],
+    (chatId: string) => getRunsWithPendingTextDeltas(
+      state.runsByChat[chatId] ?? [],
+      chatId,
+      pendingTextDeltasRef.current,
+    ),
     [state.runsByChat],
   );
 
@@ -175,7 +286,11 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
     (chatId: string) => {
       if (!state.selectedRunId) return null;
       return (
-        state.runsByChat[chatId]?.find((r) => r.id === state.selectedRunId) ??
+        getRunsWithPendingTextDeltas(
+          state.runsByChat[chatId] ?? [],
+          chatId,
+          pendingTextDeltasRef.current,
+        ).find((r) => r.id === state.selectedRunId) ??
         null
       );
     },
@@ -262,19 +377,7 @@ function applyEvent(
     }
 
     case "text-delta": {
-      const withRun = ensureRun(runs, event.id, parentChatId);
-      return updateRun(withRun, event.id, (run) => {
-        const next = run.text + event.delta;
-        return {
-          ...run,
-          status: run.status === "running" ? "streaming" as const : run.status,
-          text:
-            next.length > MAX_SUB_AGENT_TEXT_LENGTH
-              ? next.slice(0, MAX_SUB_AGENT_TEXT_LENGTH)
-              : next,
-          chunksReceived: run.chunksReceived + 1,
-        };
-      });
+      return applyTextDeltaBatch(runs, event.id, event.delta, 1, parentChatId);
     }
 
     case "tool-call": {
@@ -357,9 +460,12 @@ function ensureRun(
   runs: SubAgentRun[],
   id: string,
   parentChatId: string,
+  warnOnStub = true,
 ): SubAgentRun[] {
   if (runs.some((run) => run.id === id)) return runs;
-  console.warn("[sub-agent-store] creating stub run for out-of-order event", { id, eventType: "unknown" });
+  if (warnOnStub) {
+    console.warn("[sub-agent-store] creating stub run for out-of-order event", { id, eventType: "unknown" });
+  }
   return [
     ...runs,
     {
@@ -381,6 +487,88 @@ function ensureRun(
   ];
 }
 
+function applyTextDeltaBatch(
+  runs: SubAgentRun[],
+  id: string,
+  delta: string,
+  chunksReceived: number,
+  parentChatId: string,
+  warnOnStub = true,
+): SubAgentRun[] {
+  const withRun = ensureRun(runs, id, parentChatId, warnOnStub);
+  return updateRun(withRun, id, (run) => {
+    const next = run.text + delta;
+    return {
+      ...run,
+      status: run.status === "running" ? "streaming" as const : run.status,
+      text:
+        next.length > MAX_SUB_AGENT_TEXT_LENGTH
+          ? next.slice(0, MAX_SUB_AGENT_TEXT_LENGTH)
+          : next,
+      chunksReceived: run.chunksReceived + chunksReceived,
+    };
+  });
+}
+
+function getPendingTextDeltaKey(chatId: string, runId: string): string {
+  return `${chatId}:${runId}`;
+}
+
+function getRunsWithPendingTextDeltas(
+  runs: SubAgentRun[],
+  chatId: string,
+  pendingTextDeltas: Map<string, PendingTextDelta>,
+): SubAgentRun[] {
+  let nextRuns = runs;
+  for (const batch of pendingTextDeltas.values()) {
+    if (batch.chatId !== chatId) continue;
+    nextRuns = applyTextDeltaBatch(
+      nextRuns,
+      batch.runId,
+      batch.delta,
+      batch.chunksReceived,
+      chatId,
+      false,
+    );
+  }
+  return nextRuns;
+}
+
+function hasPendingTextDeltasForChat(
+  pendingTextDeltas: Map<string, PendingTextDelta>,
+  chatId: string,
+): boolean {
+  for (const batch of pendingTextDeltas.values()) {
+    if (batch.chatId === chatId) return true;
+  }
+  return false;
+}
+
+function pruneEventFingerprints(fingerprints: Set<string>): void {
+  if (fingerprints.size <= 10_000) return;
+
+  const toDelete: string[] = [];
+  let i = 0;
+  for (const value of fingerprints) {
+    if (i >= 5000) break;
+    toDelete.push(value);
+    i++;
+  }
+  for (const value of toDelete) fingerprints.delete(value);
+}
+
+function removeEventFingerprintsForChat(
+  fingerprints: Set<string>,
+  chatId: string,
+): void {
+  const prefix = `${chatId}:`;
+  for (const fingerprint of fingerprints) {
+    if (fingerprint.startsWith(prefix)) {
+      fingerprints.delete(fingerprint);
+    }
+  }
+}
+
 function getEventFingerprint(chatId: string, event: SubAgentEvent): string | null {
   switch (event.type) {
     case "start":
@@ -389,8 +577,11 @@ function getEventFingerprint(chatId: string, event: SubAgentEvent): string | nul
       const run = event as { id: string; delta: string };
       return `${chatId}:td:${run.id}:${run.delta}`;
     }
-    case "tool-call":
-      return `${chatId}:tc:${event.id}:${event.toolCall.toolCallId ?? event.toolCall.toolName}`;
+    case "tool-call": {
+      const tc = event.toolCall;
+      if (!tc || typeof tc !== "object") return null;
+      return `${chatId}:tc:${event.id}:${tc.toolCallId ?? tc.toolName ?? ""}`;
+    }
     case "tool-result":
       return `${chatId}:tr:${event.id}:${event.toolCallIndex ?? ""}:${event.toolCallId ?? ""}`;
     case "complete":

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Collapse, ScrollArea, Text, UnstyledButton } from "@mantine/core";
 import { BotIcon, ChevronDownIcon, XIcon } from "lucide-react";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
@@ -15,6 +15,7 @@ interface SubAgentSidebarProps {
 export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   const store = useSubAgentStore();
   const runs = store.getRuns(chatId);
+  const deferredRuns = useDeferredValue(runs);
   const selectedRun = store.getSelectedRun(chatId);
   const [openRunIds, setOpenRunIds] = useState<Set<string>>(() => new Set());
   const userCollapsedRef = useRef<Set<string>>(new Set());
@@ -47,8 +48,8 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   }, [runs, selectedRun]);
 
   const visibleRuns = useMemo(
-    () => [...runs].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
-    [runs],
+    () => [...deferredRuns].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
+    [deferredRuns],
   );
 
   return (
@@ -215,7 +216,8 @@ const SubAgentRunCard = memo(function SubAgentRunCard({
 );
 
 function SubAgentTranscript({ run }: { run: SubAgentRun }) {
-  const hasContent = run.text.trim().length > 0;
+  const deferredText = useDeferredValue(run.text);
+  const hasContent = deferredText.trim().length > 0;
   const isActive = run.status === "running" || run.status === "streaming";
   const isCancelled = run.status === "cancelled";
 
@@ -223,7 +225,7 @@ function SubAgentTranscript({ run }: { run: SubAgentRun }) {
     <Box style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {hasContent ? (
         <Box style={{ overflowX: "auto", fontSize: 13, lineHeight: 1.55 }}>
-          <MarkdownContent text={run.text} />
+          <MarkdownContent text={deferredText} />
         </Box>
       ) : isActive ? (
         <Text size="sm" c="dimmed">

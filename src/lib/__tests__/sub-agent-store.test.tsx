@@ -322,6 +322,43 @@ describe("SubAgentStore processEvent", () => {
     expect(runs[0].chunksReceived).toBe(3);
   });
 
+  it("batches rapid text deltas into one state commit", () => {
+    vi.useFakeTimers();
+
+    try {
+      let renderCount = 0;
+      const { result } = renderHook(() => {
+        renderCount += 1;
+        return useSubAgentStore();
+      }, { wrapper });
+
+      act(() => {
+        result.current.processEvent(chatId, startEvent("sa-1"));
+      });
+      const renderCountAfterStart = renderCount;
+
+      act(() => {
+        result.current.processEvent(chatId, { type: "text-delta", id: "sa-1", delta: "a" });
+        result.current.processEvent(chatId, { type: "text-delta", id: "sa-1", delta: "b" });
+        result.current.processEvent(chatId, { type: "text-delta", id: "sa-1", delta: "c" });
+      });
+
+      expect(renderCount).toBe(renderCountAfterStart);
+      expect(result.current.getRuns(chatId)[0].text).toBe("abc");
+      expect(result.current.getRuns(chatId)[0].chunksReceived).toBe(3);
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+
+      expect(renderCount).toBe(renderCountAfterStart + 1);
+      expect(result.current.getRuns(chatId)[0].text).toBe("abc");
+      expect(result.current.getRuns(chatId)[0].status).toBe("streaming");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("two parallel sub-agents do not mix their streams", () => {
     const { result } = renderHook(() => useSubAgentStore(), { wrapper });
 
@@ -584,6 +621,49 @@ describe("SubAgentStore processEvent", () => {
     expect(runs[0].toolCalls).toHaveLength(2);
     expect(runs[0].toolCalls[0].toolCallId).toBe("tc-1");
     expect(runs[0].toolCalls[1].toolCallId).toBe("tc-2");
+  });
+
+  it("does not crash on tool-call event with missing toolCall property", () => {
+    const { result } = renderHook(() => useSubAgentStore(), { wrapper });
+
+    act(() => {
+      result.current.processEvent(chatId, startEvent("sa-1"));
+    });
+
+    expect(() => {
+      act(() => {
+        result.current.processEvent(chatId, {
+          type: "tool-call",
+          id: "sa-1",
+          toolCall: undefined as unknown as import("@/lib/sub-agent-types").SubAgentToolCall,
+        });
+      });
+    }).not.toThrow();
+
+    const runs = result.current.getRuns(chatId);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].id).toBe("sa-1");
+  });
+
+  it("does not crash on tool-call event with null toolCall property", () => {
+    const { result } = renderHook(() => useSubAgentStore(), { wrapper });
+
+    act(() => {
+      result.current.processEvent(chatId, startEvent("sa-1"));
+    });
+
+    expect(() => {
+      act(() => {
+        result.current.processEvent(chatId, {
+          type: "tool-call",
+          id: "sa-1",
+          toolCall: null as unknown as import("@/lib/sub-agent-types").SubAgentToolCall,
+        });
+      });
+    }).not.toThrow();
+
+    const runs = result.current.getRuns(chatId);
+    expect(runs).toHaveLength(1);
   });
 
   it("fingerprint pruning keeps recent events, not old ones", () => {
