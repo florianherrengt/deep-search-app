@@ -39,6 +39,8 @@ type SubAgentStore = SubAgentStoreState & SubAgentStoreActions;
 
 const SubAgentContext = createContext<SubAgentStore | null>(null);
 
+const EMPTY_SUB_AGENT_RUNS: SubAgentRun[] = [];
+
 const TEXT_DELTA_FLUSH_DELAY_MS = 100;
 
 interface PendingTextDelta {
@@ -274,25 +276,28 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
   );
 
   const getRuns = useCallback(
-    (chatId: string) => getRunsWithPendingTextDeltas(
-      state.runsByChat[chatId] ?? [],
-      chatId,
-      pendingTextDeltasRef.current,
-    ),
+    (chatId: string) => {
+      const stored = state.runsByChat[chatId];
+      const pending = pendingTextDeltasRef.current;
+      const hasPending = hasPendingTextDeltasForChat(pending, chatId);
+      if (!stored && !hasPending) return EMPTY_SUB_AGENT_RUNS;
+      if (!hasPending) return stored ?? EMPTY_SUB_AGENT_RUNS;
+      return getRunsWithPendingTextDeltas(stored ?? [], chatId, pending);
+    },
     [state.runsByChat],
   );
 
   const getSelectedRun = useCallback(
     (chatId: string) => {
       if (!state.selectedRunId) return null;
-      return (
-        getRunsWithPendingTextDeltas(
-          state.runsByChat[chatId] ?? [],
-          chatId,
-          pendingTextDeltasRef.current,
-        ).find((r) => r.id === state.selectedRunId) ??
-        null
-      );
+      const stored = state.runsByChat[chatId];
+      if (!stored) return null;
+      const run = stored.find((r) => r.id === state.selectedRunId);
+      if (run) return run;
+      const pending = pendingTextDeltasRef.current;
+      if (!hasPendingTextDeltasForChat(pending, chatId)) return null;
+      const withPending = getRunsWithPendingTextDeltas(stored, chatId, pending);
+      return withPending.find((r) => r.id === state.selectedRunId) ?? null;
     },
     [state.runsByChat, state.selectedRunId],
   );
