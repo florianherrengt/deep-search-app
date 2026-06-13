@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
@@ -8,7 +9,7 @@ import { createZhipu } from "zhipu-ai-provider";
 import { validateUrl, validateServiceUrl } from "@/lib/url-validation";
 
 
-export const chatProviderSchema = z.enum(["openrouter", "anthropic", "zhipu", "local"]);
+export const chatProviderSchema = z.enum(["openrouter", "anthropic", "deepseek", "zhipu", "local"]);
 
 export type ChatProvider = z.infer<typeof chatProviderSchema>;
 
@@ -32,6 +33,7 @@ export const DEFAULT_CHAT_PROVIDER: ChatProvider = "openrouter";
 const CHAT_PROVIDER_LABELS: Record<ChatProvider, string> = {
   openrouter: "OpenRouter",
   anthropic: "Anthropic",
+  deepseek: "DeepSeek",
   zhipu: "Zhipu",
   local: "Local / OpenAI Compatible",
 };
@@ -39,6 +41,7 @@ const CHAT_PROVIDER_LABELS: Record<ChatProvider, string> = {
 export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
   openrouter: "openrouter/free",
   anthropic: "claude-sonnet-4-5",
+  deepseek: "deepseek-chat",
   zhipu: "glm-4.7-flash",
   local: "",
 };
@@ -94,6 +97,11 @@ export function createChatLanguageModel({
         apiKey: trimmedApiKey,
         fetch: providerFetch,
       })(modelId);
+    case "deepseek":
+      return createDeepSeek({
+        apiKey: trimmedApiKey,
+        fetch: providerFetch,
+      })(modelId);
     case "zhipu":
       return createZhipu({
         apiKey: trimmedApiKey,
@@ -118,6 +126,16 @@ export function getKnownChatModelContextWindowTokens({
 
   if (provider === "anthropic" && modelId.startsWith("claude-")) {
     return 200_000;
+  }
+
+  if (provider === "deepseek") {
+    if (modelId.startsWith("deepseek-chat")) {
+      return 128_000;
+    }
+    if (modelId.startsWith("deepseek-reasoner")) {
+      return 64_000;
+    }
+    return 128_000;
   }
 
   return undefined;

@@ -168,12 +168,16 @@ export function Thread({
 
 function ComposerInput() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const rafScheduledRef = useRef(false);
   const [hasVerticalOverflow, setHasVerticalOverflow] = useState(false);
 
   const refreshOverflow = useCallback(() => {
     if (typeof window === "undefined") return;
+    if (rafScheduledRef.current) return;
 
+    rafScheduledRef.current = true;
     window.requestAnimationFrame(() => {
+      rafScheduledRef.current = false;
       const input = inputRef.current;
       if (!input) return;
 

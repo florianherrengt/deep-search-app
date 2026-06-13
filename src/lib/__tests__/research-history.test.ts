@@ -298,14 +298,15 @@ describe("research history", () => {
       "search-results/market-map/chats/2026-05-22T10-11-12.123Z.json",
       expect.any(String),
     );
-    expect(JSON.parse(fsMocks.writeTextFile.mock.calls[0][1])).toEqual(
+    const written = parseWrittenChat(fsMocks.writeTextFile.mock.calls[0][1]);
+    expect(written.meta).toEqual(
       expect.objectContaining({
         id: "2026-05-22T10-11-12.123Z",
         title: "Hello",
         createdAt: "2026-05-22T10:11:12.123Z",
-        messages,
       }),
     );
+    expect(written.messages).toEqual(messages);
   });
 
   it("renames research folders", async () => {
@@ -350,8 +351,8 @@ describe("research history", () => {
 
     await saveResearchChatMessages("market-map", chatId, [] as never);
 
-    const written = JSON.parse(fsMocks.writeTextFile.mock.calls[0][1]);
-    expect(written.title).toBe("Untitled chat");
+    const { meta } = parseWrittenChat(fsMocks.writeTextFile.mock.calls[0][1]);
+    expect(meta.title).toBe("Untitled chat");
   });
 
   it("truncates long chat titles over 56 characters", async () => {
@@ -372,9 +373,9 @@ describe("research history", () => {
 
     await saveResearchChatMessages("market-map", chatId, messages as never);
 
-    const written = JSON.parse(fsMocks.writeTextFile.mock.calls[0][1]);
-    expect(written.title.length).toBe(56);
-    expect(written.title).toContain("...");
+    const { meta } = parseWrittenChat(fsMocks.writeTextFile.mock.calls[0][1]);
+    expect(meta.title?.length).toBe(56);
+    expect(meta.title).toContain("...");
   });
 
   it("collapses multi-line messages into single line for title", async () => {
@@ -395,8 +396,8 @@ describe("research history", () => {
 
     await saveResearchChatMessages("market-map", chatId, messages as never);
 
-    const written = JSON.parse(fsMocks.writeTextFile.mock.calls[0][1]);
-    expect(written.title).toBe("Hello world test");
+    const { meta } = parseWrittenChat(fsMocks.writeTextFile.mock.calls[0][1]);
+    expect(meta.title).toBe("Hello world test");
   });
 
   it("derives createdAt from valid chat ID", async () => {
@@ -412,8 +413,8 @@ describe("research history", () => {
 
     await saveResearchChatMessages("market-map", chatId, messages as never);
 
-    const written = JSON.parse(fsMocks.writeTextFile.mock.calls[0][1]);
-    expect(written.createdAt).toBe("2026-05-22T10:11:12.123Z");
+    const { meta } = parseWrittenChat(fsMocks.writeTextFile.mock.calls[0][1]);
+    expect(meta.createdAt).toBe("2026-05-22T10:11:12.123Z");
   });
 
   it("moves a research chat to a different folder", async () => {
@@ -578,6 +579,22 @@ describe("research history", () => {
     });
   });
 });
+
+interface WrittenChatMeta {
+  title?: string;
+  createdAt?: string;
+  id?: string;
+  [key: string]: unknown;
+}
+
+function parseWrittenChat(
+  content: string,
+): { meta: WrittenChatMeta; messages: unknown[] } {
+  const lines = content.trim().split("\n");
+  const meta = JSON.parse(lines[0]) as WrittenChatMeta;
+  const messages = lines.slice(1).filter(Boolean).map((l) => JSON.parse(l));
+  return { meta, messages };
+}
 
 function mockAppStorage({
   directories = {},
@@ -1024,5 +1041,147 @@ describe("upsertResearchChatSummary serialization", () => {
     const chatIds = parsed.chats.map((c: { id: string }) => c.id);
     expect(chatIds).toContain(chatIdA);
     expect(chatIds).toContain(chatIdB);
+  });
+});
+
+describe("incremental JSONL chat persistence", () => {
+  let files: Map<string, string>;
+  let allWrites: { path: string; content: string; append: boolean }[];
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    tauriMocks.invoke.mockResolvedValue(undefined);
+    files = new Map();
+    allWrites = [];
+    fsMocks.mkdir.mockResolvedValue(undefined);
+    fsMocks.remove.mockResolvedValue(undefined);
+    fsMocks.readDir.mockResolvedValue([]);
+    fsMocks.exists.mockImplementation(async (path: string) => files.has(path));
+    fsMocks.readTextFile.mockImplementation(async (path: string) => {
+      const content = files.get(path);
+      if (content === undefined) throw new Error(`Missing mocked file: ${path}`);
+      return content;
+    });
+    fsMocks.writeTextFile.mockImplementation(
+      async (path: string, content: string, opts?: { append?: boolean }) => {
+        const append = opts?.append === true;
+        allWrites.push({ path, content, append });
+        files.set(path, append ? (files.get(path) ?? "") + content : content);
+      },
+    );
+  });
+
+  const msg = (id: string, text: string) => ({
+    id,
+    role: id.startsWith("a") ? ("assistant" as const) : ("user" as const),
+    parts: [{ type: "text", text }],
+  });
+  const ids = (arr: { id: string }[]) => arr.map((m) => m.id);
+  const chatPath = (chatId: string) =>
+    `search-results/folder/chats/${chatId}.json`;
+  const chatOps = (chatId: string) => ({
+    rewrites: allWrites.filter(
+      (w) => w.path === chatPath(chatId) && !w.append,
+    ),
+    appends: allWrites.filter(
+      (w) => w.path === chatPath(chatId) && w.append,
+    ),
+  });
+
+  it("appends only new messages on subsequent saves", async () => {
+    const chatId = "2026-05-22T10-11-12.123Z";
+    await saveResearchChatMessages("folder", chatId, [
+      msg("u1", "hello"),
+      msg("a1", "hi"),
+    ] as never);
+    expect(chatOps(chatId).rewrites).toHaveLength(1);
+    expect(chatOps(chatId).appends).toHaveLength(0);
+
+    await saveResearchChatMessages("folder", chatId, [
+      msg("u1", "hello"),
+      msg("a1", "hi"),
+      msg("u2", "second"),
+      msg("a2", "answer"),
+    ] as never);
+
+    expect(chatOps(chatId).rewrites).toHaveLength(1);
+    expect(chatOps(chatId).appends).toHaveLength(1);
+    expect(chatOps(chatId).appends[0].content).toContain('"u2"');
+    expect(chatOps(chatId).appends[0].content).toContain('"a2"');
+    expect(chatOps(chatId).appends[0].content).not.toContain('"u1"');
+
+    const read = await readResearchChatMessages("folder", chatId);
+    expect(ids(read)).toEqual(["u1", "a1", "u2", "a2"]);
+  });
+
+  it("rewrites fully when message prefix diverges", async () => {
+    const chatId = "2026-05-22T10-11-12.123Z";
+    await saveResearchChatMessages("folder", chatId, [
+      msg("u1", "a"),
+      msg("a1", "b"),
+    ] as never);
+
+    await saveResearchChatMessages("folder", chatId, [
+      msg("u1-new", "x"),
+      msg("a1", "b"),
+    ] as never);
+
+    expect(chatOps(chatId).rewrites).toHaveLength(2);
+    expect(chatOps(chatId).appends).toHaveLength(0);
+
+    const read = await readResearchChatMessages("folder", chatId);
+    expect(ids(read)).toEqual(["u1-new", "a1"]);
+  });
+
+  it("reads back legacy single-object JSON format", async () => {
+    const chatId = "2026-05-22T10-11-12.123Z";
+    files.set(
+      chatPath(chatId),
+      JSON.stringify({
+        id: chatId,
+        title: "Legacy",
+        createdAt: "2026-05-22T10:11:12.123Z",
+        updatedAt: "2026-05-22T10:12:00.000Z",
+        messages: [msg("u1", "legacy q"), msg("a1", "legacy a")],
+      }),
+    );
+
+    const read = await readResearchChatMessages("folder", chatId);
+    expect(ids(read)).toEqual(["u1", "a1"]);
+  });
+
+  it("migrates legacy format to JSONL then appends on subsequent saves", async () => {
+    const chatId = "2026-05-22T10-11-12.123Z";
+    files.set(
+      chatPath(chatId),
+      JSON.stringify({
+        id: chatId,
+        title: "Legacy",
+        createdAt: "2026-05-22T10:11:12.123Z",
+        updatedAt: "2026-05-22T10:12:00.000Z",
+        messages: [msg("u1", "old")],
+      }),
+    );
+
+    await saveResearchChatMessages("folder", chatId, [
+      msg("u1", "old"),
+      msg("a1", "new"),
+    ] as never);
+
+    expect(chatOps(chatId).rewrites).toHaveLength(1);
+    expect(chatOps(chatId).appends).toHaveLength(0);
+
+    await saveResearchChatMessages("folder", chatId, [
+      msg("u1", "old"),
+      msg("a1", "new"),
+      msg("u2", "more"),
+    ] as never);
+
+    expect(chatOps(chatId).rewrites).toHaveLength(1);
+    expect(chatOps(chatId).appends).toHaveLength(1);
+    expect(chatOps(chatId).appends[0].content).toContain('"u2"');
+
+    const read = await readResearchChatMessages("folder", chatId);
+    expect(ids(read)).toEqual(["u1", "a1", "u2"]);
   });
 });

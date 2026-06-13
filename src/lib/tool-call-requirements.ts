@@ -8,14 +8,17 @@ import {
 import { TOOL_NAMES } from "@/lib/tool-names";
 
 export interface ToolCallRequirement {
-  requiredPreviousTools: readonly string[];
+  requiredPreviousTools?: readonly string[];
+  anyOfPreviousTools?: readonly string[];
   instruction: string;
 }
 
 export interface ToolCallRequirementViolation {
   toolName: string;
-  requiredPreviousTools: readonly string[];
-  missingPreviousTools: readonly string[];
+  requiredPreviousTools?: readonly string[];
+  missingPreviousTools?: readonly string[];
+  anyOfPreviousTools?: readonly string[];
+  missingAnyOfTools?: readonly string[];
   instruction: string;
 }
 
@@ -24,6 +27,17 @@ export const TOOL_CALL_REQUIREMENTS = {
     requiredPreviousTools: [TOOL_NAMES.ask_questions],
     instruction:
       "Call ask_questions first to clarify the research scope, then retry create_research_plan.",
+  },
+  [TOOL_NAMES.extract_page_content]: {
+    anyOfPreviousTools: [
+      TOOL_NAMES.brave_search,
+      TOOL_NAMES.exa_search,
+      TOOL_NAMES.serper_search,
+      TOOL_NAMES.tavily_search,
+      TOOL_NAMES.searxng_search,
+    ],
+    instruction:
+      "Run a web search first to find URLs to extract from, then retry extract_page_content.",
   },
 } as const satisfies Record<string, ToolCallRequirement>;
 
@@ -149,7 +163,26 @@ export function getToolCallNamesFromModelMessages(
 export function formatToolCallRequirementViolation(
   violation: ToolCallRequirementViolation,
 ) {
-  return `${violation.toolName} cannot run yet. Missing required previous tool call${violation.missingPreviousTools.length === 1 ? "" : "s"}: ${formatToolNames(violation.missingPreviousTools)}. ${violation.instruction}`;
+  const parts: string[] = [`${violation.toolName} cannot run yet.`];
+
+  if (violation.missingPreviousTools && violation.missingPreviousTools.length > 0) {
+    parts.push(
+      `Missing required previous tool call${
+        violation.missingPreviousTools.length === 1 ? "" : "s"
+      }: ${formatToolNames(violation.missingPreviousTools)}.`,
+    );
+  }
+
+  if (violation.missingAnyOfTools && violation.missingAnyOfTools.length > 0) {
+    parts.push(
+      `At least one of these tools must be called first: ${formatToolNames(
+        violation.missingAnyOfTools,
+      )}.`,
+    );
+  }
+
+  parts.push(violation.instruction);
+  return parts.join(" ");
 }
 
 function evaluateToolCallRequirement(
@@ -158,21 +191,33 @@ function evaluateToolCallRequirement(
   previousToolNames: string[],
 ): ToolCallRequirementViolation | null {
   const previous = new Set(previousToolNames);
-  const missingPreviousTools = requirement.requiredPreviousTools.filter(
-    (requiredTool) => !previous.has(requiredTool),
-  );
 
-  if (missingPreviousTools.length === 0) return null;
+  const missingPreviousTools =
+    requirement.requiredPreviousTools?.filter(
+      (requiredTool) => !previous.has(requiredTool),
+    ) ?? [];
+
+  const anyOfSatisfied =
+    !requirement.anyOfPreviousTools ||
+    requirement.anyOfPreviousTools.some((tool) => previous.has(tool));
+
+  if (missingPreviousTools.length === 0 && anyOfSatisfied) return null;
 
   return {
     toolName,
     requiredPreviousTools: requirement.requiredPreviousTools,
-    missingPreviousTools,
+    missingPreviousTools:
+      missingPreviousTools.length > 0 ? missingPreviousTools : undefined,
+    anyOfPreviousTools: requirement.anyOfPreviousTools,
+    missingAnyOfTools:
+      !anyOfSatisfied ? requirement.anyOfPreviousTools : undefined,
     instruction: requirement.instruction,
   };
 }
 
-function getToolCallRequirement(toolName: string) {
+function getToolCallRequirement(
+  toolName: string,
+): ToolCallRequirement | undefined {
   return TOOL_CALL_REQUIREMENTS[
     toolName as keyof typeof TOOL_CALL_REQUIREMENTS
   ];
@@ -185,7 +230,17 @@ function appendRequirementDescription(
   const requirement = getToolCallRequirement(toolName);
   if (!requirement) return description;
 
-  return `${description ?? toolName}\n\nPrerequisite: before calling this tool, call ${formatToolNames(requirement.requiredPreviousTools)} first.`;
+  const prereqParts: string[] = [];
+  if (requirement.requiredPreviousTools && requirement.requiredPreviousTools.length > 0) {
+    prereqParts.push(`call ${formatToolNames(requirement.requiredPreviousTools)}`);
+  }
+  if (requirement.anyOfPreviousTools && requirement.anyOfPreviousTools.length > 0) {
+    prereqParts.push(
+      `call at least one of ${formatToolNames(requirement.anyOfPreviousTools)}`,
+    );
+  }
+
+  return `${description ?? toolName}\n\nPrerequisite: before calling this tool, ${prereqParts.join(" and ")} first.`;
 }
 
 function getToolCallNamesFromUIMessage(message: UIMessage): string[] {

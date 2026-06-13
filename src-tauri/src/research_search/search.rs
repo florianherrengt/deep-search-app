@@ -644,6 +644,10 @@ fn sanitize_fts_phrase_query(phrase: &str) -> String {
     format!("\"{}\"", phrase)
 }
 
+const FTS_SNIPPET_SQL: &str = "\
+SELECT snippet(chunks_fts, 0, '<mark>', '</mark>', '...', 32) \
+FROM chunks_fts WHERE chunks_fts MATCH ?1 AND rowid = ?2";
+
 fn get_fts_snippet(conn: &Connection, chunk_id: i64, fts_query: &str) -> Result<String, String> {
     if fts_query.is_empty() {
         let content: String = conn
@@ -656,14 +660,14 @@ fn get_fts_snippet(conn: &Connection, chunk_id: i64, fts_query: &str) -> Result<
         return Ok(truncate_snippet(&content, 200));
     }
 
-    let sql = format!(
-        "SELECT snippet(chunks_fts, 0, '<mark>', '</mark>', '...', 32) \
-         FROM chunks_fts WHERE chunks_fts MATCH '{}' AND rowid = {}",
-        fts_query.replace('\'', "''"),
-        chunk_id
-    );
+    let snippet = conn
+        .prepare_cached(FTS_SNIPPET_SQL)
+        .map_err(|e| e.to_string())?
+        .query_row(rusqlite::params![fts_query, chunk_id], |row| {
+            row.get::<_, String>(0)
+        });
 
-    match conn.query_row(&sql, [], |row| row.get::<_, String>(0)) {
+    match snippet {
         Ok(snippet) if !snippet.is_empty() => Ok(snippet),
         _ => {
             let content: String = conn
@@ -1310,5 +1314,83 @@ mod tests {
 
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].folder_name, "hammock-sizing");
+    }
+
+    fn snippet_conn() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE research_folders (
+              id INTEGER PRIMARY KEY,
+              name TEXT NOT NULL UNIQUE,
+              query TEXT,
+              created_at TEXT DEFAULT (DATETIME('now'))
+            );
+            CREATE TABLE chunks (
+              id INTEGER PRIMARY KEY,
+              folder_id INTEGER NOT NULL REFERENCES research_folders(id) ON DELETE CASCADE,
+              filename TEXT NOT NULL,
+              header_path TEXT,
+              chunk_index INTEGER NOT NULL,
+              content TEXT NOT NULL,
+              content_hash TEXT NOT NULL,
+              created_at TEXT DEFAULT (DATETIME('now')),
+              UNIQUE(folder_id, filename, chunk_index)
+            );
+            CREATE VIRTUAL TABLE chunks_fts USING fts5(
+              content,
+              content='chunks',
+              content_rowid='id',
+              tokenize='porter'
+            );
+            CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
+              INSERT INTO chunks_fts(rowid, content) VALUES (new.id, new.content);
+            END;
+            "#,
+        )
+        .expect("fts schema");
+        conn.execute(
+            "INSERT INTO research_folders (name, query) VALUES (?1, ?2)",
+            rusqlite::params!["snippet-folder", "fox"],
+        )
+        .expect("insert folder");
+        conn.execute(
+            "INSERT INTO chunks (folder_id, filename, header_path, chunk_index, content, content_hash) \
+             VALUES (?1, ?2, NULL, 0, ?3, ?4)",
+            rusqlite::params![
+                1,
+                "doc.md",
+                "the quick brown fox jumps over the lazy dog",
+                "h1"
+            ],
+        )
+        .expect("insert chunk");
+        conn
+    }
+
+    #[test]
+    fn fts_snippet_returns_marked_snippet_for_bound_match_query() {
+        let conn = snippet_conn();
+        let chunk_id: i64 = conn.last_insert_rowid();
+
+        let snippet =
+            get_fts_snippet(&conn, chunk_id, "\"fox\"").expect("snippet for matching query");
+        assert!(
+            snippet.to_lowercase().contains("fox"),
+            "snippet should contain the matched term: {snippet}"
+        );
+    }
+
+    #[test]
+    fn fts_snippet_handles_quote_bearing_query_without_error() {
+        let conn = snippet_conn();
+        let chunk_id: i64 = conn.last_insert_rowid();
+
+        let result = get_fts_snippet(&conn, chunk_id, "\"alice's\"");
+        assert!(
+            result.is_ok(),
+            "quote-bearing query must not error: {:?}",
+            result.err()
+        );
     }
 }

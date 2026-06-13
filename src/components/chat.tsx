@@ -22,7 +22,7 @@ import {
 import { saveResearchChatMessages } from "@/lib/research-history";
 import { getCurrentTokenCount } from "@/lib/token-usage";
 import { hasPendingQuestionTool } from "@/lib/chat-attention";
-import { useSubAgentActions, useSubAgentState } from "@/lib/sub-agent-store";
+import { useSubAgentActions, useSubAgentRunsByChat } from "@/lib/sub-agent-store";
 import type { SubAgentEvent, SubAgentRun } from "@/lib/sub-agent-types";
 import { setDirectEventHandler } from "@/lib/sub-agent-emitter";
 import { isRecord } from "@/lib/json";
@@ -412,7 +412,7 @@ function SubAgentRunsPersistence({
   researchFolder: string | null;
 }) {
   useSubAgentRenderCounter("SubAgentRunsPersistence");
-  const { runsByChat } = useSubAgentState();
+  const runsByChat = useSubAgentRunsByChat();
   const { persistRuns } = useSubAgentActions();
   const persistedTerminalRunsKeyRef = useRef<Record<string, string>>({});
   const subAgentRunsForChat = runsByChat[researchChatId] ?? EMPTY_SUB_AGENT_RUNS;

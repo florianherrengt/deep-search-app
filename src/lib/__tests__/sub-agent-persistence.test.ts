@@ -43,12 +43,17 @@ describe("sub-agent persistence", () => {
 
     await writeSubAgentRuns("folder-1", "chat-1", runs);
 
-    expect(mockWriteAppFile).toHaveBeenCalledWith({
-      subfolder: "search-results/folder-1/chats",
-      filename: "chat-1.subagents.json",
-      content: JSON.stringify(runs, undefined, 2),
-      emitChange: false,
-    });
+    expect(mockWriteAppFile).toHaveBeenCalledTimes(1);
+    const written = mockWriteAppFile.mock.calls[0][0] as {
+      subfolder: string;
+      filename: string;
+      content: string;
+      emitChange?: boolean;
+    };
+    expect(written.subfolder).toBe("search-results/folder-1/chats");
+    expect(written.filename).toBe("chat-1.subagents.json");
+    expect(written.emitChange).toBe(false);
+    expect(JSON.parse(written.content)).toEqual(runs);
   });
 
   it("does not reload persisted main-agent tool-call runs", async () => {

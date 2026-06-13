@@ -28,7 +28,7 @@ import { AppUpdateButton } from "@/components/app-update-button";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
 import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
 import { ResearchSidebar } from "@/components/research-sidebar";
-import { SubAgentProvider, useSubAgentState } from "@/lib/sub-agent-store";
+import { SubAgentProvider, useSubAgentRunsByChat, useSubAgentSelectedRunId } from "@/lib/sub-agent-store";
 import { SubAgentSidebar } from "@/components/sub-agent-sidebar";
 import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
 import {
@@ -755,7 +755,8 @@ function SubAgentSidebarAutoOpen({
   onOpen: () => void;
 }) {
   useSubAgentRenderCounter("SubAgentSidebarAutoOpen");
-  const { runsByChat, selectedRunId } = useSubAgentState();
+  const runsByChat = useSubAgentRunsByChat();
+  const selectedRunId = useSubAgentSelectedRunId();
   const runCount = chatId ? runsByChat[chatId]?.length ?? 0 : 0;
   const previousRef = useRef({ chatId: null as string | null, runCount: 0 });
 

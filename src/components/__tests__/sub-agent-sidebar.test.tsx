@@ -219,6 +219,37 @@ describe("SubAgentSidebar", () => {
     expect(screen.getByText(/Streaming update 2/)).toBeInTheDocument();
   });
 
+  it("renders raw text while streaming, formatted markdown once completed", () => {
+    const streamingRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-md",
+      chatId: "run-md",
+      status: "streaming",
+      finishedAt: null,
+      text: "# Heading\n\nSome **bold** text.",
+    };
+    const { container, rerender } = renderSidebar({ runs: [streamingRun] });
+
+    const preDuringStreaming = container.querySelector("pre");
+    expect(preDuringStreaming?.textContent).toContain("# Heading");
+    expect(screen.queryByRole("heading", { name: "Heading" })).not.toBeInTheDocument();
+
+    rerender(
+      <MantineProvider>
+        <SubAgentProvider>
+          <StoreSetup
+            chatId="chat-1"
+            runs={[{ ...streamingRun, status: "completed", finishedAt: "2026-01-01T00:00:02.000Z" }]}
+          />
+          <SubAgentSidebar chatId="chat-1" onClose={vi.fn()} />
+        </SubAgentProvider>
+      </MantineProvider>,
+    );
+
+    expect(container.querySelector("pre")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Heading" })).toBeInTheDocument();
+  });
+
   it("calls onClose when close button is clicked", () => {
     const { onClose, container } = renderSidebar({ runs: [] });
     const closeBtn = container.querySelector(

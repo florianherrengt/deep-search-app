@@ -53,7 +53,7 @@ export async function invoke<T = unknown>(
 export async function writeTextFile(
   path: string,
   content: string,
-  opts?: { baseDir: number },
+  opts?: { baseDir?: number; append?: boolean },
 ): Promise<void> {
   const mock = getBridgeMock("writeTextFile");
   if (mock) return mock(path, content, opts);
@@ -63,6 +63,7 @@ export async function writeTextFile(
   );
   return fn(path, content, {
     baseDir: opts?.baseDir ?? BaseDirectory.AppData,
+    append: opts?.append,
   });
 }
 
@@ -365,7 +366,7 @@ export type TauriBridgeMock = {
     set: (key: string, value: unknown) => Promise<void>;
     save: () => Promise<void>;
   }>;
-  writeTextFile?: (path: string, content: string, opts?: { baseDir: number }) => Promise<void>;
+  writeTextFile?: (path: string, content: string, opts?: { baseDir?: number; append?: boolean }) => Promise<void>;
   readTextFile?: (path: string, opts?: { baseDir: number }) => Promise<string>;
   exists?: (path: string, opts?: { baseDir: number }) => Promise<boolean>;
   readDir?: (path: string, opts?: { baseDir: number }) => Promise<DirEntry[]>;

@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS hype_questions (
   created_at TEXT DEFAULT (DATETIME('now'))
 );
 
+-- Covers hype generation anti-join, per-chunk deletion, and ON DELETE CASCADE.
+CREATE INDEX IF NOT EXISTS idx_hype_questions_chunk_id ON hype_questions(chunk_id);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS hype_embeddings USING vec0(
   embedding float[{dimensions}]
 );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TOOL_NAMES } from "@/lib/tool-names";
-import { TOOL_CALL_REQUIREMENTS } from "@/lib/tool-call-requirements";
+import { TOOL_CALL_REQUIREMENTS, type ToolCallRequirement } from "@/lib/tool-call-requirements";
 import systemPrompt from "@/lib/system-prompt.md?raw";
 
 const RESEARCH_TOOL_NAMES = new Set<string>([
@@ -84,9 +84,17 @@ describe("tool name consistency", () => {
   });
 
   it("TOOL_CALL_REQUIREMENTS requiredPreviousTools values exist in TOOL_NAMES", () => {
-    for (const [, req] of Object.entries(TOOL_CALL_REQUIREMENTS)) {
-      for (const prev of req.requiredPreviousTools) {
+    for (const [, req] of Object.entries(TOOL_CALL_REQUIREMENTS) as [string, ToolCallRequirement][]) {
+      for (const prev of req.requiredPreviousTools ?? []) {
         expect(ALL_TOOL_NAME_VALUES.has(prev), `requiredPreviousTools "${prev}" not in TOOL_NAMES`).toBe(true);
+      }
+    }
+  });
+
+  it("TOOL_CALL_REQUIREMENTS anyOfPreviousTools values exist in TOOL_NAMES", () => {
+    for (const [, req] of Object.entries(TOOL_CALL_REQUIREMENTS) as [string, ToolCallRequirement][]) {
+      for (const prev of req.anyOfPreviousTools ?? []) {
+        expect(ALL_TOOL_NAME_VALUES.has(prev), `anyOfPreviousTools "${prev}" not in TOOL_NAMES`).toBe(true);
       }
     }
   });

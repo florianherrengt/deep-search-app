@@ -68,6 +68,26 @@ export const CHAT_PROVIDER_SETTINGS = [
     clearOnRemove: ["anthropic_api_key"],
   },
   {
+    provider: "deepseek",
+    apiKeyKey: "deepseek_api_key",
+    modelKey: "deepseek_model",
+    fields: [
+      {
+        key: "deepseek_model",
+        label: "Model",
+        type: "text",
+        placeholder: CHAT_PROVIDER_DEFAULT_MODELS.deepseek,
+      },
+      {
+        key: "deepseek_api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "sk-...",
+      },
+    ],
+    clearOnRemove: ["deepseek_api_key"],
+  },
+  {
     provider: "zhipu",
     apiKeyKey: "zhipu_api_key",
     modelKey: "zhipu_model",

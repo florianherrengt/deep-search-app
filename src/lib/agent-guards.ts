@@ -205,6 +205,32 @@ const CURRENCY_NAME_PATTERNS: Array<{
   { pattern: "francs?", codes: ["CHF"] },
 ];
 
+const CURRENCY_SYMBOL_MATCHERS: Array<{
+  pattern: RegExp;
+  codesArr: string[];
+  codesStr: string;
+}> = (() => {
+  const entries: Array<{
+    pattern: RegExp;
+    codesArr: string[];
+    codesStr: string;
+  }> = [];
+  for (const [symbol, codesStr] of Object.entries(CURRENCY_SYMBOL_TO_CODES)) {
+    const pattern = currencySymbolPattern(symbol);
+    if (!pattern) continue;
+    entries.push({ pattern, codesArr: codesStr.split(", "), codesStr });
+  }
+  return entries;
+})();
+
+const CURRENCY_NAME_MATCHERS: Array<{
+  regex: RegExp;
+  codes: Currency[];
+}> = CURRENCY_NAME_PATTERNS.map(({ pattern, codes }) => ({
+  regex: new RegExp(`\\b${AMOUNT_WORD_PATTERN}\\s+(?:${pattern})\\b`, "gi"),
+  codes,
+}));
+
 function currencySymbolPattern(symbol: string): RegExp | null {
   if (/^[A-Za-z]$/.test(symbol)) return null;
 
@@ -222,18 +248,16 @@ function currencySymbolPattern(symbol: string): RegExp | null {
   );
 }
 
-function detectForeignCurrencyMentions(
+export function detectForeignCurrencyMentions(
   text: string,
   targetCurrency: Currency,
 ): string[] {
   const matches = new Set<string>();
 
-  for (const [symbol, codes] of Object.entries(CURRENCY_SYMBOL_TO_CODES)) {
-    if (codes.split(", ").includes(targetCurrency)) continue;
-    const symbolPattern = currencySymbolPattern(symbol);
-    if (!symbolPattern) continue;
-    for (const m of text.matchAll(symbolPattern)) {
-      matches.add(`${m[0]} (${codes})`);
+  for (const { pattern, codesArr, codesStr } of CURRENCY_SYMBOL_MATCHERS) {
+    if (codesArr.includes(targetCurrency)) continue;
+    for (const m of text.matchAll(pattern)) {
+      matches.add(`${m[0]} (${codesStr})`);
     }
   }
 
@@ -244,13 +268,9 @@ function detectForeignCurrencyMentions(
     }
   }
 
-  for (const { pattern, codes } of CURRENCY_NAME_PATTERNS) {
+  for (const { regex, codes } of CURRENCY_NAME_MATCHERS) {
     if (codes.includes(targetCurrency)) continue;
-    const currencyNamePattern = new RegExp(
-      `\\b${AMOUNT_WORD_PATTERN}\\s+(?:${pattern})\\b`,
-      "gi",
-    );
-    for (const m of text.matchAll(currencyNamePattern)) {
+    for (const m of text.matchAll(regex)) {
       matches.add(`${m[0]} (${codes.join(", ")})`);
     }
   }
@@ -508,7 +528,9 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
 function toolRequirementRetry<TOOLS extends ToolSet>(
   violation: ToolCallRequirementViolation,
 ): GuardDecision<TOOLS> {
-  const nextTool = violation.missingPreviousTools[0];
+  const missingTools =
+    violation.missingPreviousTools ?? violation.missingAnyOfTools ?? [];
+  const nextTool = missingTools[0];
   return {
     action: "retry",
     guard: "tool_call_requirement",
@@ -517,7 +539,7 @@ function toolRequirementRetry<TOOLS extends ToolSet>(
       status: "retrying",
       title: "Tool prerequisite enforced",
       message: `Prompted the agent to call ${nextTool} before ${violation.toolName}.`,
-      reason: `The agent tried to call ${violation.toolName} before required previous tool calls: ${violation.missingPreviousTools.join(", ")}.`,
+      reason: `The agent tried to call ${violation.toolName} before required previous tool calls: ${missingTools.join(", ")}.`,
     },
     retryInstruction: `Your previous response tried to call ${violation.toolName} too early. ${violation.instruction}`,
     toolChoice: {

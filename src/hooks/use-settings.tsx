@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
 import { useAsyncResource } from "./use-async-resource";
@@ -73,8 +74,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
+  const value = useMemo<SettingsContextValue>(
+    () => ({ settings, loading, error, updateSetting, resetAll }),
+    [settings, loading, error, updateSetting, resetAll],
+  );
+
   return (
-    <SettingsContext.Provider value={{ settings, loading, error, updateSetting, resetAll }}>
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

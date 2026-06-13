@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
 import { useAsyncResource } from "./use-async-resource";
@@ -98,18 +99,29 @@ export function PromptTemplatesProvider({ children }: { children: ReactNode }) {
       ? state.lastSelectedTemplate
       : null;
 
+  const value = useMemo<PromptTemplatesContextValue>(
+    () => ({
+      templates: state.templates,
+      lastSelectedTemplate: lastSelected,
+      loading,
+      addTemplate,
+      updateTemplate,
+      deleteTemplate,
+      setLastSelectedTemplate,
+    }),
+    [
+      state.templates,
+      lastSelected,
+      loading,
+      addTemplate,
+      updateTemplate,
+      deleteTemplate,
+      setLastSelectedTemplate,
+    ],
+  );
+
   return (
-    <PromptTemplatesContext.Provider
-      value={{
-        templates: state.templates,
-        lastSelectedTemplate: lastSelected,
-        loading,
-        addTemplate,
-        updateTemplate,
-        deleteTemplate,
-        setLastSelectedTemplate,
-      }}
-    >
+    <PromptTemplatesContext.Provider value={value}>
       {children}
     </PromptTemplatesContext.Provider>
   );

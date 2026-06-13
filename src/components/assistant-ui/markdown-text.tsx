@@ -6,28 +6,34 @@ import {
 } from "@assistant-ui/react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { type AnchorHTMLAttributes, type FC } from "react";
+import { memo, type AnchorHTMLAttributes, type FC } from "react";
 import { useClipboard } from "@mantine/hooks";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { openUrl } from "@/lib/tauri-bridge";
 
+const REMARK_PLUGINS = [remarkGfm];
+
 const MarkdownTextImpl = () => {
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={REMARK_PLUGINS}
       components={defaultComponents}
     />
   );
 };
 export const MarkdownText = MarkdownTextImpl;
 
-export function MarkdownContent({ text }: { text: string }) {
+export const MarkdownContent = memo(function MarkdownContent({
+  text,
+}: {
+  text: string;
+}) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={defaultComponents}>
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={defaultComponents}>
       {text}
     </ReactMarkdown>
   );
-}
+});
 
 const CodeHeader: FC<{
   language?: string;

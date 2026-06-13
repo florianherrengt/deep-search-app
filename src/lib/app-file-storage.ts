@@ -58,6 +58,8 @@ const WriteAppFileInputSchema = z.object({
   emitChange: z.boolean().optional(),
 });
 
+const AppendAppFileInputSchema = WriteAppFileInputSchema;
+
 const ReadAppFileInputSchema = z.object({
   subfolder: SafeSubfolderSchema,
   filename: SafePathSegmentSchema,
@@ -108,6 +110,25 @@ export async function writeAppFile(input: WriteAppFileInput): Promise<void> {
   await bridgeWriteTextFile(
     `${parsed.subfolder}/${parsed.filename}`,
     parsed.content,
+  );
+
+  if (parsed.emitChange !== false) {
+    const folderName = researchFolderNameFromSubfolder(parsed.subfolder);
+    if (folderName) {
+      emitResearchLibraryChanged({ changeType: "write", folderName });
+    }
+  }
+}
+
+export async function appendAppFile(input: WriteAppFileInput): Promise<void> {
+  const parsed = AppendAppFileInputSchema.parse(input);
+
+  await bridgeMkdir(parsed.subfolder, { recursive: true });
+
+  await bridgeWriteTextFile(
+    `${parsed.subfolder}/${parsed.filename}`,
+    parsed.content,
+    { append: true },
   );
 
   if (parsed.emitChange !== false) {

@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
 import { z } from "zod";
 import {
+  appendAppFile,
   createAppSubfolder,
   deleteAppFile,
   deleteAppSubfolder,
@@ -70,16 +71,6 @@ const StoredChatMessageSchema = z
 
 const StoredChatMessagesSchema = z.array(StoredChatMessageSchema);
 
-const StoredResearchChatSchema = z
-  .object({
-    id: z.string().optional(),
-    title: z.string().optional(),
-    createdAt: z.string().nullable().optional(),
-    updatedAt: z.string().nullable().optional(),
-    messages: StoredChatMessagesSchema,
-  })
-  .passthrough();
-
 const ResearchChatSummarySchema = z
   .object({
     id: z.string(),
@@ -102,6 +93,103 @@ interface StoredResearchChat {
   createdAt: string | null;
   updatedAt: string | null;
   messages: UIMessage[];
+}
+
+interface ParsedChatFile {
+  format: "jsonl" | "legacy";
+  messages: UIMessage[];
+  meta: {
+    id?: string;
+    title?: string;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+  };
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function parseChatFileContent(content: string): ParsedChatFile | null {
+  const single = tryParseJson(content);
+
+  if (Array.isArray(single)) {
+    return { format: "legacy", messages: single as UIMessage[], meta: {} };
+  }
+  if (
+    single &&
+    typeof single === "object" &&
+    Array.isArray((single as Record<string, unknown>).messages)
+  ) {
+    const obj = single as Record<string, unknown>;
+    return {
+      format: "legacy",
+      messages: obj.messages as UIMessage[],
+      meta: {
+        id: asString(obj.id),
+        title: asString(obj.title),
+        createdAt:
+          typeof obj.createdAt === "string" || obj.createdAt === null
+            ? (obj.createdAt as string | null)
+            : undefined,
+        updatedAt:
+          typeof obj.updatedAt === "string" || obj.updatedAt === null
+            ? (obj.updatedAt as string | null)
+            : undefined,
+      },
+    };
+  }
+
+  let meta: ParsedChatFile["meta"] | null = null;
+  const messages: unknown[] = [];
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parsed = tryParseJson(trimmed);
+    if (parsed == null) continue;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      (parsed as Record<string, unknown>)._meta === 1
+    ) {
+      const m = parsed as Record<string, unknown>;
+      meta = {
+        id: asString(m.id),
+        title: asString(m.title),
+        createdAt:
+          typeof m.createdAt === "string" || m.createdAt === null
+            ? (m.createdAt as string | null)
+            : undefined,
+        updatedAt: asString(m.updatedAt),
+      };
+    } else {
+      messages.push(parsed);
+    }
+  }
+
+  if (meta) {
+    return { format: "jsonl", messages: messages as UIMessage[], meta };
+  }
+  return null;
+}
+
+function messageId(message: unknown): string {
+  if (
+    message &&
+    typeof message === "object" &&
+    "id" in message &&
+    typeof (message as Record<string, unknown>).id === "string"
+  ) {
+    return (message as Record<string, unknown>).id as string;
+  }
+  return "";
+}
+
+function commonPrefixLength(a: readonly string[], b: readonly string[]): number {
+  const len = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < len && a[i] === b[i]) i += 1;
+  return i;
 }
 
 export async function listResearchFolders(): Promise<ResearchFolder[]> {
@@ -220,7 +308,7 @@ export async function saveResearchChatMessages(
     await writeAppFile({
       subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
       filename: LEGACY_CHAT_TRANSCRIPT_FILENAME,
-      content: JSON.stringify(messages, null, 2),
+      content: JSON.stringify(messages),
     });
     await upsertResearchChatSummary(parsedFolderName, {
       id: LEGACY_CHAT_TRANSCRIPT_ID,
@@ -234,38 +322,60 @@ export async function saveResearchChatMessages(
   }
 
   const parsedChatId = SafePathSegmentSchema.parse(chatId);
-  const existingSummary = await readExistingResearchChatSummary(
-    parsedFolderName,
-    parsedChatId,
-  );
   const now = new Date().toISOString();
+  const subfolder = researchChatsSubfolder(parsedFolderName);
+  const filename = researchChatFilename(parsedChatId);
+  const title = createChatTitle(messages);
+
+  const existingContent = await readAppFile({ subfolder, filename });
+  const parsed = existingContent ? parseChatFileContent(existingContent) : null;
+  const onDiskIds = parsed ? parsed.messages.map(messageId) : [];
+  const newIds = messages.map(messageId);
+  const prefix = commonPrefixLength(onDiskIds, newIds);
   const createdAt =
-    existingSummary?.createdAt ?? dateFromResearchChatId(parsedChatId) ?? now;
-  const summary: ResearchChatSummary = {
+    parsed?.meta.createdAt ?? dateFromResearchChatId(parsedChatId) ?? now;
+
+  const meta = {
+    _meta: 1 as const,
     id: parsedChatId,
-    title: createChatTitle(messages),
+    title,
+    createdAt,
+    updatedAt: now,
+    count: messages.length,
+  };
+
+  const canAppend =
+    parsed?.format === "jsonl" &&
+    prefix === onDiskIds.length &&
+    messages.length > onDiskIds.length;
+
+  if (canAppend) {
+    const appended = messages.slice(onDiskIds.length);
+    const chunk =
+      appended.map((m) => JSON.stringify(m)).join("\n") +
+      "\n" +
+      JSON.stringify(meta) +
+      "\n";
+    await appendAppFile({ subfolder, filename, content: chunk });
+  } else {
+    const lines = [
+      JSON.stringify(meta),
+      ...messages.map((m) => JSON.stringify(m)),
+    ];
+    await writeAppFile({
+      subfolder,
+      filename,
+      content: lines.join("\n") + "\n",
+    });
+  }
+
+  await upsertResearchChatSummary(parsedFolderName, {
+    id: parsedChatId,
+    title,
     createdAt,
     updatedAt: now,
     messageCount: messages.length,
-  };
-
-  await writeAppFile({
-    subfolder: researchChatsSubfolder(parsedFolderName),
-    filename: researchChatFilename(parsedChatId),
-    content: JSON.stringify(
-      {
-        id: parsedChatId,
-        title: summary.title,
-        createdAt,
-        updatedAt: now,
-        messages,
-      },
-      null,
-      2,
-    ),
   });
-
-  await upsertResearchChatSummary(parsedFolderName, summary);
 }
 
 export async function initializeResearchFolder(
@@ -361,19 +471,24 @@ async function readStoredResearchChat(
       return null;
     }
 
-    const parsed = StoredResearchChatSchema.parse(tryParseJson(content));
-    const messages = parsed.messages as UIMessage[];
+    const parsed = parseChatFileContent(content);
+    if (!parsed) {
+      return null;
+    }
+
+    const messages = StoredChatMessagesSchema.parse(parsed.messages) as UIMessage[];
+    const metaId = parsed.meta.id;
     const storedChatId =
-      typeof parsed.id === "string" &&
-      SafePathSegmentSchema.safeParse(parsed.id).success
-        ? parsed.id
+      typeof metaId === "string" &&
+      SafePathSegmentSchema.safeParse(metaId).success
+        ? metaId
         : chatId;
 
     return {
       id: storedChatId,
-      title: parsed.title?.trim() || createChatTitle(messages),
-      createdAt: parsed.createdAt ?? dateFromResearchChatId(chatId),
-      updatedAt: parsed.updatedAt ?? parsed.createdAt ?? null,
+      title: parsed.meta.title?.trim() || createChatTitle(messages),
+      createdAt: parsed.meta.createdAt ?? dateFromResearchChatId(chatId),
+      updatedAt: parsed.meta.updatedAt ?? parsed.meta.createdAt ?? null,
       messages,
     };
   } catch (error) {
@@ -517,14 +632,10 @@ async function writeResearchChatIndex(
     subfolder: researchChatsSubfolder(folderName),
     filename: CHAT_INDEX_FILENAME,
     emitChange: false,
-    content: JSON.stringify(
-      {
-        version: CHAT_INDEX_VERSION,
-        chats: chats.map(normalizeResearchChatSummary).filter(Boolean),
-      },
-      null,
-      2,
-    ),
+    content: JSON.stringify({
+      version: CHAT_INDEX_VERSION,
+      chats: chats.map(normalizeResearchChatSummary).filter(Boolean),
+    }),
   });
 }
 
@@ -556,20 +667,6 @@ async function removeResearchChatSummary(
     if (nextChats.length === existingChats.length) return;
     await writeResearchChatIndex(folderName, nextChats);
   });
-}
-
-async function readExistingResearchChatSummary(
-  folderName: string,
-  chatId: string,
-): Promise<ResearchChatSummary | null> {
-  const indexedChats = await readResearchChatIndex(folderName);
-  const indexedChat = indexedChats?.find((chat) => chat.id === chatId);
-  if (indexedChat) {
-    return indexedChat;
-  }
-
-  const chat = await readStoredResearchChat(folderName, chatId);
-  return chat ? toResearchChatSummary(chat) : null;
 }
 
 function toResearchChatSummary(chat: StoredResearchChat): ResearchChatSummary {

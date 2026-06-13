@@ -2,6 +2,7 @@ import {
   createContext,
   useContext,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
 import { useAsyncResource } from "./use-async-resource";
@@ -75,10 +76,13 @@ export function SkillsProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  const value = useMemo<SkillsContextValue>(
+    () => ({ skills: state.skills, loading, addSkill, updateSkill, deleteSkill }),
+    [state.skills, loading, addSkill, updateSkill, deleteSkill],
+  );
+
   return (
-    <SkillsContext.Provider
-      value={{ skills: state.skills, loading, addSkill, updateSkill, deleteSkill }}
-    >
+    <SkillsContext.Provider value={value}>
       {children}
     </SkillsContext.Provider>
   );

@@ -49,6 +49,8 @@ type SubAgentStore = SubAgentStoreState & SubAgentStoreActions & SubAgentStoreRe
 const SubAgentStateContext = createContext<SubAgentStoreState | null>(null);
 const SubAgentActionsContext = createContext<SubAgentStoreActions | null>(null);
 const SubAgentReadersContext = createContext<SubAgentStoreReaders | null>(null);
+const SubAgentRunsByChatContext = createContext<Record<string, SubAgentRun[]> | null>(null);
+const SubAgentSelectedRunIdContext = createContext<string | null>(null);
 
 const EMPTY_SUB_AGENT_RUNS: SubAgentRun[] = [];
 
@@ -349,11 +351,15 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
 
   return (
     <SubAgentActionsContext.Provider value={actions}>
-      <SubAgentStateContext.Provider value={state}>
-        <SubAgentReadersContext.Provider value={readers}>
-          {children}
-        </SubAgentReadersContext.Provider>
-      </SubAgentStateContext.Provider>
+      <SubAgentRunsByChatContext.Provider value={state.runsByChat}>
+        <SubAgentSelectedRunIdContext.Provider value={state.selectedRunId}>
+          <SubAgentReadersContext.Provider value={readers}>
+            <SubAgentStateContext.Provider value={state}>
+              {children}
+            </SubAgentStateContext.Provider>
+          </SubAgentReadersContext.Provider>
+        </SubAgentSelectedRunIdContext.Provider>
+      </SubAgentRunsByChatContext.Provider>
     </SubAgentActionsContext.Provider>
   );
 }
@@ -364,6 +370,18 @@ export function useSubAgentState(): SubAgentStoreState {
     throw new Error("useSubAgentState must be used within a SubAgentProvider");
   }
   return state;
+}
+
+export function useSubAgentRunsByChat(): Record<string, SubAgentRun[]> {
+  const runsByChat = useContext(SubAgentRunsByChatContext);
+  if (runsByChat === null) {
+    throw new Error("useSubAgentRunsByChat must be used within a SubAgentProvider");
+  }
+  return runsByChat;
+}
+
+export function useSubAgentSelectedRunId(): string | null {
+  return useContext(SubAgentSelectedRunIdContext);
 }
 
 export function useSubAgentActions(): SubAgentStoreActions {

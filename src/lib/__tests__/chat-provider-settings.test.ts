@@ -55,6 +55,10 @@ describe("chat provider settings", () => {
         disabled: false,
       },
       {
+        provider: "deepseek",
+        disabled: true,
+      },
+      {
         provider: "zhipu",
         disabled: true,
       },
@@ -89,6 +93,7 @@ describe("chat provider settings", () => {
     expect(options).toMatchObject([
       {},
       { provider: "anthropic", contextWindowTokens: 200_000 },
+      { provider: "deepseek", contextWindowTokens: 128_000 },
       { provider: "zhipu" },
       { provider: "local" },
     ]);
@@ -189,6 +194,7 @@ describe("chat provider settings", () => {
 
     expect(fieldKeys).not.toContain("openrouter_context_window");
     expect(fieldKeys).not.toContain("anthropic_context_window");
+    expect(fieldKeys).not.toContain("deepseek_context_window");
     expect(fieldKeys).not.toContain("zhipu_context_window");
     expect(fieldKeys).not.toContain("local_context_window");
   });

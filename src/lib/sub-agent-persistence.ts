@@ -173,7 +173,7 @@ export async function writeSubAgentRuns(
   await writeAppFile({
     subfolder,
     filename,
-    content: JSON.stringify(subAgentRuns, undefined, 2),
+    content: JSON.stringify(subAgentRuns),
     emitChange: false,
   });
 }

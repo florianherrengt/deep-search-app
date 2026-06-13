@@ -230,7 +230,21 @@ function SubAgentTranscript({ run }: { run: SubAgentRun }) {
     <Box style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {hasContent ? (
         <Box style={{ overflowX: "auto", fontSize: 13, lineHeight: 1.55 }}>
-          <MarkdownContent text={deferredText} />
+          {isActive ? (
+            <Box
+              component="pre"
+              style={{
+                margin: 0,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                fontFamily: "inherit",
+              }}
+            >
+              {deferredText}
+            </Box>
+          ) : (
+            <MarkdownContent text={deferredText} />
+          )}
         </Box>
       ) : isActive ? (
         <Text size="sm" c="dimmed">

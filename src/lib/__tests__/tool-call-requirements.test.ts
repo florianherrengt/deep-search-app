@@ -132,7 +132,149 @@ describe("tool call requirements", () => {
       "`rename_research_folder`",
     );
   });
+
+  it("hides extract_page_content when no search tool has been called", () => {
+    const activeTools = getActiveToolNamesForMessages(fakeToolsWithExtract(), [
+      userMessage("Research the market"),
+    ]);
+
+    expect(activeTools).toContain("brave_search");
+    expect(activeTools).not.toContain("extract_page_content");
+  });
+
+  it("shows extract_page_content after brave_search was called", () => {
+    const activeTools = getActiveToolNamesForMessages(fakeToolsWithExtract(), [
+      userMessage("Research the market"),
+      assistantToolCallMessage("brave_search"),
+    ]);
+
+    expect(activeTools).toContain("extract_page_content");
+  });
+
+  it("shows extract_page_content after serper_search was called", () => {
+    const activeTools = getActiveToolNamesForMessages(fakeToolsWithExtract(), [
+      userMessage("Research the market"),
+      assistantToolCallMessage("serper_search"),
+    ]);
+
+    expect(activeTools).toContain("extract_page_content");
+  });
+
+  it("still hides extract_page_content when only unrelated tools were called", () => {
+    const activeTools = getActiveToolNamesForMessages(fakeToolsWithExtract(), [
+      userMessage("Research the market"),
+      assistantToolCallMessage("ask_questions"),
+    ]);
+
+    expect(activeTools).not.toContain("extract_page_content");
+  });
+
+  it("blocks extract_page_content execution when no search tool was called", () => {
+    const execute = vi.fn(() => "extracted");
+    const tools = applyToolCallRequirementSafeguards({
+      extract_page_content: {
+        description: "Extract a web page.",
+        execute,
+      },
+    } as unknown as ToolSet);
+
+    expect(() =>
+      executeTool(tools, "extract_page_content", [
+        { role: "user", content: "Research the market" },
+      ]),
+    ).toThrow(ToolCallRequirementError);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("allows extract_page_content execution after a search tool was called", () => {
+    const execute = vi.fn(() => "extracted");
+    const tools = applyToolCallRequirementSafeguards({
+      extract_page_content: {
+        description: "Extract a web page.",
+        execute,
+      },
+    } as unknown as ToolSet);
+
+    expect(
+      executeTool(tools, "extract_page_content", [
+        { role: "user", content: "Research the market" },
+        modelToolCallMessage("brave_search"),
+      ]),
+    ).toBe("extracted");
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it("allows extract_page_content execution after any search tool (serper) was called", () => {
+    const execute = vi.fn(() => "extracted");
+    const tools = applyToolCallRequirementSafeguards({
+      extract_page_content: {
+        description: "Extract a web page.",
+        execute,
+      },
+    } as unknown as ToolSet);
+
+    expect(
+      executeTool(tools, "extract_page_content", [
+        { role: "user", content: "Research the market" },
+        modelToolCallMessage("serper_search"),
+      ]),
+    ).toBe("extracted");
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it("formatToolCallRequirementViolation formats an anyOf violation", () => {
+    const message = formatToolCallRequirementViolation({
+      toolName: "extract_page_content",
+      anyOfPreviousTools: [
+        "brave_search",
+        "exa_search",
+        "serper_search",
+        "tavily_search",
+        "searxng_search",
+      ],
+      missingAnyOfTools: [
+        "brave_search",
+        "exa_search",
+        "serper_search",
+        "tavily_search",
+        "searxng_search",
+      ],
+      instruction:
+        "Run a web search first to find URLs to extract from, then retry extract_page_content.",
+    });
+
+    expect(message).toContain("extract_page_content");
+    expect(message).toContain("At least one of these tools must be called first:");
+    expect(message).toContain("`brave_search`");
+    expect(message).toContain("`exa_search`");
+    expect(message).toMatch(/^\S/);
+  });
+
+  it("appends anyOf prerequisite description to extract_page_content", () => {
+    const tools = applyToolCallRequirementSafeguards({
+      brave_search: {
+        description: "Search the web.",
+      },
+      extract_page_content: {
+        description: "Extract a web page.",
+      },
+    } as unknown as ToolSet);
+
+    expect(tools.brave_search.description).toBe("Search the web.");
+
+    expect(tools.extract_page_content.description).toContain(
+      "Prerequisite: before calling this tool, call at least one of",
+    );
+    expect(tools.extract_page_content.description).toContain("`brave_search`");
+  });
 });
+
+function fakeToolsWithExtract() {
+  return {
+    brave_search: {},
+    extract_page_content: {},
+  } as unknown as ToolSet;
+}
 
 function fakeTools() {
   return {
