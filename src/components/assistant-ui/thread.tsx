@@ -246,6 +246,7 @@ function ThreadMessage() {
   const role = useAuiState((s) => s.message.role);
   return (
     <MessagePrimitive.Root
+      data-testid={role === "assistant" ? "assistant-message" : undefined}
       style={
         role === "user"
           ? { marginBottom: 16, display: "flex", justifyContent: "flex-end" }

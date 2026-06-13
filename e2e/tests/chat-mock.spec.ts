@@ -61,7 +61,7 @@ test.describe("Chat with mocked LLM", () => {
     const sendButton = chatPage.getByRole("button", { name: "Send" });
     await sendButton.click();
 
-    await expect(chatPage.getByText("Hello from e2e test!")).toBeVisible({
+    await expect(chatPage.getByTestId("assistant-message").filter({ hasText: "Hello from e2e test!" })).toBeVisible({
       timeout: 15000,
     });
   });
