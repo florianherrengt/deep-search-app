@@ -26,6 +26,7 @@
     "test:visual": "npm run build-storybook && node scripts/visual-snapshot-test.mjs",
     "test:visual:update": "npm run build-storybook && node scripts/visual-snapshot-test.mjs -- --update",
     "test:visual:dev": "node scripts/visual-snapshot-test.mjs -- --url http://127.0.0.1:6006",
+    "benchmark:subagents": "BENCHMARK_LABEL=current node scripts/benchmark-sub-agent-streaming.mjs",
     "benchmark:research-search": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark",
     "benchmark:research-search:refresh": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --refresh",
     "benchmark:research-search:validate-chunking": "cargo run --manifest-path src-tauri/Cargo.toml --bin research-search-benchmark -- --validate-chunking",

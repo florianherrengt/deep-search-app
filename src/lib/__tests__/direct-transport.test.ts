@@ -70,6 +70,7 @@ import {
   DirectTransport,
 } from "@/lib/transport";
 import { extractAndStoreMemories } from "@/lib/memory-agent";
+import { setDirectEventHandler } from "@/lib/sub-agent-emitter";
 
 const mockedExtractAndStoreMemories = vi.mocked(extractAndStoreMemories);
 
@@ -511,24 +512,36 @@ describe("DirectTransport research folder lifecycle", () => {
     expect(onFolderChange).not.toHaveBeenCalled();
   });
 
-  it("emits sub-agent events through the stream during naming", async () => {
+  it("emits sub-agent events directly without mutating the main chat stream", async () => {
     const model = createModel("acme-research");
     chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
     const transport = createTransport(vi.fn());
+    const directHandler = vi.fn();
+    setDirectEventHandler("2026-05-22T10-11-12.123Z", directHandler);
 
-    const stream = await transport.sendMessages({
-      trigger: "submit-message",
-      chatId: "runtime-chat",
-      messageId: "user-1",
-      messages: [userMessage("Research ACME")],
-      abortSignal: undefined,
-    });
-    const chunks = await collectChunks(stream);
+    try {
+      const stream = await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Research ACME")],
+        abortSignal: undefined,
+      });
+      const chunks = await collectChunks(stream);
 
-    const subAgentChunks = chunks.filter(
-      (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "data-subagent_event",
-    );
-    expect(subAgentChunks.length).toBeGreaterThanOrEqual(2);
+      const subAgentChunks = chunks.filter(
+        (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "data-subagent_event",
+      );
+      expect(subAgentChunks).toHaveLength(0);
+      expect(directHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "start", name: "Folder Naming" }),
+      );
+      expect(directHandler).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "complete" }),
+      );
+    } finally {
+      setDirectEventHandler("2026-05-22T10-11-12.123Z", null);
+    }
   });
 
   it("uses deterministic fallback when model output fails validation", async () => {

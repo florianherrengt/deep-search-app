@@ -1,10 +1,17 @@
 import type { SubAgentEvent } from "./sub-agent-types";
+import {
+  recordSubAgentEvent,
+  recordSubAgentHandlerDuration,
+  recordSubAgentSubscription,
+  startSubAgentProfileMeasure,
+} from "./sub-agent-profiler";
 
 type SubAgentEmitter = (event: SubAgentEvent) => void;
 
 let currentEmitter: SubAgentEmitter | null = null;
 let currentMessageId: string | null = null;
 let currentChatId: string | null = null;
+let nextEventSequence = 0;
 const directHandlers = new Map<string, SubAgentEmitter>();
 
 export function setActiveSubAgentEmitter(
@@ -22,20 +29,55 @@ export function setDirectEventHandler(
   handler: SubAgentEmitter | null,
 ): void {
   if (handler) {
+    if (!directHandlers.has(chatId)) {
+      recordSubAgentSubscription(`direct:${chatId}`, "create");
+    }
     directHandlers.set(chatId, handler);
   } else {
-    directHandlers.delete(chatId);
+    if (directHandlers.delete(chatId)) {
+      recordSubAgentSubscription(`direct:${chatId}`, "destroy");
+    }
   }
 }
 
 export function emitSubAgentEvent(event: SubAgentEvent): void {
+  const sequencedEvent = addEventSequence(event);
+  recordSubAgentEvent(currentChatId, sequencedEvent);
   if (currentEmitter) {
-    currentEmitter(event);
+    const startedAt = startSubAgentProfileMeasure();
+    currentEmitter(sequencedEvent);
+    recordSubAgentHandlerDuration("emitter.controller", startedAt);
   }
   if (currentChatId) {
     const handler = directHandlers.get(currentChatId);
-    if (handler) handler(event);
+    if (handler) {
+      const startedAt = startSubAgentProfileMeasure();
+      handler(sequencedEvent);
+      recordSubAgentHandlerDuration("emitter.direct", startedAt);
+    }
   }
+}
+
+export function emitSubAgentEventToChat(
+  chatId: string,
+  event: SubAgentEvent,
+): void {
+  const sequencedEvent = addEventSequence(event);
+  recordSubAgentEvent(chatId, sequencedEvent);
+
+  const handler = directHandlers.get(chatId);
+  if (!handler) return;
+
+  const startedAt = startSubAgentProfileMeasure();
+  handler(sequencedEvent);
+  recordSubAgentHandlerDuration("emitter.direct", startedAt);
+}
+
+function addEventSequence(event: SubAgentEvent): SubAgentEvent {
+  return {
+    ...event,
+    sequence: nextEventSequence++,
+  } as SubAgentEvent;
 }
 
 export function getParentMessageId(): string | null {

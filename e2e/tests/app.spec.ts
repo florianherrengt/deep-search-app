@@ -22,7 +22,8 @@ test.describe("App startup", () => {
     await expect(textarea).toHaveValue("Hello world");
   });
 
-  test("Send button becomes enabled after typing", async ({ chatPage }) => {
+  test("Send button becomes enabled after typing", async ({ configuredChatPage }) => {
+    const chatPage = configuredChatPage;
     const textarea = chatPage.getByPlaceholder("Ask something...");
     const sendButton = chatPage.getByRole("button", { name: "Send" });
 

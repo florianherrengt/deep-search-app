@@ -26,7 +26,9 @@ export interface SubAgentToolCall {
   status: "running" | "complete" | "error";
 }
 
-export type SubAgentEvent =
+type SequencedSubAgentEvent = { sequence?: number };
+
+export type SubAgentEvent = SequencedSubAgentEvent & (
   | { type: "start"; id: string; chatId?: string; source?: "sub-agent"; name: string; toolName: string; parentMessageId: string }
   | { type: "text-delta"; id: string; delta: string }
   | { type: "tool-call"; id: string; toolCall: SubAgentToolCall }
@@ -34,7 +36,8 @@ export type SubAgentEvent =
   | { type: "complete"; id: string }
   | { type: "error"; id: string; error: string }
   | { type: "cancelled"; id: string }
-  | { type: "report"; id: string; report: import("./sub-agent-report").SubAgentReport };
+  | { type: "report"; id: string; report: import("./sub-agent-report").SubAgentReport }
+);
 
 export const MAX_SUB_AGENT_TEXT_LENGTH = 10_000;
 

@@ -22,10 +22,11 @@ import {
 import { saveResearchChatMessages } from "@/lib/research-history";
 import { getCurrentTokenCount } from "@/lib/token-usage";
 import { hasPendingQuestionTool } from "@/lib/chat-attention";
-import { useSubAgentStore } from "@/lib/sub-agent-store";
+import { useSubAgentActions, useSubAgentState } from "@/lib/sub-agent-store";
 import type { SubAgentEvent, SubAgentRun } from "@/lib/sub-agent-types";
 import { setDirectEventHandler } from "@/lib/sub-agent-emitter";
 import { isRecord } from "@/lib/json";
+import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
 
 const EMPTY_SUB_AGENT_RUNS: SubAgentRun[] = [];
 
@@ -75,6 +76,8 @@ export function Chat({
   embeddingConfig: EmbeddingConfig;
   rerankerConfig: RerankerConfig;
 }) {
+  useSubAgentRenderCounter("Chat");
+
   const enabledModels = useMemo(
     () => modelOptions.filter((option) => !option.disabled),
     [modelOptions],
@@ -279,15 +282,66 @@ export function Chat({
     onAttentionStateChange?.(sessionId, needsAttention);
   }, [needsAttention, onAttentionStateChange, sessionId]);
 
-  const subAgentStore = useSubAgentStore();
+  const runtime = useAISDKRuntime(chat);
+  const tokenCount = useMemo(
+    () => getCurrentTokenCount(chat.messages),
+    [chat.messages],
+  );
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <SubAgentEventBridge
+        initialMessages={initialMessages}
+        messages={chat.messages}
+        researchChatId={researchChatId}
+      />
+      <SubAgentRunsLoader
+        researchChatId={researchChatId}
+        researchFolder={researchFolder}
+      />
+      <SubAgentRunsPersistence
+        researchChatId={researchChatId}
+        researchFolder={researchFolder}
+      />
+      <QuestionsToolUI />
+      <Box style={{ height: "100%" }}>
+        {chat.error && (
+          <Alert variant="light" color="red" title="Connection Error" withCloseButton mb="xs">
+            {chat.error.message}
+          </Alert>
+        )}
+        <Thread
+          models={modelsWithContextWindows}
+          selectedModelId={selectedModelId}
+          onSelectedModelIdChange={handleModelChange}
+          onConfigure={onConfigure}
+          hasEnabledModel={enabledModels.length > 0}
+          tokenCount={tokenCount}
+        />
+      </Box>
+    </AssistantRuntimeProvider>
+  );
+}
+
+function SubAgentEventBridge({
+  initialMessages,
+  messages,
+  researchChatId,
+}: {
+  initialMessages: UIMessage[];
+  messages: UIMessage[];
+  researchChatId: string;
+}) {
+  useSubAgentRenderCounter("SubAgentEventBridge");
+  const { processEvent } = useSubAgentActions();
 
   useEffect(() => {
     const handler = (event: SubAgentEvent) => {
-      subAgentStore.processEvent(researchChatId, event);
+      processEvent(researchChatId, event);
     };
     setDirectEventHandler(researchChatId, handler);
     return () => setDirectEventHandler(researchChatId, null);
-  }, [researchChatId, subAgentStore.processEvent]);
+  }, [processEvent, researchChatId]);
 
   const processedPartsByMessageRef = useRef<Record<string, number>>(
     getProcessedPartCounts(initialMessages),
@@ -299,7 +353,7 @@ export function Chat({
   }
 
   useEffect(() => {
-    for (const message of chat.messages) {
+    for (const message of messages) {
       if (!("parts" in message) || !Array.isArray(message.parts)) continue;
       if (!("id" in message) || typeof message.id !== "string") continue;
 
@@ -317,30 +371,54 @@ export function Chat({
         const dataPart = part as { data: unknown };
         if (!isRecord(dataPart.data)) continue;
 
-        subAgentStore.processEvent(researchChatId, dataPart.data as unknown as SubAgentEvent);
+        processEvent(researchChatId, dataPart.data as unknown as SubAgentEvent);
         processedPartsByMessageRef.current[msgId] = i + 1;
       }
     }
-  }, [chat.messages, researchChatId]);
+  }, [messages, processEvent, researchChatId]);
+
+  return null;
+}
+
+function SubAgentRunsLoader({
+  researchChatId,
+  researchFolder,
+}: {
+  researchChatId: string;
+  researchFolder: string | null;
+}) {
+  useSubAgentRenderCounter("SubAgentRunsLoader");
+  const { loadRuns, loadRunsFromDisk } = useSubAgentActions();
 
   useEffect(() => {
     if (!researchChatId) return;
     if (researchFolder) {
-      void subAgentStore.loadRunsFromDisk(researchChatId, researchFolder).catch((err) => {
+      void loadRunsFromDisk(researchChatId, researchFolder).catch((err) => {
         console.error("[chat] Failed to load sub-agent runs from disk:", err);
       });
     } else {
-      subAgentStore.loadRuns(researchChatId, []);
+      loadRuns(researchChatId, []);
     }
-  }, [researchChatId, researchFolder]);
+  }, [loadRuns, loadRunsFromDisk, researchChatId, researchFolder]);
 
-  const subAgentRunsForChat =
-    subAgentStore.runsByChat[researchChatId] ?? EMPTY_SUB_AGENT_RUNS;
+  return null;
+}
+
+function SubAgentRunsPersistence({
+  researchChatId,
+  researchFolder,
+}: {
+  researchChatId: string;
+  researchFolder: string | null;
+}) {
+  useSubAgentRenderCounter("SubAgentRunsPersistence");
+  const { runsByChat } = useSubAgentState();
+  const { persistRuns } = useSubAgentActions();
   const persistedTerminalRunsKeyRef = useRef<Record<string, string>>({});
-  const persistSubAgentRuns = subAgentStore.persistRuns;
+  const subAgentRunsForChat = runsByChat[researchChatId] ?? EMPTY_SUB_AGENT_RUNS;
+
   useEffect(() => {
-    const folderName = researchFolderRef.current;
-    if (!folderName || !researchChatId) return;
+    if (!researchFolder || !researchChatId) return;
 
     const terminalRuns = subAgentRunsForChat.filter(
       (run) => run.status !== "running" && run.status !== "streaming",
@@ -365,37 +443,12 @@ export function Chat({
     }
 
     persistedTerminalRunsKeyRef.current[researchChatId] = terminalRunsKey;
-    void persistSubAgentRuns(researchChatId, folderName).catch((err) => {
+    void persistRuns(researchChatId, researchFolder).catch((err) => {
       console.error("[chat] Failed to persist sub-agent runs:", err);
     });
-  }, [persistSubAgentRuns, researchChatId, subAgentRunsForChat]);
+  }, [persistRuns, researchChatId, researchFolder, subAgentRunsForChat]);
 
-  const runtime = useAISDKRuntime(chat);
-  const tokenCount = useMemo(
-    () => getCurrentTokenCount(chat.messages),
-    [chat.messages],
-  );
-
-  return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <QuestionsToolUI />
-      <Box style={{ height: "100%" }}>
-        {chat.error && (
-          <Alert variant="light" color="red" title="Connection Error" withCloseButton mb="xs">
-            {chat.error.message}
-          </Alert>
-        )}
-        <Thread
-          models={modelsWithContextWindows}
-          selectedModelId={selectedModelId}
-          onSelectedModelIdChange={handleModelChange}
-          onConfigure={onConfigure}
-          hasEnabledModel={enabledModels.length > 0}
-          tokenCount={tokenCount}
-        />
-      </Box>
-    </AssistantRuntimeProvider>
-  );
+  return null;
 }
 
 function getProcessedPartCounts(messages: UIMessage[]): Record<string, number> {

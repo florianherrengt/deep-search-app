@@ -1,17 +1,16 @@
 import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
-import { XIcon } from "lucide-react";
-import { Button, TextInput, Select, Box, Stack, Text, Group, Checkbox, Paper, ActionIcon } from "@mantine/core";
+import { CheckIcon } from "lucide-react";
+import { Button, TextInput, Select, Box, Stack, Text, Group, Checkbox, Paper } from "@mantine/core";
+import { generateText } from "ai";
 import {
   CHAT_PROVIDER_SETTINGS,
-  DEFAULT_CHAT_PROVIDER,
   getConfiguredChatProviderDefinitions,
   getInitialProviderSelection,
-  getProviderModel,
   getProviderSettingsDefinition,
   type ChatProviderSettingsDefinition,
   type SettingsFieldDefinition,
 } from "@/lib/chat-provider-settings";
-import { getChatProviderLabel, type ChatProvider } from "@/lib/chat-providers";
+import { createChatLanguageModel, getChatProviderLabel, type ChatProvider } from "@/lib/chat-providers";
 import {
   CURRENCIES,
   EMBEDDING_DEFAULTS,
@@ -155,7 +154,10 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
     getInitialProviderSelection(settings),
   );
   const selectedDefinition = getProviderSettingsDefinition(selectedProvider);
-  const readyProviders = getConfiguredChatProviderDefinitions(settings);
+  const configuredProviders = useMemo(
+    () => new Set(getConfiguredChatProviderDefinitions(settings).map((d) => d.provider)),
+    [settings],
+  );
   const providerOptions = useMemo(
     () =>
       CHAT_PROVIDER_SETTINGS.map((definition) => ({
@@ -182,28 +184,6 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
     }
   }
 
-  async function handleRemoveProvider(
-    definition: ChatProviderSettingsDefinition,
-  ) {
-    const nextReadyProvider =
-      readyProviders.find(
-        (candidate) => candidate.provider !== definition.provider,
-      )?.provider ?? DEFAULT_CHAT_PROVIDER;
-
-    if (
-      settings.chat_provider === definition.provider &&
-      nextReadyProvider !== settings.chat_provider
-    ) {
-      await updateSetting("chat_provider", nextReadyProvider);
-    }
-
-    for (const key of definition.clearOnRemove) {
-      if (settings[key]) {
-        await updateSetting(key, "");
-      }
-    }
-  }
-
   return (
     <Stack gap="md">
       <Stack gap="sm">
@@ -216,68 +196,24 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
           }}
           allowDeselect={false}
           data={providerOptions}
+          withCheckIcon={false}
+          renderOption={({ option }) => (
+            <Group gap="xs" flex="1">
+              {configuredProviders.has(option.value as ChatProvider) && (
+                <CheckIcon size={14} style={{ color: "var(--mantine-color-green-6)" }} />
+              )}
+              {option.label}
+            </Group>
+          )}
         />
 
-        <Paper withBorder p="sm">
-          <Text size="sm" fw={500}>
-            {getChatProviderLabel(selectedDefinition.provider)}
-          </Text>
-          {selectedDefinition.fields.map((field) => (
-            <SettingInput
-              key={`${selectedDefinition.provider}-${field.key}`}
-              field={field}
-              inputId={`${fieldIdPrefix}-${selectedDefinition.provider}-${field.key}`}
-              value={String(settings[field.key] ?? "")}
-              onCommit={handleCommit}
-            />
-          ))}
-        </Paper>
-      </Stack>
-
-      <Stack gap="xs">
-        <Group justify="space-between">
-          <Text size="sm" fw={500}>Ready to Use</Text>
-          <Text size="xs" c="dimmed">{readyProviders.length}</Text>
-        </Group>
-
-        {readyProviders.length > 0 ? (
-          <Paper withBorder>
-            {readyProviders.map((definition, index) => {
-              const providerLabel = getChatProviderLabel(definition.provider);
-
-              return (
-                <Group
-                  key={definition.provider}
-                  justify="space-between"
-                  px="sm"
-                  py="xs"
-                  style={index > 0 ? { borderTop: "1px solid var(--mantine-color-default-border)" } : undefined}
-                >
-                  <Box style={{ minWidth: 0 }}>
-                    <Text size="sm" fw={500} truncate>{providerLabel}</Text>
-                    <Text size="xs" c="dimmed" truncate>
-                      {getProviderModel(settings, definition)}
-                    </Text>
-                  </Box>
-                  <ActionIcon
-                    size="sm"
-                    variant="subtle"
-                    color="gray"
-                    aria-label={`Remove ${providerLabel}`}
-                    title={`Remove ${providerLabel}`}
-                    onClick={() => void handleRemoveProvider(definition)}
-                  >
-                    <XIcon size={14} />
-                  </ActionIcon>
-                </Group>
-              );
-            })}
-          </Paper>
-        ) : (
-          <Paper withBorder p="sm" style={{ borderStyle: "dashed" }}>
-            <Text size="sm" c="dimmed">No providers configured.</Text>
-          </Paper>
-        )}
+        <ProviderFields
+          key={selectedProvider}
+          definition={selectedDefinition}
+          settings={settings}
+          onCommit={handleCommit}
+          fieldIdPrefix={fieldIdPrefix}
+        />
       </Stack>
 
       <Stack gap="sm">
@@ -355,6 +291,139 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
         />
       </Paper>
     </Stack>
+  );
+}
+
+function ProviderFields({
+  definition,
+  settings,
+  onCommit,
+  fieldIdPrefix,
+}: {
+  definition: ChatProviderSettingsDefinition;
+  settings: Settings;
+  onCommit: (key: keyof Settings, value: string) => Promise<void>;
+  fieldIdPrefix: string;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const field of definition.fields) {
+      initial[field.key] = String(settings[field.key] ?? "");
+    }
+    return initial;
+  });
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<"ok" | "error" | null>(null);
+  const [testError, setTestError] = useState("");
+
+  const hasChanges = definition.fields.some(
+    (field) => drafts[field.key] !== String(settings[field.key] ?? ""),
+  );
+
+  async function handleSave() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      for (const field of definition.fields) {
+        const currentValue = String(settings[field.key] ?? "");
+        if (drafts[field.key] !== currentValue) {
+          await onCommit(field.key, drafts[field.key]);
+        }
+      }
+    } catch (err) {
+      console.error("[settings] Failed to save provider fields:", err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleTest() {
+    if (testing) return;
+    setTesting(true);
+    setTestResult(null);
+    setTestError("");
+    try {
+      const apiKey = drafts[definition.apiKeyKey] ?? "";
+      const model = drafts[definition.modelKey] ?? "";
+      const baseURL = definition.baseURLKey
+        ? drafts[definition.baseURLKey] ?? ""
+        : undefined;
+      const languageModel = createChatLanguageModel({
+        provider: definition.provider,
+        apiKey,
+        model,
+        baseURL,
+      });
+      await generateText({
+        model: languageModel,
+        messages: [{ role: "user", content: "say ok" }],
+      });
+      setTestResult("ok");
+    } catch (err) {
+      setTestResult("error");
+      setTestError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <Paper withBorder p="sm">
+      <Text size="sm" fw={500}>
+        {getChatProviderLabel(definition.provider)}
+      </Text>
+      <Stack gap="xs">
+        {definition.fields.map((field) => (
+          <TextInput
+            key={`${definition.provider}-${field.key}`}
+            id={`${fieldIdPrefix}-${definition.provider}-${field.key}`}
+            type={field.type}
+            label={field.label}
+            placeholder={field.placeholder}
+            value={drafts[field.key] ?? ""}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setDrafts((prev) => ({ ...prev, [field.key]: value }));
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void handleSave();
+              }
+            }}
+          />
+        ))}
+        <Group justify="flex-end" gap="xs">
+          {testResult === "ok" && (
+            <Text size="xs" c="green">OK</Text>
+          )}
+          {testResult === "error" && (
+            <Text size="xs" c="red" title={testError} style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {testError}
+            </Text>
+          )}
+          <Button
+            size="xs"
+            variant="light"
+            color={testResult === "error" ? "red" : testResult === "ok" ? "green" : "blue"}
+            loading={testing}
+            disabled={saving}
+            onClick={() => void handleTest()}
+          >
+            Test
+          </Button>
+          <Button
+            size="xs"
+            loading={saving}
+            disabled={!hasChanges}
+            onClick={() => void handleSave()}
+          >
+            Save
+          </Button>
+        </Group>
+      </Stack>
+    </Paper>
   );
 }
 

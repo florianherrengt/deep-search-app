@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
-import { renderHook, act } from "@testing-library/react";
+import { render, renderHook, act } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { SubAgentProvider, useSubAgentStore } from "@/lib/sub-agent-store";
+import {
+  SubAgentProvider,
+  useSubAgentActions,
+  useSubAgentState,
+  useSubAgentStore,
+} from "@/lib/sub-agent-store";
 import type { SubAgentEvent, SubAgentRun } from "@/lib/sub-agent-types";
 import { MAX_SUB_AGENT_TEXT_LENGTH } from "@/lib/sub-agent-types";
 
@@ -322,6 +327,23 @@ describe("SubAgentStore processEvent", () => {
     expect(runs[0].chunksReceived).toBe(3);
   });
 
+  it("preserves repeated text-delta chunks from the same run", () => {
+    const { result } = renderHook(() => useSubAgentStore(), { wrapper });
+
+    act(() => {
+      result.current.processEvent(chatId, startEvent("sa-repeat"));
+    });
+    act(() => {
+      result.current.processEvent(chatId, { type: "text-delta", id: "sa-repeat", delta: "the " });
+      result.current.processEvent(chatId, { type: "text-delta", id: "sa-repeat", delta: "the " });
+      result.current.processEvent(chatId, { type: "text-delta", id: "sa-repeat", delta: "the " });
+    });
+
+    const runs = result.current.getRuns(chatId);
+    expect(runs[0].text).toBe("the the the ");
+    expect(runs[0].chunksReceived).toBe(3);
+  });
+
   it("batches rapid text deltas into one state commit", () => {
     vi.useFakeTimers();
 
@@ -354,6 +376,66 @@ describe("SubAgentStore processEvent", () => {
       expect(renderCount).toBe(renderCountAfterStart + 1);
       expect(result.current.getRuns(chatId)[0].text).toBe("abc");
       expect(result.current.getRuns(chatId)[0].status).toBe("streaming");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not re-render action-only consumers during streamed text updates", () => {
+    vi.useFakeTimers();
+
+    try {
+      let actionRenderCount = 0;
+      let stateRenderCount = 0;
+      let storeActions!: ReturnType<typeof useSubAgentActions>;
+
+      function ActionOnlyConsumer() {
+        actionRenderCount += 1;
+        storeActions = useSubAgentActions();
+        return null;
+      }
+
+      function StateConsumer() {
+        stateRenderCount += 1;
+        useSubAgentState();
+        return null;
+      }
+
+      const view = render(
+        <SubAgentProvider>
+          <ActionOnlyConsumer />
+          <StateConsumer />
+        </SubAgentProvider>,
+      );
+
+      act(() => {
+        storeActions.processEvent(chatId, startEvent("sa-1"));
+      });
+
+      const actionRenderCountAfterStart = actionRenderCount;
+      const stateRenderCountAfterStart = stateRenderCount;
+
+      act(() => {
+        for (let index = 0; index < 100; index += 1) {
+          storeActions.processEvent(chatId, {
+            type: "text-delta",
+            id: "sa-1",
+            delta: String(index % 10),
+          });
+        }
+      });
+
+      expect(actionRenderCount).toBe(actionRenderCountAfterStart);
+      expect(stateRenderCount).toBe(stateRenderCountAfterStart);
+
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+
+      expect(actionRenderCount).toBe(actionRenderCountAfterStart);
+      expect(stateRenderCount).toBe(stateRenderCountAfterStart + 1);
+
+      view.unmount();
     } finally {
       vi.useRealTimers();
     }

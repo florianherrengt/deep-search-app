@@ -300,16 +300,34 @@ export async function moveResearchChatToFolder({
   await saveResearchChatMessages(parsedToFolderName, chatId, messages);
 
   const parsedChatId = SafePathSegmentSchema.parse(chatId);
-  await deleteAppFile({
-    subfolder: researchChatsSubfolder(parsedFromFolderName),
-    filename: researchChatFilename(parsedChatId),
-  }).catch((error) => {
-    console.warn("[research-history] failed to delete source chat file during move", {
-      fromFolder: parsedFromFolderName,
-      chatId: parsedChatId,
-      error: error instanceof Error ? error.message : "unknown",
+  try {
+    await deleteAppFile({
+      subfolder: researchChatsSubfolder(parsedFromFolderName),
+      filename: researchChatFilename(parsedChatId),
     });
-  });
+  } catch (error) {
+    try {
+      await deleteAppFile({
+        subfolder: researchChatsSubfolder(parsedToFolderName),
+        filename: researchChatFilename(parsedChatId),
+      });
+    } catch (rollbackError) {
+      console.error(
+        "[research-history] failed to rollback destination after source delete failure during move",
+        {
+          fromFolder: parsedFromFolderName,
+          toFolder: parsedToFolderName,
+          chatId: parsedChatId,
+          deleteError: error instanceof Error ? error.message : "unknown",
+          rollbackError: rollbackError instanceof Error ? rollbackError.message : "unknown",
+        },
+      );
+    }
+    throw errorWithCause(
+      `Failed to move chat "${parsedChatId}" from "${parsedFromFolderName}" to "${parsedToFolderName}": source deletion failed`,
+      error,
+    );
+  }
 
   await removeResearchChatSummary(parsedFromFolderName, parsedChatId).catch(
     (error) => {
@@ -378,7 +396,29 @@ export async function renameResearchFolder(
     oldSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedOldFolderName}`,
     newSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedNewFolderName}`,
   });
-  await renameResearchFolderIndex(parsedOldFolderName, parsedNewFolderName);
+  try {
+    await renameResearchFolderIndex(parsedOldFolderName, parsedNewFolderName);
+  } catch (indexError) {
+    console.error(
+      `[research-history] Failed to rename search index after folder rename from "${parsedOldFolderName}" to "${parsedNewFolderName}". Folder renamed on disk but search index is stale.`,
+      indexError instanceof Error ? indexError.message : "unknown",
+    );
+    try {
+      await renameAppSubfolder({
+        oldSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedNewFolderName}`,
+        newSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedOldFolderName}`,
+      });
+    } catch (rollbackError) {
+      console.error(
+        `[research-history] Failed to rollback folder rename after index rename failure. Folder "${parsedNewFolderName}" has a stale search index.`,
+        rollbackError instanceof Error ? rollbackError.message : "unknown",
+      );
+    }
+    throw errorWithCause(
+      `Failed to rename search index for folder "${parsedOldFolderName}" → "${parsedNewFolderName}"`,
+      indexError,
+    );
+  }
 
   return { name: parsedNewFolderName };
 }
@@ -389,7 +429,18 @@ export async function deleteResearchFolder(folderName: string): Promise<void> {
   await deleteAppSubfolder({
     subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
   });
-  await deleteResearchFolderIndex(parsedFolderName);
+  try {
+    await deleteResearchFolderIndex(parsedFolderName);
+  } catch (indexError) {
+    console.error(
+      `[research-history] Failed to delete search index for folder "${parsedFolderName}". Folder deleted from disk but search index entries may be orphaned.`,
+      indexError instanceof Error ? indexError.message : "unknown",
+    );
+    throw errorWithCause(
+      `Failed to delete search index for folder "${parsedFolderName}"`,
+      indexError,
+    );
+  }
 }
 
 export function compareResearchFolders(
@@ -580,6 +631,12 @@ function sortableDate(value?: string | null) {
 
   const timestamp = Date.parse(value);
   return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function errorWithCause(message: string, cause: unknown): Error {
+  const error = new Error(message) as Error & { cause?: unknown };
+  error.cause = cause;
+  return error;
 }
 
 function createChatTitle(messages: UIMessage[]) {

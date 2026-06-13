@@ -33,7 +33,7 @@ describe("emitSubAgentEvent", () => {
     setActiveSubAgentEmitter(emitter, "msg-1");
     const event = startEvent("1");
     emitSubAgentEvent(event);
-    expect(emitter).toHaveBeenCalledWith(event);
+    expect(emitter).toHaveBeenCalledWith(expect.objectContaining(event));
   });
 
   it("routes direct handler events to the correct chatId", () => {
@@ -44,7 +44,7 @@ describe("emitSubAgentEvent", () => {
 
     setActiveSubAgentEmitter(vi.fn(), null, "chatA");
     emitSubAgentEvent(startEvent("1"));
-    expect(handlerA).toHaveBeenCalledWith(startEvent("1"));
+    expect(handlerA).toHaveBeenCalledWith(expect.objectContaining(startEvent("1")));
     expect(handlerB).not.toHaveBeenCalled();
   });
 
@@ -56,7 +56,7 @@ describe("emitSubAgentEvent", () => {
 
     setActiveSubAgentEmitter(vi.fn(), null, "chatB");
     emitSubAgentEvent(startEvent("1"));
-    expect(handlerB).toHaveBeenCalledWith(startEvent("1"));
+    expect(handlerB).toHaveBeenCalledWith(expect.objectContaining(startEvent("1")));
     expect(handlerA).not.toHaveBeenCalled();
   });
 
@@ -163,12 +163,12 @@ describe("concurrent chat isolation", () => {
     setActiveSubAgentEmitter(emitterB, "msg-b", "chatB");
 
     emitSubAgentEvent(startEvent("1"));
-    expect(emitterB).toHaveBeenCalledWith(startEvent("1"));
+    expect(emitterB).toHaveBeenCalledWith(expect.objectContaining(startEvent("1")));
     expect(emitterA).not.toHaveBeenCalled();
 
     setActiveSubAgentEmitter(emitterA, "msg-a", "chatA");
     emitSubAgentEvent(startEvent("2"));
-    expect(emitterA).toHaveBeenCalledWith(startEvent("2"));
+    expect(emitterA).toHaveBeenCalledWith(expect.objectContaining(startEvent("2")));
   });
 
   it("captured emitter function continues routing after global is cleared", () => {

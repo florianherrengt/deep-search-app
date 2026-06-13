@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
+#
+# Recurring opencode command loop with idle watchdog and token-quota handling.
+#
+# Usage:
+#   ./scripts/run-loop.sh [command]
+#
+# command defaults to "hunt-bugs". Use any command defined under
+# .opencode/commands/, e.g. "boost-perf". Per-command log/state/lock files are
+# namespaced by the command name so multiple loops do not collide.
+#
 set -euo pipefail
 
 PROJECT="~/projects/deep-search-app"
 OPENCODE="~/.opencode/bin/opencode"
-COMMAND="hunt-bugs"
+COMMAND="${1:-hunt-bugs}"
 
 RUN_DIR="$PROJECT/.opencode-auto"
-LOG="$RUN_DIR/hunt-bugs.log"
-STATE="$RUN_DIR/hunt-bugs.state"
-LOCK="$RUN_DIR/hunt-bugs.lock"
+LOG="$RUN_DIR/${COMMAND}.log"
+STATE="$RUN_DIR/${COMMAND}.state"
+LOCK="$RUN_DIR/${COMMAND}.lock"
 
 # Kill OpenCode if it produces no log output for this long.
 IDLE_SECONDS=900 # 15 minutes
@@ -60,7 +70,7 @@ schedule_self_at_reset() {
     exit 1
   fi
 
-  echo "cd '$PROJECT' && '$SCRIPT_PATH'" | at "$reset_time"
+  echo "cd '$PROJECT' && '$SCRIPT_PATH' '$COMMAND'" | at "$reset_time"
 
   log "scheduled next run at token reset: $reset_time"
 }

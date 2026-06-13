@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, act } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, fireEvent, act } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+afterEach(() => {
+  cleanup();
+});
 import { MantineProvider } from "@mantine/core";
 import { SettingsFields } from "@/components/settings-fields";
 import { settingsDefaults } from "@/lib/settings-store";
@@ -73,7 +77,30 @@ describe("SettingsFields", () => {
     fireEvent.click(screen.getByRole("option", { name: "OpenRouter" }));
 
     expect(providerInput.value).toBe("OpenRouter");
-    expect(screen.getByText("Ready to Use")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+  });
+
+  it("does not save provider fields on blur, only on Save button click", async () => {
+    const updateSetting = vi.fn().mockResolvedValue(undefined);
+    renderSettingsFields({ updateSetting: updateSetting as never });
+
+    const modelLabel = screen.getByText("Model");
+    const modelInput = document.getElementById(
+      modelLabel.getAttribute("for")!,
+    ) as HTMLInputElement;
+
+    fireEvent.change(modelInput, { target: { value: "gpt-4o" } });
+    await act(async () => {
+      fireEvent.blur(modelInput);
+    });
+
+    expect(updateSetting).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+
+    expect(updateSetting).toHaveBeenCalledWith("default_model", "gpt-4o");
   });
 });
 

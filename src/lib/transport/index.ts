@@ -6,7 +6,10 @@ import {
 import { SafePathSegmentSchema } from "@/lib/app-file-storage";
 import { throwIfAborted } from "@/lib/abort";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
-import { setActiveSubAgentEmitter } from "@/lib/sub-agent-emitter";
+import {
+  emitSubAgentEventToChat,
+  setActiveSubAgentEmitter,
+} from "@/lib/sub-agent-emitter";
 import type { SubAgentEvent } from "@/lib/sub-agent-types";
 import { createGuardedStream } from "./guarded-stream";
 import type { SearchToolKeys } from "./tool-registry";
@@ -91,14 +94,10 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     return new ReadableStream<UIMessageChunk>({
       async start(controller) {
         const subAgentEmitter = (event: SubAgentEvent) => {
-          controller.enqueue({
-            type: "data-subagent_event" as const,
-            id: `subagent-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            data: event,
-          });
+          emitSubAgentEventToChat(transport.researchChatId, event);
         };
 
-        setActiveSubAgentEmitter(subAgentEmitter, null, transport.researchChatId);
+        setActiveSubAgentEmitter(null, null, transport.researchChatId);
 
         try {
           if (!transport.researchFolder) {

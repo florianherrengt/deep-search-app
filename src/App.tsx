@@ -28,8 +28,9 @@ import { AppUpdateButton } from "@/components/app-update-button";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
 import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
 import { ResearchSidebar } from "@/components/research-sidebar";
-import { SubAgentProvider, useSubAgentStore } from "@/lib/sub-agent-store";
+import { SubAgentProvider, useSubAgentState } from "@/lib/sub-agent-store";
 import { SubAgentSidebar } from "@/components/sub-agent-sidebar";
+import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
 import {
   compareResearchFolders,
   createResearchChatId,
@@ -213,6 +214,8 @@ export function hasRunningResearchFolder(
 }
 
 function AppInner() {
+  useSubAgentRenderCounter("AppInner");
+
   const { settings, loading, error: settingsError, updateSetting } = useSettings();
   const { tabs, activeTabId, switchToTab, closeTab } = useBrowserTabs();
   const [researchFolders, setResearchFolders] = useState<ResearchFolder[]>([]);
@@ -252,6 +255,12 @@ function AppInner() {
   researchChatsStatusRef.current = researchChatsStatus;
   const [selectedModelId, setSelectedModelId] = useState("");
   const [subAgentSidebarOpen, setSubAgentSidebarOpen] = useState(false);
+  const openSubAgentSidebar = useCallback(() => {
+    setSubAgentSidebarOpen(true);
+  }, []);
+  const closeSubAgentSidebar = useCallback(() => {
+    setSubAgentSidebarOpen(false);
+  }, []);
   const chatModelOptions = useMemo(
     () => getChatModelOptions(settings),
     [settings],
@@ -393,21 +402,6 @@ function AppInner() {
     activateSession,
     switchToTab,
   });
-
-  const subAgentStore = useSubAgentStore();
-  useEffect(() => {
-    if (subAgentStore.selectedRunId) {
-      setSubAgentSidebarOpen(true);
-    }
-  }, [subAgentStore.selectedRunId]);
-
-  const activeSubAgentRuns = activeResearchChatId
-    ? subAgentStore.runsByChat[activeResearchChatId]
-    : undefined;
-  useEffect(() => {
-    if (!activeSubAgentRuns || activeSubAgentRuns.length === 0) return;
-    setSubAgentSidebarOpen(true);
-  }, [activeSubAgentRuns]);
 
   if (loading) return null;
 
@@ -680,6 +674,10 @@ function AppInner() {
             onReindexFolder={handleReindexResearchFolder}
           />
           <div className="md-flex-fill" style={{ display: "flex" }}>
+            <SubAgentSidebarAutoOpen
+              chatId={activeResearchChatId}
+              onOpen={openSubAgentSidebar}
+            />
             <div style={{ flex: 1, minWidth: 0 }}>
               {visibleChatSessions.map((session) => (
                 <div
@@ -720,7 +718,7 @@ function AppInner() {
             {subAgentSidebarOpen && activeResearchChatId && (
               <SubAgentSidebar
                 chatId={activeResearchChatId}
-                onClose={() => setSubAgentSidebarOpen(false)}
+                onClose={closeSubAgentSidebar}
               />
             )}
           </div>
@@ -747,6 +745,35 @@ function AppInner() {
       onCloseTab={closeTab}
     />
   );
+}
+
+function SubAgentSidebarAutoOpen({
+  chatId,
+  onOpen,
+}: {
+  chatId: string | null;
+  onOpen: () => void;
+}) {
+  useSubAgentRenderCounter("SubAgentSidebarAutoOpen");
+  const { runsByChat, selectedRunId } = useSubAgentState();
+  const runCount = chatId ? runsByChat[chatId]?.length ?? 0 : 0;
+  const previousRef = useRef({ chatId: null as string | null, runCount: 0 });
+
+  useEffect(() => {
+    const previous = previousRef.current;
+    const chatChanged = previous.chatId !== chatId;
+    const countIncreased = runCount > previous.runCount;
+    previousRef.current = { chatId, runCount };
+
+    if (!chatId || runCount === 0) return;
+    if (chatChanged || countIncreased) onOpen();
+  }, [chatId, onOpen, runCount]);
+
+  useEffect(() => {
+    if (selectedRunId) onOpen();
+  }, [onOpen, selectedRunId]);
+
+  return null;
 }
 
 function createChatSessionId(prefix: string) {

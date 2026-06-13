@@ -508,6 +508,75 @@ describe("research history", () => {
       { recursive: true },
     );
   });
+
+  it("throws and rolls back destination when source deletion fails during move", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+    ];
+    const chatId = "2026-05-22T10-11-12.123Z";
+    fsMocks.exists.mockImplementation(async (path: string) => {
+      if (path === `search-results/source-folder/chats/${chatId}.json`) return true;
+      if (path === `search-results/dest-folder/chats/${chatId}.json`) return true;
+      if (path === "search-results/source-folder") return true;
+      return false;
+    });
+    fsMocks.remove.mockImplementation(async (path: string) => {
+      if (path === `search-results/source-folder/chats/${chatId}.json`) {
+        throw new Error("Permission denied");
+      }
+    });
+
+    await expect(
+      moveResearchChatToFolder({
+        fromFolderName: "source-folder",
+        toFolderName: "dest-folder",
+        chatId,
+        messages: messages as never,
+      }),
+    ).rejects.toThrow("source deletion failed");
+
+    expect(fsMocks.remove).toHaveBeenCalledWith(
+      `search-results/dest-folder/chats/${chatId}.json`,
+    );
+  });
+
+  it("rolls back folder rename when index rename fails", async () => {
+    fsMocks.exists.mockResolvedValueOnce(false);
+    tauriMocks.invoke.mockRejectedValueOnce(new Error("index error"));
+
+    await expect(
+      renameResearchFolder("market-map", "pricing-review"),
+    ).rejects.toThrow("Failed to rename search index");
+
+    expect(fsMocks.rename).toHaveBeenCalledTimes(2);
+    expect(fsMocks.rename).toHaveBeenNthCalledWith(
+      1,
+      "search-results/market-map",
+      "search-results/pricing-review",
+    );
+    expect(fsMocks.rename).toHaveBeenNthCalledWith(
+      2,
+      "search-results/pricing-review",
+      "search-results/market-map",
+    );
+  });
+
+  it("throws when index deletion fails after folder deletion", async () => {
+    fsMocks.exists.mockResolvedValueOnce(true);
+    tauriMocks.invoke.mockRejectedValueOnce(new Error("index delete error"));
+
+    await expect(deleteResearchFolder("market-map")).rejects.toThrow(
+      "Failed to delete search index",
+    );
+
+    expect(fsMocks.remove).toHaveBeenCalledWith("search-results/market-map", {
+      recursive: true,
+    });
+  });
 });
 
 function mockAppStorage({

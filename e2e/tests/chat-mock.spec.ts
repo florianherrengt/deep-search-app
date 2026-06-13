@@ -2,7 +2,7 @@ import { test, expect } from "../fixtures";
 
 test.describe("Chat with mocked LLM", () => {
   test("sends a message and receives a mocked response", async ({
-    chatPage,
+    configuredChatPage: chatPage,
   }) => {
     await chatPage.evaluate(() => {
       const encoder = new TextEncoder();

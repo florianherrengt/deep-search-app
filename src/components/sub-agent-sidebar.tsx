@@ -3,9 +3,10 @@ import { Box, Collapse, ScrollArea, Text, UnstyledButton } from "@mantine/core";
 import { BotIcon, ChevronDownIcon, XIcon } from "lucide-react";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { MarkdownContent } from "@/components/assistant-ui/markdown-text";
-import { useSubAgentStore } from "@/lib/sub-agent-store";
+import { useSubAgentActions, useSubAgentReaders } from "@/lib/sub-agent-store";
 import type { SubAgentRun } from "@/lib/sub-agent-types";
 import type { SubAgentReport } from "@/lib/sub-agent-report";
+import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
 
 interface SubAgentSidebarProps {
   chatId: string;
@@ -13,10 +14,12 @@ interface SubAgentSidebarProps {
 }
 
 export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
-  const store = useSubAgentStore();
-  const runs = store.getRuns(chatId);
+  useSubAgentRenderCounter("SubAgentSidebar");
+  const { selectRun } = useSubAgentActions();
+  const { getRuns, getSelectedRun } = useSubAgentReaders();
+  const runs = getRuns(chatId);
   const deferredRuns = useDeferredValue(runs);
-  const selectedRun = store.getSelectedRun(chatId);
+  const selectedRun = getSelectedRun(chatId);
   const [openRunIds, setOpenRunIds] = useState<Set<string>>(() => new Set());
   const userCollapsedRef = useRef<Set<string>>(new Set());
 
@@ -113,9 +116,9 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
                     });
                     const isOpen = openRunIds.has(run.id);
                     if (isOpen) {
-                      store.selectRun(null);
+                      selectRun(null);
                     } else {
-                      store.selectRun(run.id);
+                      selectRun(run.id);
                     }
                   }}
                 />
@@ -137,6 +140,7 @@ const SubAgentRunCard = memo(function SubAgentRunCard({
   opened: boolean;
   onToggle: () => void;
 }) {
+  useSubAgentRenderCounter("SubAgentRunCard");
   const status = getStatusMeta(run.status);
 
   return (
@@ -216,6 +220,7 @@ const SubAgentRunCard = memo(function SubAgentRunCard({
 );
 
 function SubAgentTranscript({ run }: { run: SubAgentRun }) {
+  useSubAgentRenderCounter("SubAgentTranscript");
   const deferredText = useDeferredValue(run.text);
   const hasContent = deferredText.trim().length > 0;
   const isActive = run.status === "running" || run.status === "streaming";

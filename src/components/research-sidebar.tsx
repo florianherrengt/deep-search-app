@@ -33,6 +33,7 @@ import {
   Stack,
   VisuallyHidden,
 } from "@mantine/core";
+import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
 
 import type {
   ResearchChatSummary,
@@ -88,6 +89,8 @@ export function ResearchSidebar({
   onDeleteFolder,
   onReindexFolder,
 }: ResearchSidebarProps) {
+  useSubAgentRenderCounter("ResearchSidebar");
+
   const [renameTarget, setRenameTarget] = useState<ResearchFolder | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ResearchFolder | null>(null);

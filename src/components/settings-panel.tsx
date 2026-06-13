@@ -17,7 +17,7 @@ export function SettingsPanel() {
       <Box maw={512} mx="auto" p="md" py={32}>
         <Text size="lg" fw={600}>Settings</Text>
         <Text size="sm" c="dimmed" mt={4}>
-          Configure API keys and preferences. Changes are saved automatically.
+          Configure API keys and preferences. Provider changes are saved on demand.
         </Text>
 
         <Stack gap="md" mt="md">
