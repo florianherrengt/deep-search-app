@@ -645,6 +645,67 @@ describe("nameFolderFromMessage abort", () => {
     expect(capturedSignal).toBe(controller.signal);
   });
 
+  it("emits both report and cancelled events on abort", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        throw new Error("aborted");
+      },
+      doStream: async () => {
+        throw new Error("aborted");
+      },
+    });
+
+    await expect(
+      nameFolderFromMessage(model, "test", { abortSignal: controller.signal }),
+    ).rejects.toThrow();
+
+    const calls = mockedEmit.mock.calls.map((c) => c[0]);
+    const reportEvent = calls.find((e) => e.type === "report");
+    const cancelledEvent = calls.find((e) => e.type === "cancelled");
+
+    expect(reportEvent).toBeTruthy();
+    expect(reportEvent).toEqual(
+      expect.objectContaining({
+        type: "report",
+        report: expect.objectContaining({
+          status: "cancelled",
+          errorMessage: "Folder naming was cancelled.",
+        }),
+      }),
+    );
+    expect(cancelledEvent).toBeTruthy();
+    expect(cancelledEvent?.type).toBe("cancelled");
+  });
+
+  it("abort cancelled event sets sub-agent status to cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        throw new Error("aborted");
+      },
+      doStream: async () => {
+        throw new Error("aborted");
+      },
+    });
+
+    await expect(
+      nameFolderFromMessage(model, "test", { abortSignal: controller.signal }),
+    ).rejects.toThrow();
+
+    const calls = mockedEmit.mock.calls.map((c) => c[0]);
+    const startEvent = calls.find((e) => e.type === "start");
+    const cancelledEvent = calls.find((e) => e.type === "cancelled");
+
+    expect(startEvent?.id).toBeTruthy();
+    expect(cancelledEvent?.id).toBe(startEvent?.id);
+    expect(cancelledEvent?.type).toBe("cancelled");
+  });
+
   it("treats LLM generation errors as fatal", async () => {
     const model = new MockLanguageModelV3({
       doGenerate: async () => {
@@ -728,6 +789,33 @@ describe("nameFolderFromMessageWithReport", () => {
     const lastAttempt = result.report.attempts[result.report.attempts.length - 1];
     expect(lastAttempt.accepted).toBe(true);
     expect(result.report.finalAcceptedValue).toBeTruthy();
+  });
+
+  it("error message reports fallback rejection reason, not stale model rejection", async () => {
+    let callCount = 0;
+    validateName.mockImplementation((_name: string) => {
+      callCount++;
+      if (callCount <= MAX_ATTEMPTS) return "too short (min 2 characters)";
+      return "too many words (max 5)";
+    });
+    slugifyName.mockImplementation((t: string) =>
+      t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+    );
+    resolveUnique.mockImplementation(async (c: string) => c);
+
+    await expect(
+      nameFolderFromMessageWithReport(
+        modelReturning("a"),
+        "Best compact vans in the whole entire world today",
+      ),
+    ).rejects.toThrow("too many words");
+
+    const reportCall = mockedEmit.mock.calls.find(
+      (c) => c[0].type === "report",
+    );
+    expect(reportCall).toBeDefined();
+    const report = (reportCall![0] as { type: "report"; report: { errorMessage?: string } }).report;
+    expect(report.errorMessage).toContain("too many words");
   });
 });
 

@@ -1,4 +1,5 @@
 import { type Tool } from "ai";
+import { isAbortError } from "./abort";
 import { createSubAgentId, type SubAgentToolCall } from "./sub-agent-types";
 import { emitSubAgentEvent, getParentMessageId } from "./sub-agent-emitter";
 
@@ -77,6 +78,11 @@ export function wrapToolWithSubAgentTracking<T extends Tool>(
 
       return result;
     } catch (error) {
+      if (isAbortError(error)) {
+        emitSubAgentEvent({ type: "cancelled", id: subAgentId });
+        throw error;
+      }
+
       emitSubAgentEvent({
         type: "tool-result",
         id: subAgentId,

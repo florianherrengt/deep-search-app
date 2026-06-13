@@ -481,8 +481,35 @@ async fn read_limited_response(
     String::from_utf8(body).map_err(|_| "Response body is not valid UTF-8.".to_string())
 }
 
+fn validate_folder_name(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+        || name.contains('\0')
+        || name.contains('\n')
+    {
+        return Err(format!("Invalid folder name: '{}'", name));
+    }
+    Ok(())
+}
+
+fn validate_filename(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains("..")
+        || name.contains('\0')
+        || name.contains('\n')
+    {
+        return Err(format!("Invalid filename: '{}'", name));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn register_research_folder(app: AppHandle, name: String, query: String) -> Result<i64, String> {
+    validate_folder_name(&name)?;
     let db = app.state::<Database>();
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     research_search::indexing::register_folder(&conn, &name, &query)
@@ -494,6 +521,8 @@ fn rename_research_folder_index(
     old_name: String,
     new_name: String,
 ) -> Result<(), String> {
+    validate_folder_name(&old_name)?;
+    validate_folder_name(&new_name)?;
     let db = app.state::<Database>();
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     research_search::indexing::rename_folder(&conn, &old_name, &new_name)
@@ -501,6 +530,7 @@ fn rename_research_folder_index(
 
 #[tauri::command]
 fn delete_research_folder_index(app: AppHandle, name: String) -> Result<(), String> {
+    validate_folder_name(&name)?;
     let db = app.state::<Database>();
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     research_search::indexing::delete_folder(&conn, &name)
@@ -512,6 +542,8 @@ fn delete_research_file_index(
     folder: String,
     filename: String,
 ) -> Result<(), String> {
+    validate_folder_name(&folder)?;
+    validate_filename(&filename)?;
     let db = app.state::<Database>();
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let folder_id = research_search::get_folder_id(&conn, &folder)?
@@ -527,6 +559,8 @@ async fn index_research_file(
     filename: String,
     content: String,
 ) -> Result<(), String> {
+    validate_folder_name(&folder)?;
+    validate_filename(&filename)?;
     tokio::task::spawn_blocking(move || {
         let db = app.state::<Database>();
         research_search::indexing::index_file(&db, &embedding_config, &folder, &filename, &content)
@@ -541,6 +575,7 @@ async fn reindex_folder(
     embedding_config: research_search::embeddings::EmbeddingConfig,
     folder: String,
 ) -> Result<u32, String> {
+    validate_folder_name(&folder)?;
     tokio::task::spawn_blocking(move || {
         let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let folder_dir = app_data.join("search-results").join(&folder);
@@ -886,5 +921,37 @@ mod tests {
         assert!(is_blocked_ip(IpAddr::V6(ip)));
         let ip: Ipv6Addr = "::ffff:8.8.8.8".parse().unwrap();
         assert!(!is_blocked_ip(IpAddr::V6(ip)));
+    }
+
+    #[test]
+    fn validate_folder_name_rejects_path_traversal() {
+        assert!(validate_folder_name("../etc").is_err());
+        assert!(validate_folder_name("foo/../bar").is_err());
+        assert!(validate_folder_name("foo/bar").is_err());
+        assert!(validate_folder_name("foo\\bar").is_err());
+        assert!(validate_folder_name("").is_err());
+        assert!(validate_folder_name("foo\0bar").is_err());
+        assert!(validate_folder_name("foo\nbar").is_err());
+    }
+
+    #[test]
+    fn validate_folder_name_accepts_valid_names() {
+        assert!(validate_folder_name("my-research-folder").is_ok());
+        assert!(validate_folder_name("test 123").is_ok());
+        assert!(validate_folder_name("研究").is_ok());
+    }
+
+    #[test]
+    fn validate_filename_rejects_path_traversal() {
+        assert!(validate_filename("../secret").is_err());
+        assert!(validate_filename("foo/../bar").is_err());
+        assert!(validate_filename("foo/bar").is_err());
+        assert!(validate_filename("").is_err());
+    }
+
+    #[test]
+    fn validate_filename_accepts_valid_names() {
+        assert!(validate_filename("research-notes.md").is_ok());
+        assert!(validate_filename("page.html").is_ok());
     }
 }

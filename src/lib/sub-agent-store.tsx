@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -45,6 +46,11 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
     processedEventFingerprints: new Set(),
   });
 
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
+
   const loadRuns = useCallback((chatId: string, runs: SubAgentRun[]) => {
     setState((prev) => ({
       ...prev,
@@ -57,18 +63,34 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
 
   const loadRunsFromDisk = useCallback(
     async (chatId: string, folderName: string) => {
-      const runs = await readSubAgentRuns(folderName, chatId);
-      setState((prev) => ({
-        ...prev,
-        runsByChat: { ...prev.runsByChat, [chatId]: runs },
-      }));
+      try {
+        const runs = await readSubAgentRuns(folderName, chatId);
+        setState((prev) => {
+          const existing = prev.runsByChat[chatId] ?? [];
+          const existingIds = new Set(existing.map((r) => r.id));
+          const merged = runs.filter((r) => !existingIds.has(r.id));
+          return {
+            ...prev,
+            runsByChat: {
+              ...prev.runsByChat,
+              [chatId]: [...existing, ...merged],
+            },
+          };
+        });
+      } catch (error) {
+        console.error("[sub-agent-store] failed to load runs from disk", {
+          chatId,
+          folderName,
+          error: error instanceof Error ? error.message : "unknown",
+        });
+      }
     },
     [],
   );
 
   const processEvent = useCallback(
     (chatId: string, event: SubAgentEvent) => {
-      const fingerprint = getEventFingerprint(event);
+      const fingerprint = getEventFingerprint(chatId, event);
       if (fingerprint !== null) {
         setState((prev) => {
           if (prev.processedEventFingerprints.has(fingerprint)) {
@@ -77,10 +99,13 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
           const nextFingerprints = new Set(prev.processedEventFingerprints);
           nextFingerprints.add(fingerprint);
           if (nextFingerprints.size > 10_000) {
-            const iter = nextFingerprints.values();
-            for (let i = 0; i < 5000; i++) iter.next();
-            const toDelete = [];
-            for (const v of iter) toDelete.push(v);
+            const toDelete: string[] = [];
+            let i = 0;
+            for (const v of nextFingerprints) {
+              if (i >= 5000) break;
+              toDelete.push(v);
+              i++;
+            }
             for (const v of toDelete) nextFingerprints.delete(v);
           }
           const chatRuns = prev.runsByChat[chatId] ?? [];
@@ -108,7 +133,11 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
   const clearRuns = useCallback((chatId: string) => {
     setState((prev) => {
       const { [chatId]: _, ...rest } = prev.runsByChat;
-      return { ...prev, runsByChat: rest };
+      const prefix = `${chatId}:`;
+      const nextFingerprints = new Set(
+        [...prev.processedEventFingerprints].filter((fp) => !fp.startsWith(prefix)),
+      );
+      return { ...prev, runsByChat: rest, processedEventFingerprints: nextFingerprints };
     });
   }, []);
 
@@ -117,12 +146,24 @@ export function SubAgentProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const persistRuns = useCallback(
-    async (chatId: string, folderName: string) => {
-      const runs = state.runsByChat[chatId];
-      if (!runs) return;
-      await writeSubAgentRuns(folderName, chatId, runs);
+    (chatId: string, folderName: string): Promise<void> => {
+      const doWrite = async () => {
+        const runs = stateRef.current.runsByChat[chatId];
+        if (!runs) return;
+        await writeSubAgentRuns(folderName, chatId, runs);
+      };
+      const prev = writeQueueRef.current;
+      const next = prev.then(doWrite, doWrite);
+      writeQueueRef.current = next.catch((error) => {
+        console.error("[sub-agent-store] failed to persist sub-agent runs", {
+          chatId,
+          folderName,
+          error: error instanceof Error ? error.message : "unknown",
+        });
+      });
+      return next;
     },
-    [state.runsByChat],
+    [],
   );
 
   const getRuns = useCallback(
@@ -166,6 +207,13 @@ export function useSubAgentStore(): SubAgentStore {
   return store;
 }
 
+const STUB_NAME = "Sub-agent";
+const STUB_TOOL_NAME = "unknown";
+
+function isStubValue(value: string, stub: string): boolean {
+  return !value || value === stub;
+}
+
 function applyEvent(
   runs: SubAgentRun[],
   event: SubAgentEvent,
@@ -179,7 +227,18 @@ function applyEvent(
       const existingRun = runs.find(
         (run) => run.id === runChatId,
       );
-      if (existingRun) return runs;
+      if (existingRun) {
+        if (isStubValue(existingRun.name, STUB_NAME) || isStubValue(existingRun.toolName, STUB_TOOL_NAME)) {
+          return updateRun(runs, runChatId, (run) => ({
+            ...run,
+            name: isStubValue(run.name, STUB_NAME) ? event.name : run.name,
+            toolName: isStubValue(run.toolName, STUB_TOOL_NAME) ? event.toolName : run.toolName,
+            parentMessageId: run.parentMessageId || event.parentMessageId,
+            chatId: runChatId,
+          }));
+        }
+        return runs;
+      }
 
       return [
         ...runs,
@@ -202,8 +261,9 @@ function applyEvent(
       ];
     }
 
-    case "text-delta":
-      return updateRun(runs, event.id, (run) => {
+    case "text-delta": {
+      const withRun = ensureRun(runs, event.id, parentChatId);
+      return updateRun(withRun, event.id, (run) => {
         const next = run.text + event.delta;
         return {
           ...run,
@@ -215,15 +275,19 @@ function applyEvent(
           chunksReceived: run.chunksReceived + 1,
         };
       });
+    }
 
-    case "tool-call":
-      return updateRun(runs, event.id, (run) => ({
+    case "tool-call": {
+      const withRun = ensureRun(runs, event.id, parentChatId);
+      return updateRun(withRun, event.id, (run) => ({
         ...run,
         toolCalls: [...run.toolCalls, event.toolCall],
       }));
+    }
 
-    case "tool-result":
-      return updateRun(runs, event.id, (run) => {
+    case "tool-result": {
+      const withRun = ensureRun(runs, event.id, parentChatId);
+      return updateRun(withRun, event.id, (run) => {
         const calls = [...run.toolCalls];
         const toolCallIndex =
           typeof event.toolCallIndex === "number"
@@ -239,27 +303,43 @@ function applyEvent(
         }
         return { ...run, toolCalls: calls };
       });
+    }
 
-    case "complete":
-      return updateRun(runs, event.id, (run) => ({
+    case "complete": {
+      const withRun = ensureRun(runs, event.id, parentChatId);
+      return updateRun(withRun, event.id, (run) => ({
         ...run,
         status: "completed",
         finishedAt: new Date().toISOString(),
       }));
+    }
 
-    case "report":
-      return updateRun(runs, event.id, (run) => ({
+    case "report": {
+      const withRun = ensureRun(runs, event.id, parentChatId);
+      return updateRun(withRun, event.id, (run) => ({
         ...run,
         report: event.report,
       }));
+    }
 
-    case "error":
-      return updateRun(runs, event.id, (run) => ({
+    case "error": {
+      const withRun = ensureRun(runs, event.id, parentChatId);
+      return updateRun(withRun, event.id, (run) => ({
         ...run,
         status: "failed",
         finishedAt: new Date().toISOString(),
         error: event.error,
       }));
+    }
+
+    case "cancelled": {
+      const withRun = ensureRun(runs, event.id, parentChatId);
+      return updateRun(withRun, event.id, (run) => ({
+        ...run,
+        status: "cancelled",
+        finishedAt: new Date().toISOString(),
+      }));
+    }
   }
 }
 
@@ -273,23 +353,53 @@ function updateRun(
   );
 }
 
-function getEventFingerprint(event: SubAgentEvent): string | null {
+function ensureRun(
+  runs: SubAgentRun[],
+  id: string,
+  parentChatId: string,
+): SubAgentRun[] {
+  if (runs.some((run) => run.id === id)) return runs;
+  console.warn("[sub-agent-store] creating stub run for out-of-order event", { id, eventType: "unknown" });
+  return [
+    ...runs,
+    {
+      id,
+      chatId: id,
+      parentChatId,
+      source: "sub-agent",
+      name: STUB_NAME,
+      toolName: STUB_TOOL_NAME,
+      status: "running",
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      text: "",
+      chunksReceived: 0,
+      toolCalls: [],
+      error: null,
+      parentMessageId: "",
+    },
+  ];
+}
+
+function getEventFingerprint(chatId: string, event: SubAgentEvent): string | null {
   switch (event.type) {
     case "start":
-      return `start:${event.id}`;
+      return `${chatId}:start:${event.id}`;
     case "text-delta": {
       const run = event as { id: string; delta: string };
-      return `td:${run.id}:${run.delta}`;
+      return `${chatId}:td:${run.id}:${run.delta}`;
     }
     case "tool-call":
-      return `tc:${event.id}:${event.toolCall.toolName}`;
+      return `${chatId}:tc:${event.id}:${event.toolCall.toolCallId ?? event.toolCall.toolName}`;
     case "tool-result":
-      return `tr:${event.id}:${event.toolCallIndex ?? ""}:${event.toolCallId ?? ""}`;
+      return `${chatId}:tr:${event.id}:${event.toolCallIndex ?? ""}:${event.toolCallId ?? ""}`;
     case "complete":
-      return `done:${event.id}`;
+      return `${chatId}:done:${event.id}`;
     case "error":
-      return `err:${event.id}`;
+      return `${chatId}:err:${event.id}`;
+    case "cancelled":
+      return `${chatId}:cancel:${event.id}`;
     case "report":
-      return null;
+      return `${chatId}:rpt:${event.id}`;
   }
 }

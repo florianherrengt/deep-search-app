@@ -183,7 +183,11 @@ export class RedditExtractor extends PageExtractor {
   }
 
   async extract(url: string): Promise<string> {
-    if (url.includes(".json")) return "";
+    try {
+      if (new URL(url).pathname.endsWith(".json")) return "";
+    } catch {
+      return "";
+    }
 
     const html = await extractViaWebview(toOldRedditUrl(url), {
       shouldRetry: isRedditChallengeHtml,

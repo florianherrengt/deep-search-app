@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
 import {
   asksUserForInput,
@@ -157,11 +157,33 @@ describe("reviewResearchCheckpoint", () => {
   });
 
   it("falls back to local guidance when the judge fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     await expect(
       reviewResearchCheckpoint(validCheckpoint, async () => {
         throw new Error("judge unavailable");
       }),
     ).resolves.toContain("You appear ready to answer");
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[reviewResearchCheckpoint]"),
+      expect.anything(),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("logs judge validation failures with diagnostic detail", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await reviewResearchCheckpoint(validCheckpoint, async () => {
+      return "" as unknown as string;
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[reviewResearchCheckpoint]"),
+      expect.anything(),
+    );
+    warnSpy.mockRestore();
   });
 });
 
@@ -369,6 +391,65 @@ describe("evaluateAssistantStep", () => {
     const decision = evaluateAssistantStep({
       messages: [userMessage("Tell me about pricing")],
       responseMessage: assistantMessage("The item costs $50."),
+      targetCurrency: "USD",
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+  });
+
+  it("detects Canadian dollars when target is USD", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Tell me about pricing")],
+      responseMessage: assistantMessage("The item costs 50 Canadian dollars."),
+      targetCurrency: "USD",
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "currency_conversion",
+    });
+  });
+
+  it("detects US dollars when target is CAD", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Tell me about pricing")],
+      responseMessage: assistantMessage("The item costs 50 US dollars."),
+      targetCurrency: "CAD",
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "currency_conversion",
+    });
+  });
+
+  it("detects Australian dollars when target is USD", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Tell me about pricing")],
+      responseMessage: assistantMessage("The plan costs 100 Australian dollars per month."),
+      targetCurrency: "USD",
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "currency_conversion",
+    });
+  });
+
+  it("does not flag bare dollars when target is USD", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Tell me about pricing")],
+      responseMessage: assistantMessage("The item costs 50 dollars."),
+      targetCurrency: "USD",
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+  });
+
+  it("does not flag US dollars when target is USD", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Tell me about pricing")],
+      responseMessage: assistantMessage("The item costs 50 US dollars."),
       targetCurrency: "USD",
     });
 

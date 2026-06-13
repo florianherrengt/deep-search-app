@@ -27,6 +27,7 @@ Relentlessly hunt for:
 - Cross-boundary bugs between frontend, backend, sidecar, tools, storage, and sub-agents
 
 Do not stop after finding the first issue. Bugs often cluster around the same code path.
+YOU ARE NOT DONE UNTIL ALL THE TESTS ARE PASSING. I REPEAT ALL TESTS MUST PASS.
 
 # Core rule
 
@@ -314,19 +315,12 @@ If a command produces too much noise, rerun it with a narrower filter or summari
 # Constraints
 
 Do not rewrite large unrelated areas unless necessary.
-
 Do not hide failures behind broad fallback behavior.
-
 Do not delete tests to make the suite pass.
-
 Do not weaken assertions.
-
 Do not mock away the actual bug.
-
 Do not change product behavior without understanding the intended invariant.
-
 Do not make speculative refactors.
-
 Do not mark the task complete while known related bugs remain unfixed.
 
 # Final output

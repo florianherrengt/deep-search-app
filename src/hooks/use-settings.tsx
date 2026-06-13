@@ -20,6 +20,7 @@ const DEV_TEST_SETTINGS_KEY = "deep-search-test-settings";
 interface SettingsContextValue {
   settings: Settings;
   loading: boolean;
+  error: Error | null;
   updateSetting: <K extends keyof Settings>(
     key: K,
     value: Settings[K],
@@ -30,7 +31,7 @@ interface SettingsContextValue {
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const { data: settings, loading, refresh } = useAsyncResource(
+  const { data: settings, loading, error, refresh } = useAsyncResource(
     settingsDefaults,
     async () => {
       const testSettings = getDevTestSettings();
@@ -73,7 +74,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   return (
-    <SettingsContext.Provider value={{ settings, loading, updateSetting, resetAll }}>
+    <SettingsContext.Provider value={{ settings, loading, error, updateSetting, resetAll }}>
       {children}
     </SettingsContext.Provider>
   );

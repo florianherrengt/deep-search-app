@@ -279,4 +279,56 @@ describe("SubAgentSidebar", () => {
 
     expect(screen.getByText("Here is the research output.")).not.toBeVisible();
   });
+
+  it("shows 'No output produced' for completed runs with no text", () => {
+    const noTextRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-notext",
+      chatId: "run-notext",
+      status: "completed",
+      text: "",
+      toolCalls: [],
+      error: null,
+    };
+    renderSidebar({ runs: [noTextRun], selectRunId: "run-notext" });
+    expect(screen.getByText("No output produced.")).toBeInTheDocument();
+  });
+
+  it("resets open runs when chatId changes", () => {
+    const streamingRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-live",
+      chatId: "run-live",
+      status: "streaming",
+      chunksReceived: 1,
+      finishedAt: null,
+      text: "Streaming text",
+    };
+    const { rerender } = renderSidebar({
+      chatId: "chat-1",
+      runs: [streamingRun],
+    });
+
+    expect(screen.getByText("Streaming text")).toBeInTheDocument();
+
+    const chat2Run: SubAgentRun = {
+      ...baseRun,
+      id: "run-chat2",
+      chatId: "run-chat2",
+      parentChatId: "chat-2",
+      status: "completed",
+      text: "Chat 2 output",
+    };
+    rerender(
+      <MantineProvider>
+        <SubAgentProvider>
+          <StoreSetup chatId="chat-2" runs={[chat2Run]} />
+          <SubAgentSidebar chatId="chat-2" onClose={vi.fn()} />
+        </SubAgentProvider>
+      </MantineProvider>,
+    );
+
+    expect(screen.queryByText("Streaming text")).not.toBeInTheDocument();
+    expect(screen.getByText("Chat 2 output")).toBeInTheDocument();
+  });
 });

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Deep Search",
+  "productName": "Deep Search Dev",
   "version": "0.1.0",
-  "identifier": "com.deep-search-app.app",
+  "identifier": "com.deep-search-app.app.dev",
   "build": {
     "beforeDevCommand": "npm run prepare:sidecars && npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Deep Search",
+        "title": "Deep Search Dev",
         "width": 800,
         "height": 600
       }

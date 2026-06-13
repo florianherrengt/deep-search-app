@@ -16,7 +16,7 @@ export interface SubAgentRun {
   report?: import("./sub-agent-report").SubAgentReport | null;
 }
 
-export type SubAgentStatus = "running" | "streaming" | "completed" | "failed";
+export type SubAgentStatus = "running" | "streaming" | "completed" | "failed" | "cancelled";
 
 export interface SubAgentToolCall {
   toolCallId?: string;
@@ -33,6 +33,7 @@ export type SubAgentEvent =
   | { type: "tool-result"; id: string; toolCallIndex?: number; toolCallId?: string; result: unknown; status?: "complete" | "error" }
   | { type: "complete"; id: string }
   | { type: "error"; id: string; error: string }
+  | { type: "cancelled"; id: string }
   | { type: "report"; id: string; report: import("./sub-agent-report").SubAgentReport };
 
 export const MAX_SUB_AGENT_TEXT_LENGTH = 10_000;

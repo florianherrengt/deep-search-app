@@ -26,6 +26,7 @@ export function createSearXNGSearchTool(baseUrl: string = DEFAULT_BASE_URL) {
     providerName: "SearXNG",
     description: "Search the web with SearXNG (self-hosted meta search engine)",
     responseSchema: SearXNGResponseSchema,
+    throwOnParseError: true,
     mapResults: (r) =>
       r.results.map((r) => ({
         title: r.title,
@@ -40,7 +41,10 @@ export function createSearXNGSearchTool(baseUrl: string = DEFAULT_BASE_URL) {
         }),
         abortSignal,
       );
-      return responseText ?? "";
+      if (responseText === null) {
+        throw new Error("SearXNG search failed: no response from server. Check that SearXNG is running at " + baseUrl);
+      }
+      return responseText;
     },
   });
 }

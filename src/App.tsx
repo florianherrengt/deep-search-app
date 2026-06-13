@@ -213,7 +213,7 @@ export function hasRunningResearchFolder(
 }
 
 function AppInner() {
-  const { settings, loading, updateSetting } = useSettings();
+  const { settings, loading, error: settingsError, updateSetting } = useSettings();
   const { tabs, activeTabId, switchToTab, closeTab } = useBrowserTabs();
   const [researchFolders, setResearchFolders] = useState<ResearchFolder[]>([]);
   const [researchFoldersStatus, setResearchFoldersStatus] = useState<
@@ -410,6 +410,16 @@ function AppInner() {
   }, [activeSubAgentRuns]);
 
   if (loading) return null;
+
+  if (settingsError) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem", gap: "0.5rem" }}>
+        <p style={{ fontSize: "1.125rem", fontWeight: 500 }}>Failed to load settings</p>
+        <p style={{ fontSize: "0.875rem", opacity: 0.6 }}>{settingsError.message}</p>
+        <button onClick={() => window.location.reload()} style={{ marginTop: "1rem", padding: "0.5rem 1rem" }}>Retry</button>
+      </div>
+    );
+  }
 
   const embeddingConfig = resolveEmbeddingConfig(settings);
   const rerankerConfig = resolveRerankerConfig(settings);

@@ -91,44 +91,51 @@ describe("ShopifyExtractor", () => {
   });
 
   describe("canHandle", () => {
-    it("matches product page URLs", () => {
+    it("matches product page URLs on myshopify.com domains", () => {
       expect(
-        extractor.canHandle("https://store.com/products/sneaker-name"),
+        extractor.canHandle("https://mystore.myshopify.com/products/sneaker-name"),
       ).toBe(true);
       expect(
-        extractor.canHandle("https://store.com/en-gb/products/lt-01-court"),
-      ).toBe(true);
-      expect(
-        extractor.canHandle(
-          "https://www.etq-amsterdam.com/products/lt-01-court-lite-premium-nappa-white",
-        ),
+        extractor.canHandle("https://mystore.myshopify.com/en-gb/products/lt-01-court"),
       ).toBe(true);
     });
 
-    it("rejects non-product URLs", () => {
-      expect(extractor.canHandle("https://store.com/products.json")).toBe(
+    it("rejects product page URLs on non-Shopify domains", () => {
+      expect(
+        extractor.canHandle("https://example.com/products/sneaker-name"),
+      ).toBe(false);
+      expect(
+        extractor.canHandle("https://docs.github.com/en/products/copilot"),
+      ).toBe(false);
+      expect(
+        extractor.canHandle("https://stripe.com/products/pricing"),
+      ).toBe(false);
+    });
+
+    it("rejects non-product URLs even on myshopify.com", () => {
+      expect(extractor.canHandle("https://mystore.myshopify.com/products.json")).toBe(
         false,
       );
-      expect(extractor.canHandle("https://store.com/products/")).toBe(false);
+      expect(extractor.canHandle("https://mystore.myshopify.com/products/")).toBe(false);
       expect(
-        extractor.canHandle("https://store.com/collections/shoes"),
+        extractor.canHandle("https://mystore.myshopify.com/collections/shoes"),
       ).toBe(false);
-      expect(extractor.canHandle("https://store.com/")).toBe(false);
+      expect(extractor.canHandle("https://mystore.myshopify.com/")).toBe(false);
     });
 
     it("rejects singular /product/ paths", () => {
       expect(
-        extractor.canHandle("https://store.com/product/sneaker-name"),
+        extractor.canHandle("https://mystore.myshopify.com/product/sneaker-name"),
       ).toBe(false);
       expect(
-        extractor.canHandle("https://store.com/item/sneaker-name"),
+        extractor.canHandle("https://mystore.myshopify.com/item/sneaker-name"),
       ).toBe(false);
     });
 
-    it("handles URLs with query parameters", () => {
+    it("handles URLs with query parameters on myshopify.com", () => {
       expect(
         extractor.canHandle(
-          "https://store.com/products/sneaker?variant=123",
+          "https://mystore.myshopify.com/products/sneaker?variant=123",
         ),
       ).toBe(true);
     });
@@ -139,14 +146,14 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(MOCK_JS_PRODUCT));
 
       const result = await extractor.extract(
-        "https://www.etq-amsterdam.com/en-gb/products/lt-01-court-lite-premium-nappa-white",
+        "https://mystore.myshopify.com/en-gb/products/lt-01-court-lite-premium-nappa-white",
       );
 
       expect(mockWebview).toHaveBeenCalledWith(
-        "https://www.etq-amsterdam.com/en-gb/products/lt-01-court-lite-premium-nappa-white.js",
+        "https://mystore.myshopify.com/en-gb/products/lt-01-court-lite-premium-nappa-white.js",
       );
       expect(mockWebview).toHaveBeenCalledWith(
-        "https://www.etq-amsterdam.com/en-gb/products/lt-01-court-lite-premium-nappa-white.json",
+        "https://mystore.myshopify.com/en-gb/products/lt-01-court-lite-premium-nappa-white.json",
       );
 
       expect(result).toContain("# LT 01 Court Lite Premium Nappa White");
@@ -165,7 +172,7 @@ describe("ShopifyExtractor", () => {
         .mockResolvedValueOnce(wrapJsonInHtml(MOCK_JSON_PRODUCT));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
 
       expect(result).toContain("**Price:** £141.00");
@@ -178,7 +185,7 @@ describe("ShopifyExtractor", () => {
         .mockResolvedValueOnce(wrapJsonInHtml(MOCK_JSON_PRODUCT));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
 
       expect(result).toContain("# LT 01 Court Lite Premium Nappa White");
@@ -201,7 +208,7 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(product));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toContain("**Price:** 99.00 – 149.00");
     });
@@ -215,7 +222,7 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(product));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toContain("**Price:** 141.00");
       expect(result).not.toContain("**Was:**");
@@ -225,7 +232,7 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(MOCK_JS_PRODUCT));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toContain("bestsellers");
       expect(result).toContain("leather-nappa");
@@ -242,7 +249,7 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(product));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).not.toContain("**Vendor:**");
       expect(result).not.toContain("**Type:**");
@@ -254,7 +261,7 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(product));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).not.toContain("## Options");
     });
@@ -267,7 +274,7 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(product));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toContain("Bold and italic text");
       expect(result).not.toContain("<strong>");
@@ -277,7 +284,7 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(null);
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toBe("");
     });
@@ -286,7 +293,7 @@ describe("ShopifyExtractor", () => {
       setShopifyWebViewExtractor(null as never);
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toBe("");
     });
@@ -297,7 +304,7 @@ describe("ShopifyExtractor", () => {
       );
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toBe("");
     });
@@ -306,14 +313,14 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(MOCK_JS_PRODUCT));
 
       await extractor.extract(
-        "https://store.com/products/test?variant=123#reviews",
+        "https://mystore.myshopify.com/products/test?variant=123#reviews",
       );
 
       expect(mockWebview).toHaveBeenCalledWith(
-        "https://store.com/products/test.js",
+        "https://mystore.myshopify.com/products/test.js",
       );
       expect(mockWebview).toHaveBeenCalledWith(
-        "https://store.com/products/test.json",
+        "https://mystore.myshopify.com/products/test.json",
       );
     });
 
@@ -323,7 +330,7 @@ describe("ShopifyExtractor", () => {
       );
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toContain("# LT 01 Court Lite Premium Nappa White");
     });
@@ -336,7 +343,7 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(product));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toContain("Tom & Jerry's");
       expect(result).toContain("\"shoes\"");
@@ -363,7 +370,7 @@ describe("ShopifyExtractor", () => {
         .mockResolvedValueOnce(wrapJsonInHtml(product));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toContain("**Price:** 100.00");
     });
@@ -389,7 +396,7 @@ describe("ShopifyExtractor", () => {
         .mockResolvedValueOnce(wrapJsonInHtml(product));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).toContain("**Price:** 100.00 THB");
     });
@@ -400,9 +407,134 @@ describe("ShopifyExtractor", () => {
       mockWebview.mockResolvedValue(wrapJsonInHtml(product));
 
       const result = await extractor.extract(
-        "https://store.com/products/test",
+        "https://mystore.myshopify.com/products/test",
       );
       expect(result).not.toContain("**Tags:**");
+    });
+
+    it("returns empty string when .js endpoint returns non-object JSON", async () => {
+      mockWebview
+        .mockResolvedValueOnce("<pre>404</pre>")
+        .mockResolvedValueOnce("<pre>null</pre>");
+
+      const result = await extractor.extract(
+        "https://mystore.myshopify.com/products/test",
+      );
+      expect(result).toBe("");
+    });
+
+    it("returns empty string when .js endpoint returns a JSON array", async () => {
+      mockWebview
+        .mockResolvedValueOnce("<pre>[1, 2, 3]</pre>")
+        .mockResolvedValueOnce("<pre>[]</pre>");
+
+      const result = await extractor.extract(
+        "https://mystore.myshopify.com/products/test",
+      );
+      expect(result).toBe("");
+    });
+
+    describe("malformed external data", () => {
+      it("does not crash when options is a string instead of array (.js)", async () => {
+        const product = { ...MOCK_JS_PRODUCT, options: "Size" };
+        mockWebview.mockResolvedValue(wrapJsonInHtml(product));
+
+        const result = await extractor.extract(
+          "https://mystore.myshopify.com/products/test",
+        );
+        expect(result).toContain("# LT 01 Court Lite Premium Nappa White");
+        expect(result).not.toContain("## Options");
+      });
+
+      it("does not crash when options contain entries without values (.json)", async () => {
+        const product = {
+          product: {
+            id: 1,
+            title: "Test",
+            variants: [{ id: 1, price: "10.00" }],
+            options: [{ name: "Size" }],
+          },
+        };
+        mockWebview
+          .mockResolvedValueOnce("<html><body>bad</body></html>")
+          .mockResolvedValueOnce(wrapJsonInHtml(product));
+
+        const result = await extractor.extract(
+          "https://mystore.myshopify.com/products/test",
+        );
+        expect(result).toContain("# Test");
+        expect(result).not.toContain("## Options");
+      });
+
+      it("does not crash when tags is an array of numbers (.js)", async () => {
+        const product = { ...MOCK_JS_PRODUCT, tags: [1, 2, 3] };
+        mockWebview.mockResolvedValue(wrapJsonInHtml(product));
+
+        const result = await extractor.extract(
+          "https://mystore.myshopify.com/products/test",
+        );
+        expect(result).toContain("# LT 01");
+      });
+
+      it("does not produce NaN when price_min is a string (.js)", async () => {
+        const product = { ...MOCK_JS_PRODUCT, price_min: "14.99" as unknown as number, price_max: "14.99" as unknown as number };
+        mockWebview.mockResolvedValue(wrapJsonInHtml(product));
+
+        const result = await extractor.extract(
+          "https://mystore.myshopify.com/products/test",
+        );
+        expect(result).not.toContain("NaN");
+      });
+
+      it("does not produce NaN when variants have non-numeric prices (.json)", async () => {
+        const product = {
+          product: {
+            id: 1,
+            title: "Test",
+            variants: [{ id: 1, price: "not-a-number" }],
+            options: [],
+          },
+        };
+        mockWebview
+          .mockResolvedValueOnce("<html><body>bad</body></html>")
+          .mockResolvedValueOnce(wrapJsonInHtml(product));
+
+        const result = await extractor.extract(
+          "https://mystore.myshopify.com/products/test",
+        );
+        expect(result).not.toContain("NaN");
+      });
+
+      it("does not crash when variants is a string instead of array (.json)", async () => {
+        const product = {
+          product: {
+            id: 1,
+            title: "Test",
+            variants: "garbage",
+            options: [],
+          },
+        };
+        mockWebview
+          .mockResolvedValueOnce("<html><body>bad</body></html>")
+          .mockResolvedValueOnce(wrapJsonInHtml(product));
+
+        const result = await extractor.extract(
+          "https://mystore.myshopify.com/products/test",
+        );
+        expect(result).not.toContain("NaN");
+        expect(result).toContain("# Test");
+      });
+
+      it("does not crash when options is null (.js)", async () => {
+        const product = { ...MOCK_JS_PRODUCT, options: null };
+        mockWebview.mockResolvedValue(wrapJsonInHtml(product));
+
+        const result = await extractor.extract(
+          "https://mystore.myshopify.com/products/test",
+        );
+        expect(result).toContain("# LT 01");
+        expect(result).not.toContain("## Options");
+      });
     });
   });
 });

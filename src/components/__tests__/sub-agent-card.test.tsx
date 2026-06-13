@@ -111,4 +111,11 @@ describe("SubAgentCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Inspect Inspect Me" }));
     expect(onClick).toHaveBeenCalledOnce();
   });
+
+  it("does not render invisible 'inspect' text", () => {
+    const html = renderToStaticMarkup(
+      wrap(<SubAgentCard run={baseRun} onClick={vi.fn()} />),
+    );
+    expect(html).not.toContain(">inspect<");
+  });
 });

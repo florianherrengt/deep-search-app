@@ -130,7 +130,7 @@ describe("createSerperSearchTool", () => {
     });
 
     await expect(tool.execute({ query: "coastal camping" })).rejects.toThrow(
-      "Serper search response did not match the expected format.",
+      "Serper search response did not match the expected format:",
     );
   });
 });

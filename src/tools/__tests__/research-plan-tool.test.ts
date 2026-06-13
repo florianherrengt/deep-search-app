@@ -195,4 +195,43 @@ describe("createResearchPlanTool", () => {
       expect.objectContaining({ type: "error", id: "sa-test-1" }),
     );
   });
+
+  it("returns error message when model returns empty string", async () => {
+    const model = makeModel();
+    aiMocks.streamText.mockReturnValueOnce(mockStreamText([""]));
+
+    const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
+    const result = await t.execute({ query: "What is AI?" });
+
+    expect(result).toContain("empty");
+    expect(emitterMocks.emitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error", id: "sa-test-1" }),
+    );
+  });
+
+  it("returns error message when model returns whitespace only", async () => {
+    const model = makeModel();
+    aiMocks.streamText.mockReturnValueOnce(mockStreamText(["   ", "  "]));
+
+    const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
+    const result = await t.execute({ query: "What is AI?" });
+
+    expect(result).toContain("empty");
+    expect(emitterMocks.emitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error", id: "sa-test-1" }),
+    );
+  });
+
+  it("does not emit complete event when output is empty", async () => {
+    const model = makeModel();
+    aiMocks.streamText.mockReturnValueOnce(mockStreamText([""]));
+
+    const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
+    await t.execute({ query: "What is AI?" });
+
+    const completeCalls = emitterMocks.emitSubAgentEvent.mock.calls.filter(
+      (c: any[]) => c[0]?.type === "complete",
+    );
+    expect(completeCalls).toHaveLength(0);
+  });
 });

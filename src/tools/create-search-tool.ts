@@ -46,7 +46,7 @@ export function createSearchTool<TResponse>(
           if (!result.success) {
             if (options.throwOnParseError) {
               throw new Error(
-                `${options.providerName} search response did not match the expected format.`,
+                `${options.providerName} search response did not match the expected format: ${result.error.message}`,
               );
             }
             return [];

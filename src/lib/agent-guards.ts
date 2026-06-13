@@ -188,10 +188,15 @@ const CURRENCY_NAME_PATTERNS: Array<{
   codes: Currency[];
 }> = [
   {
-    pattern:
-      "(?:(?:u\\.?s\\.?|american|canadian|australian|new zealand|singapore|hong kong)\\s+)?dollars?",
+    pattern: "dollars?",
     codes: ["USD", "CAD", "AUD", "NZD", "SGD", "HKD"],
   },
+  { pattern: "(?:u\\.?s\\.?|american)\\s+dollars?", codes: ["USD"] },
+  { pattern: "canadian\\s+dollars?", codes: ["CAD"] },
+  { pattern: "australian\\s+dollars?", codes: ["AUD"] },
+  { pattern: "new\\s+zealand\\s+dollars?", codes: ["NZD"] },
+  { pattern: "singapore\\s+dollars?", codes: ["SGD"] },
+  { pattern: "hong\\s+kong\\s+dollars?", codes: ["HKD"] },
   { pattern: "euros?", codes: ["EUR"] },
   { pattern: "(?:british\\s+pounds?|pounds?\\s+sterling|sterling)", codes: ["GBP"] },
   { pattern: "yen", codes: ["JPY"] },
@@ -624,7 +629,11 @@ export async function reviewResearchCheckpoint(
   try {
     const guidance = researchCheckpointResultSchema.parse(await judge(input));
     return guidance.trim() || fallbackGuidance;
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[reviewResearchCheckpoint] Judge failed, falling back to local guidance:",
+      error instanceof Error ? error.message : error,
+    );
     return fallbackGuidance;
   }
 }

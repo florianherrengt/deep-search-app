@@ -202,4 +202,4 @@ jobs:
           tagName: ${{ needs.prepare-release.outputs.tag }}
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
-          args: ${{ matrix.args }} --config src-tauri/updater-config.json
+          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json --config src-tauri/updater-config.json

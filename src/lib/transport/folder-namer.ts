@@ -217,6 +217,7 @@ export async function nameFolderFromMessageWithReport(
           "Folder naming was cancelled by the user.",
         );
         emitSubAgentEvent({ type: "report", id: saId, report });
+        emitSubAgentEvent({ type: "cancelled", id: saId });
         throw error;
       }
 
@@ -434,6 +435,8 @@ export async function nameFolderFromMessageWithReport(
 
     return { folderName: resolved, report };
   }
+
+  lastRejectionForRetry = fallbackValidation;
 
   const finalError = `${STARTUP_NAME_ERROR_PREFIX} Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts. Last issue: ${lastRejectionForRetry ?? "unknown"}`;
   logError("folder naming failed definitively", {

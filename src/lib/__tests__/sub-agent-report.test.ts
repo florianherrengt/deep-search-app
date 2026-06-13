@@ -159,8 +159,8 @@ describe("truncatePreview", () => {
     expect(truncatePreview(undefined)).toBeUndefined();
   });
 
-  it("returns undefined for empty string", () => {
-    expect(truncatePreview("")).toBeUndefined();
+  it("returns empty string for empty string input", () => {
+    expect(truncatePreview("")).toBe("");
   });
 
   it("returns short strings unchanged", () => {

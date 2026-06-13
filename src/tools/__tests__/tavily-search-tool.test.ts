@@ -105,7 +105,7 @@ describe("createTavilySearchTool", () => {
     });
 
     await expect(tool.execute({ query: "standing desk" })).rejects.toThrow(
-      "Tavily search response did not match the expected format.",
+      "Tavily search response did not match the expected format:",
     );
   });
 });

@@ -1,5 +1,5 @@
 import { isSubAgentRunToolName, type SubAgentRun } from "./sub-agent-types";
-import type { SubAgentReport } from "./sub-agent-report";
+import type { SubAgentReport, FailureCategory } from "./sub-agent-report";
 import { readAppFile, writeAppFile, SafePathSegmentSchema } from "./app-file-storage";
 import { SEARCH_RESULTS_SUBFOLDER } from "./research-history";
 import { isRecord, tryParseJson } from "./json";
@@ -99,7 +99,7 @@ function normalizeToolCall(value: unknown): SubAgentRun["toolCalls"][number] | n
 }
 
 function normalizeStatus(value: unknown): SubAgentRun["status"] | null {
-  if (value === "running" || value === "streaming" || value === "completed" || value === "failed") {
+  if (value === "running" || value === "streaming" || value === "completed" || value === "failed" || value === "cancelled") {
     return value;
   }
   if (value === "complete") return "completed";
@@ -129,10 +129,13 @@ function normalizeReport(value: unknown): SubAgentReport | null {
   const startedAt = getString(value.startedAt);
   if (!name || !status || !startedAt) return null;
 
+  const reportStatus = normalizeReportStatus(status);
+  if (!reportStatus) return null;
+
   return {
     name,
-    status: status as SubAgentReport["status"],
-    failureCategory: getString(value.failureCategory) as SubAgentReport["failureCategory"] ?? undefined,
+    status: reportStatus,
+    failureCategory: normalizeFailureCategory(value.failureCategory),
     startedAt,
     finishedAt: getString(value.finishedAt) ?? undefined,
     durationMs: typeof value.durationMs === "number" ? value.durationMs : undefined,
@@ -173,4 +176,32 @@ export async function writeSubAgentRuns(
     content: JSON.stringify(subAgentRuns, undefined, 2),
     emitChange: false,
   });
+}
+
+const VALID_REPORT_STATUSES: readonly SubAgentReport["status"][] = [
+  "success", "failed", "rejected", "timeout", "cancelled",
+];
+
+function normalizeReportStatus(
+  value: string,
+): SubAgentReport["status"] | null {
+  if ((VALID_REPORT_STATUSES as readonly string[]).includes(value)) {
+    return value as SubAgentReport["status"];
+  }
+  return null;
+}
+
+const VALID_FAILURE_CATEGORIES: readonly FailureCategory[] = [
+  "model_error", "empty_output", "parse_error", "validation_error",
+  "filesystem_error", "tool_error", "timeout", "cancelled", "unknown",
+];
+
+function normalizeFailureCategory(
+  value: unknown,
+): FailureCategory | undefined {
+  if (typeof value !== "string") return undefined;
+  if ((VALID_FAILURE_CATEGORIES as readonly string[]).includes(value)) {
+    return value as FailureCategory;
+  }
+  return undefined;
 }

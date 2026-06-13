@@ -302,7 +302,7 @@ describe("extractPageContent edge cases", () => {
     });
   });
 
-  it("returns empty string when fetch and webview both produce no content", async () => {
+  it("returns a descriptive error when fetch and webview both produce no content", async () => {
     mockInvoke.mockImplementation(async (command) => {
       if (command === "fetch_html") return null;
       if (command === "extract_content") return "";
@@ -314,7 +314,8 @@ describe("extractPageContent edge cases", () => {
       { summarize: false },
     );
 
-    expect(result).toBe("");
+    expect(result).toContain("No content could be extracted");
+    expect(result).toContain("https://example.com/page");
   });
 
   it("does not fallback to webview when method is fetch even with short content", async () => {
@@ -330,5 +331,29 @@ describe("extractPageContent edge cases", () => {
 
     expect(result).toContain("Hi");
     expect(mockInvoke).not.toHaveBeenCalledWith("open_tab", expect.anything());
+  });
+
+  it("falls back to fetch when custom extractor returns empty content", async () => {
+    const longContent = "Real product content from fetch fallback. ".repeat(10);
+    mockInvoke.mockImplementation(async (command, _args) => {
+      if (command === "fetch_html") {
+        return `<html><body><p>${longContent}</p></body></html>`;
+      }
+      if (command === "open_tab") return undefined;
+      if (command === "extract_content") return "";
+      if (command === "close_tab") return undefined;
+      if (command === "switch_tab") return undefined;
+      return undefined;
+    });
+
+    const result = await extractPageContent(
+      "https://store.myshopify.com/products/test-product",
+      { summarize: false },
+    );
+
+    expect(result).toContain("Real product content");
+    expect(mockInvoke).toHaveBeenCalledWith("fetch_html", {
+      url: "https://store.myshopify.com/products/test-product",
+    });
   });
 });

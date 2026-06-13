@@ -9,8 +9,11 @@ import {
   useAuiState,
   type PartState,
 } from "@assistant-ui/react";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback, useRef, useState, type ReactNode,
+} from "react";
 import { CopyIcon, CheckIcon, RefreshCwIcon, ArrowDownIcon } from "lucide-react";
+import { ErrorBoundary } from "@/components/error-boundary";
 import {
   ModelSelector,
   type ModelOption,
@@ -254,7 +257,7 @@ function ThreadMessage() {
           <MessagePrimitive.Parts components={{ Text: UserMessageText }} />
         </div>
       ) : (
-        <>
+        <ErrorBoundary>
           <MessagePrimitive.GroupedParts groupBy={groupBy}>
             {({ part, children }) => {
               switch (part.type) {
@@ -353,12 +356,12 @@ function ThreadMessage() {
             }}
           </MessagePrimitive.GroupedParts>
           <MessageActionBar />
-          <MessagePrimitive.Error>
-            <ErrorPrimitive.Root className="md-card-sm" style={{ border: "1px solid light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))", backgroundColor: "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))", color: "var(--mantine-color-red-text)" }}>
-              <ErrorPrimitive.Message />
-            </ErrorPrimitive.Root>
-          </MessagePrimitive.Error>
-        </>
+           <MessagePrimitive.Error>
+             <ErrorPrimitive.Root className="md-card-sm" style={{ border: "1px solid light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))", backgroundColor: "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))", color: "var(--mantine-color-red-text)" }}>
+               <ErrorPrimitive.Message />
+             </ErrorPrimitive.Root>
+           </MessagePrimitive.Error>
+        </ErrorBoundary>
       )}
     </MessagePrimitive.Root>
   );

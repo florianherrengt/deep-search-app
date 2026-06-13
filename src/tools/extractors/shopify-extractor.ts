@@ -13,6 +13,15 @@ export function setShopifyWebViewExtractor(fn: WebViewExtractor): void {
   getExtractViaWebview = fn;
 }
 
+function isShopifyUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === "myshopify.com" || host.endsWith(".myshopify.com");
+  } catch {
+    return false;
+  }
+}
+
 function isProductPageUrl(url: string): boolean {
   try {
     const path = new URL(url).pathname;
@@ -105,17 +114,30 @@ function formatJsProduct(
   const vendor = data.vendor ? String(data.vendor) : null;
   const productType = data.type ? String(data.type) : null;
   const description = data.description ? stripHtml(String(data.description)) : null;
-  const options = (data.options ?? []) as ShopifyOption[];
-  const rawTags = data.tags as string[] | string | null;
+  const rawOptions = data.options ?? [];
+  const options = Array.isArray(rawOptions)
+    ? rawOptions.filter(
+        (o): o is ShopifyOption =>
+          o != null &&
+          typeof o === "object" &&
+          typeof o.name === "string" &&
+          Array.isArray(o.values) &&
+          o.values.every((v: unknown) => typeof v === "string"),
+      )
+    : [];
+  const rawTags = data.tags;
   const tags = Array.isArray(rawTags)
-    ? rawTags
+    ? rawTags.filter((t): t is string => typeof t === "string")
     : typeof rawTags === "string"
       ? rawTags.split(", ")
       : null;
 
-  const priceMin = data.price_min as number | undefined;
-  const priceMax = data.price_max as number | undefined;
-  const compareAtPriceMax = data.compare_at_price_max as number | undefined;
+  const rawPriceMin = data.price_min;
+  const priceMin = typeof rawPriceMin === "number" && Number.isFinite(rawPriceMin) ? rawPriceMin : undefined;
+  const rawPriceMax = data.price_max;
+  const priceMax = typeof rawPriceMax === "number" && Number.isFinite(rawPriceMax) ? rawPriceMax : undefined;
+  const rawCompareAtPriceMax = data.compare_at_price_max;
+  const compareAtPriceMax = typeof rawCompareAtPriceMax === "number" && Number.isFinite(rawCompareAtPriceMax) ? rawCompareAtPriceMax : undefined;
 
   lines.push(`# ${title}`);
   lines.push("");
@@ -179,7 +201,17 @@ function formatJsonProduct(data: Record<string, unknown>): string | null {
     : null;
   const bodyHtml = product.body_html ? String(product.body_html) : null;
   const description = bodyHtml ? stripHtml(bodyHtml) : null;
-  const options = (product.options ?? []) as ShopifyOption[];
+  const rawOptions = product.options ?? [];
+  const options = Array.isArray(rawOptions)
+    ? rawOptions.filter(
+        (o): o is ShopifyOption =>
+          o != null &&
+          typeof o === "object" &&
+          typeof o.name === "string" &&
+          Array.isArray(o.values) &&
+          o.values.every((v: unknown) => typeof v === "string"),
+      )
+    : [];
   const rawTags = product.tags ? String(product.tags) : null;
 
   interface JsonVariant {
@@ -187,7 +219,15 @@ function formatJsonProduct(data: Record<string, unknown>): string | null {
     compare_at_price: string | null;
     price_currency?: string;
   }
-  const variants = (product.variants ?? []) as JsonVariant[];
+  const rawVariants = product.variants ?? [];
+  const variants = Array.isArray(rawVariants)
+    ? rawVariants.filter(
+        (v): v is JsonVariant =>
+          v != null &&
+          typeof v === "object" &&
+          typeof (v as Record<string, unknown>).price === "string",
+      )
+    : [];
 
   lines.push(`# ${title}`);
   lines.push("");
@@ -197,28 +237,42 @@ function formatJsonProduct(data: Record<string, unknown>): string | null {
 
   if (variants.length > 0) {
     const currency = variants[0].price_currency;
-    const prices = [...new Set(variants.map((v) => Number(v.price)))];
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    const priceStr =
-      min === max
-        ? formatCurrency(currency, min.toFixed(2))
-        : `${formatCurrency(currency, min.toFixed(2))} – ${formatCurrency(currency, max.toFixed(2))}`;
-    lines.push(`**Price:** ${priceStr}`);
+    const prices = [
+      ...new Set(
+        variants
+          .map((v) => Number(v.price))
+          .filter((n) => Number.isFinite(n)),
+      ),
+    ];
+    if (prices.length === 0) {
+      lines.push("");
+    } else {
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      const priceStr =
+        min === max
+          ? formatCurrency(currency, min.toFixed(2))
+          : `${formatCurrency(currency, min.toFixed(2))} – ${formatCurrency(currency, max.toFixed(2))}`;
+      lines.push(`**Price:** ${priceStr}`);
 
-    const hasDiscount = variants.some(
-      (v) =>
-        v.compare_at_price && Number(v.compare_at_price) > Number(v.price),
-    );
-    if (hasDiscount) {
-      const comparePrices = variants
-        .map((v) => v.compare_at_price)
-        .filter((p): p is string => p != null)
-        .map(Number);
-      if (comparePrices.length > 0) {
-        const maxCompare = Math.max(...comparePrices);
-        if (maxCompare > max) {
-          lines.push(`**Was:** ${formatCurrency(currency, maxCompare.toFixed(2))}`);
+      const hasDiscount = variants.some(
+        (v) =>
+          v.compare_at_price &&
+          Number.isFinite(Number(v.compare_at_price)) &&
+          Number.isFinite(Number(v.price)) &&
+          Number(v.compare_at_price) > Number(v.price),
+      );
+      if (hasDiscount) {
+        const comparePrices = variants
+          .map((v) => v.compare_at_price)
+          .filter((p): p is string => p != null)
+          .map(Number)
+          .filter(Number.isFinite);
+        if (comparePrices.length > 0) {
+          const maxCompare = Math.max(...comparePrices);
+          if (maxCompare > max) {
+            lines.push(`**Was:** ${formatCurrency(currency, maxCompare.toFixed(2))}`);
+          }
         }
       }
     }
@@ -261,7 +315,11 @@ function parseJsonFromHtml(html: string): Record<string, unknown> | null {
   if (!jsonText) return null;
 
   try {
-    return JSON.parse(jsonText);
+    const parsed = JSON.parse(jsonText);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -269,7 +327,7 @@ function parseJsonFromHtml(html: string): Record<string, unknown> | null {
 
 export class ShopifyExtractor extends PageExtractor {
   canHandle(url: string): boolean {
-    return isProductPageUrl(url);
+    return isShopifyUrl(url) && isProductPageUrl(url);
   }
 
   async extract(url: string): Promise<string> {

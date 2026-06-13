@@ -139,6 +139,10 @@ export function Chat({
 
         return changed ? next : current;
       });
+    }).catch((err) => {
+      if (!abortController.signal.aborted) {
+        console.error("[chat] Failed to fetch context windows:", err);
+      }
     });
 
     return () => {
@@ -256,7 +260,9 @@ export function Chat({
         () => {
           onResearchChatSavedRef.current?.(folderName, savedChatId);
         },
-      );
+      ).catch((err) => {
+        console.error("[chat] Failed to save research chat messages:", err);
+      });
     },
   });
 
@@ -279,8 +285,8 @@ export function Chat({
     const handler = (event: SubAgentEvent) => {
       subAgentStore.processEvent(researchChatId, event);
     };
-    setDirectEventHandler(handler);
-    return () => setDirectEventHandler(null);
+    setDirectEventHandler(researchChatId, handler);
+    return () => setDirectEventHandler(researchChatId, null);
   }, [researchChatId, subAgentStore.processEvent]);
 
   const processedPartsByMessageRef = useRef<Record<string, number>>(
@@ -320,7 +326,9 @@ export function Chat({
   useEffect(() => {
     if (!researchChatId) return;
     if (researchFolder) {
-      void subAgentStore.loadRunsFromDisk(researchChatId, researchFolder);
+      void subAgentStore.loadRunsFromDisk(researchChatId, researchFolder).catch((err) => {
+        console.error("[chat] Failed to load sub-agent runs from disk:", err);
+      });
     } else {
       subAgentStore.loadRuns(researchChatId, []);
     }
@@ -357,7 +365,9 @@ export function Chat({
     }
 
     persistedTerminalRunsKeyRef.current[researchChatId] = terminalRunsKey;
-    void persistSubAgentRuns(researchChatId, folderName);
+    void persistSubAgentRuns(researchChatId, folderName).catch((err) => {
+      console.error("[chat] Failed to persist sub-agent runs:", err);
+    });
   }, [persistSubAgentRuns, researchChatId, subAgentRunsForChat]);
 
   const runtime = useAISDKRuntime(chat);

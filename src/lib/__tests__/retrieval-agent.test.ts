@@ -170,6 +170,51 @@ describe("runRetrievalAgent", () => {
     );
 
     expect(result).toEqual({ relevant_folders: [], relevant_memories: [] });
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("emits cancelled event on abort error", async () => {
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    mockStreamText.mockImplementation(() => { throw abortError; });
+    const abortController = new AbortController();
+    abortController.abort();
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      abortController.signal,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: [], relevant_memories: [] });
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "cancelled" }),
+    );
+    expect(mockEmitSubAgentEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("emits cancelled when abortSignal is already aborted", async () => {
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    mockStreamText.mockImplementation(() => { throw abortError; });
+    const abortController = new AbortController();
+    abortController.abort();
+
+    await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      abortController.signal,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(mockEmitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "cancelled" }),
+    );
   });
 
   it("returns empty defaults when given empty results", async () => {
@@ -224,6 +269,140 @@ describe("runRetrievalAgent", () => {
     );
 
     expect(result).toEqual({ relevant_folders: [], relevant_memories: [] });
+  });
+
+  it("returns empty when JSON has wrong key names", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('{"folders": ["hiking-trails"], "memories": ["User has a dog."]}'));
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: [], relevant_memories: [] });
+  });
+
+  it("returns empty when JSON has completely unrelated keys", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('{"answer": "hiking", "sources": ["a", "b"]}'));
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: [], relevant_memories: [] });
+  });
+
+  it("returns empty when relevant_folders is not an array", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('{"relevant_folders": "not-an-array", "relevant_memories": []}'));
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: [], relevant_memories: [] });
+  });
+
+  it("returns empty when relevant_memories is not an array", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('{"relevant_folders": [], "relevant_memories": "not-an-array"}'));
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: [], relevant_memories: [] });
+  });
+
+  it("handles partial valid JSON (one field correct, one wrong)", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('{"relevant_folders": ["hiking-trails"], "relevant_memories": "not-array"}'));
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: ["hiking-trails"], relevant_memories: [] });
+  });
+
+  it("filters non-string items from arrays", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('{"relevant_folders": [42, "hiking-trails", null, true], "relevant_memories": [123, "User has a dog.", {}]}'));
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: ["hiking-trails"], relevant_memories: ["User has a dog."] });
+  });
+
+  it("handles empty object JSON", async () => {
+    mockStreamText.mockReturnValue(streamTextResult('{}'));
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: [], relevant_memories: [] });
+  });
+
+  it("extracts first JSON object when text has multiple brace pairs", async () => {
+    mockStreamText.mockReturnValue(
+      streamTextResult(
+        'Here are results: {"relevant_folders": ["hiking-trails"], "relevant_memories": []} and here is an example {"not": "relevant"}',
+      ),
+    );
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: ["hiking-trails"], relevant_memories: [] });
+  });
+
+  it("extracts JSON from markdown code fences", async () => {
+    mockStreamText.mockReturnValue(
+      streamTextResult(
+        '```json\n{"relevant_folders": ["hiking-trails"], "relevant_memories": ["User has a dog."]}\n```',
+      ),
+    );
+
+    const result = await runRetrievalAgent(
+      "Query",
+      sampleResults,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+    );
+
+    expect(result).toEqual({ relevant_folders: ["hiking-trails"], relevant_memories: ["User has a dog."] });
   });
 
   describe("with memories.md in search results", () => {
@@ -330,6 +509,142 @@ describe("runRetrievalAgent", () => {
 
       expect(readFileResult).toBe(memoriesContent);
       expect(result.relevant_folders).toContain("pet-research");
+    });
+
+    it("extracts JSON with closing brace inside string value", async () => {
+      mockStreamText.mockReturnValue(
+        streamTextResult(
+          '{"relevant_folders": ["hiking-trails"], "relevant_memories": ["use the } key to exit"]}',
+        ),
+      );
+
+      const result = await runRetrievalAgent(
+        "Query",
+        sampleResults,
+        { modelId: "test" } as any,
+        undefined,
+        { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+      );
+
+      expect(result).toEqual({
+        relevant_folders: ["hiking-trails"],
+        relevant_memories: ["use the } key to exit"],
+      });
+    });
+
+    it("extracts JSON with opening brace inside string value", async () => {
+      mockStreamText.mockReturnValue(
+        streamTextResult(
+          '{"relevant_folders": ["hiking-trails"], "relevant_memories": ["log in via /api/{id}"]}',
+        ),
+      );
+
+      const result = await runRetrievalAgent(
+        "Query",
+        sampleResults,
+        { modelId: "test" } as any,
+        undefined,
+        { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+      );
+
+      expect(result).toEqual({
+        relevant_folders: ["hiking-trails"],
+        relevant_memories: ["log in via /api/{id}"],
+      });
+    });
+
+    it("extracts JSON with matched braces inside string value", async () => {
+      mockStreamText.mockReturnValue(
+        streamTextResult(
+          '{"relevant_folders": ["hiking-trails"], "relevant_memories": ["nested {braces} work"]}',
+        ),
+      );
+
+      const result = await runRetrievalAgent(
+        "Query",
+        sampleResults,
+        { modelId: "test" } as any,
+        undefined,
+        { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+      );
+
+      expect(result).toEqual({
+        relevant_folders: ["hiking-trails"],
+        relevant_memories: ["nested {braces} work"],
+      });
+    });
+
+    it("extracts JSON with escaped quotes inside string value", async () => {
+      mockStreamText.mockReturnValue(
+        streamTextResult(
+          '{"relevant_folders": [], "relevant_memories": ["he said \\"hello\\""]}',
+        ),
+      );
+
+      const result = await runRetrievalAgent(
+        "Query",
+        sampleResults,
+        { modelId: "test" } as any,
+        undefined,
+        { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+      );
+
+      expect(result).toEqual({
+        relevant_folders: [],
+        relevant_memories: ['he said "hello"'],
+      });
+    });
+
+    it("scoped list_files returns error message on filesystem failure", async () => {
+      mockListAppFiles.mockRejectedValue(new Error("permission denied"));
+
+      let listResult: unknown = null;
+      mockStreamText.mockImplementation(({ tools }: any) => {
+        const textPromise = (async () => {
+          listResult = await tools.list_files.execute({ folder: "hiking-trails" }, { toolCallId: "t1", messages: [] });
+          return '{"relevant_folders": [], "relevant_memories": []}';
+        })();
+        return {
+          textStream: (async function* () { yield await textPromise; })(),
+          text: textPromise,
+        };
+      });
+
+      await runRetrievalAgent(
+        "Query",
+        sampleResults,
+        { modelId: "test" } as any,
+        undefined,
+        { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+      );
+
+      expect(listResult).toMatch(/Error: could not list files/);
+    });
+
+    it("scoped read_file returns error message on filesystem failure", async () => {
+      mockReadAppFile.mockRejectedValue(new Error("file not found"));
+
+      let readResult: unknown = null;
+      mockStreamText.mockImplementation(({ tools }: any) => {
+        const textPromise = (async () => {
+          readResult = await tools.read_file.execute({ folder: "hiking-trails", filename: "notes.md" }, { toolCallId: "t1", messages: [] });
+          return '{"relevant_folders": [], "relevant_memories": []}';
+        })();
+        return {
+          textStream: (async function* () { yield await textPromise; })(),
+          text: textPromise,
+        };
+      });
+
+      await runRetrievalAgent(
+        "Query",
+        sampleResults,
+        { modelId: "test" } as any,
+        undefined,
+        { readAppFile: mockReadAppFile, listAppFiles: mockListAppFiles },
+      );
+
+      expect(readResult).toMatch(/Error: could not read file/);
     });
   });
 });

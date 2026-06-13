@@ -2,104 +2,125 @@
 
 ## Current status
 
-- Last run: 2026-06-12
-- Last inspected commit: 14505e7
-- Suggested next focus: Guarded-stream abort error handling and unhandled rejections
+- Last run: 2026-06-12 (run 15)
+- Last inspected commit: 35a22e4 (uncommitted changes)
+- Suggested next focus: extract-page-content-tool never indexes saved content to vector search; TOCTOU race in research folder creation; global sub-agent emitter race (architecture); `moveResearchChatToFolder` partial failure duplication
 
 ## Recent runs
 
-### Run 1 — 2026-06-12 (commit 14505e7)
+### Run 15 — 2026-06-12 (commit 35a22e4, uncommitted changes)
 
 **Focus areas:**
-- Sub-agent persistence and event handling
-- Sub-agent store state management
-- Research folder operations and folder-namer
-- Transport/guarded-stream async and cancellation
+- Uncommitted changes deep scan (~50 modified files)
+- `moveResearchChatToFolder` data loss (CRITICAL folder deletion bug)
+- `extract-page-content-tool` save failures
+- Brave/Exa search tool error handling
 
-**Bugs fixed (3):**
+**Bugs fixed (4):**
 
-1. **Tool-result missing status on error** — `sub-agent-tool-wrapper.ts:80`
-   - Root cause: Error path emitted `tool-result` without `status`, store defaulted to "complete"
-   - Fix: Added `status: "error"` to the error path
-   - Test: `sub-agent-tool-wrapper.test.ts` — new test "tool-result event has status error when execute throws"
+1. **`moveResearchChatToFolder` deletes ENTIRE source folder — destroys all other chats**
+   - Root cause: After saving chat to destination and deleting the individual chat file from source, the code deleted the entire source folder recursively (`deleteAppSubfolder`) and its search index (`deleteResearchFolderIndex`). If the source folder contained other chats, they were all destroyed.
+   - Fix: Replaced destructive folder/index deletion with `removeResearchChatSummary()` — removes only the moved chat's entry from the source folder's index. Source folder and other chats are preserved.
+   - Tests: Fixed 3 misleading tests that asserted the buggy folder-deletion behavior. Tests now verify only the chat file is deleted, not the folder.
+   - Files: research-history.ts, research-history.test.ts, direct-transport.test.ts
 
-2. **Cannot collapse selected sub-agent run** — `sub-agent-sidebar.tsx:93-110`
-   - Root cause: `store.selectRun(run.id)` called unconditionally on toggle; auto-expand effect re-expanded selected run
-   - Fix: Only select on expand, deselect on collapse
-   - Test: `sub-agent-sidebar.test.tsx` — new test "allows collapsing the currently selected run"
+2. **`currentChatId` never cleared in transport cleanup — cross-chat event routing**
+   - Root cause: `setActiveSubAgentEmitter(null, null)` in the `finally` block passes only 2 args; `chatId` parameter is `undefined`, so `currentChatId` is never cleared. After a transport completes, stale `currentChatId` causes sub-agent events from fire-and-forget operations (e.g., memory extraction) to route to the wrong chat's handler.
+   - Fix: Changed to `setActiveSubAgentEmitter(null, null, null)` — explicitly passes `null` to clear `currentChatId`.
+   - Files: transport/index.ts
 
-3. **updateRun cross-contamination by chatId** — `sub-agent-store.tsx:179,272`
-   - Root cause: `run.id === id || run.chatId === id` could match wrong runs
-   - Fix: Changed to `run.id === id` only (events dispatched by run ID)
-   - Test: `sub-agent-store.test.tsx` — new tests for tool-result error status and updateRun isolation
+3. **`extract-page-content-tool` save failures silently eaten — content never persisted**
+   - Root cause: Both `saveExtractedContent` and `saveSummaryContent` errors are caught and logged to `console.error` only. The tool returns extracted content as if saving succeeded. The user and AI agent have no indication that persistence failed. Future retrieval queries won't find the content.
+   - Fix: Added `saveFailed` flag. When save fails, appends `[Warning: Failed to save this content to the research folder...]` to the returned content so the AI agent knows and can inform the user.
+   - Files: extract-page-content-tool.ts
 
-**Verification:** 721/721 tests pass, tsc --noEmit clean
+4. **`create-search-tool.ts` discards Zod error details — generic error hides root cause**
+   - Root cause: When `throwOnParseError` is true and Zod validation fails, the error thrown is `"X search response did not match the expected format."` — no field names, expected types, or actual values. Makes debugging API contract mismatches nearly impossible.
+   - Fix: Included `result.error.message` in the thrown error string.
+   - Tests: Updated 2 tests (tavily, serper) to match new error format.
+   - Files: create-search-tool.ts, tavily-search-tool.test.ts, serper-search-tool.test.ts
 
-**Remaining risks documented below.**
+**Verification:** 829/829 tests pass (61 files)
+
+**Investigated but not fixed:**
+- **extract-page-content-tool never indexes to vector search**: Even when saved, files go to `raw/{domain}/` which `reindex_folder` and `backfill_index` never scan. No `indexResearchFile` call after saving. Fix requires passing `embeddingConfig` to the tool and calling indexing after write.
+- **Tests that pass while product is broken**: 3 tests asserted the destructive folder-deletion behavior. Fixed in this run.
+
+### Run 14 — 2026-06-12 (commit 35a22e4, uncommitted changes)
+Focus: Shopify extractor type safety, guarded-stream abort handling, sub-agent store stub runs
+Bugs fixed: 3
+
+### Run 13 — 2026-06-12 (commit 35a22e4)
+Focus: Sub-agent store events, persistence, retrieval agent tools, research plan tool, research history
+Bugs fixed: 6
 
 ## Recurring patterns
 
-- Sub-agent event system has multiple dedup/fingerprint edge cases (text-delta collision with identical content, tool-result collision with missing IDs)
-- Transport catch blocks can mask root causes when `controller.enqueue` throws
-- Persistence error paths are untested (writeSubAgentRuns failures, concurrent writes)
-- UI components using Collapse from Mantine keep content in DOM — tests must use `toBeVisible()` not `toBeInTheDocument()`
+- Module-level singletons create cross-chat routing risks — always scope by chatId
+- `as` type casts without runtime validation accept corrupt data silently — external API data MUST be validated
+- `.catch(() => {})` silently converts rejection to fulfillment — hide failures (fixed 4+ instances)
+- Read-modify-write without serialization loses data under concurrency
+- Event ordering cannot be assumed — create stubs for out-of-order arrivals
+- LLM tools that silently return empty data degrade research quality invisibly
+- `Math.min(...array)` / `Math.max(...array)` produce NaN/Infinity from malformed data — guard inputs
+- `.filter(Boolean)` does NOT filter non-string values from `string[]` — use type-narrowing filter
+- Abort error handling must not require specific error types — any error during abort should be swallowed
+- Tests asserting destructive/buggy behavior are dangerous — they prevent fixing the bug later
+- Error messages that discard diagnostic details (Zod errors, API responses) make debugging impossible
+- `undefined` vs `null` in optional params matters for `if (x !== undefined)` guards
 
 ## Recently inspected areas
 
-- **Sub-agent store (sub-agent-store.tsx):** 2026-06-12, HIGH confidence. All event types, updateRun, dedup logic inspected.
-- **Sub-agent tool wrapper (sub-agent-tool-wrapper.ts):** 2026-06-12, HIGH confidence. Start/tool-call/tool-result/complete/error paths all verified.
-- **Sub-agent sidebar (sub-agent-sidebar.tsx):** 2026-06-12, HIGH confidence. Toggle, auto-expand, collapse all verified.
-- **Sub-agent persistence (sub-agent-persistence.ts):** 2026-06-12, HIGH confidence. Read/write/normalize paths all inspected.
-- **Guarded-stream (guarded-stream.ts):** 2026-06-12, MEDIUM confidence. Reviewed abort paths and error masking. Risks noted but not fixed.
-- **Folder-namer (folder-namer.ts):** 2026-06-12, MEDIUM confidence. TOCTOU race and code-fence fragility noted.
-- **Extract page content (extract-page-content-tool.ts):** 2026-06-12, MEDIUM confidence. Error propagation and slug edge cases noted.
+- **moveResearchChatToFolder:** 2026-06-12 run 15, HIGH confidence. Fixed destructive folder deletion; now only removes individual chat file and index entry.
+- **currentChatId cleanup:** 2026-06-12 run 15, HIGH confidence. Now cleared in transport `finally` block.
+- **extract-page-content-tool save errors:** 2026-06-12 run 15, HIGH confidence. Warning now surfaced in tool output.
+- **create-search-tool error details:** 2026-06-12 run 15, HIGH confidence. Zod error message now included.
+- **Brave/Exa search tools:** 2026-06-12 run 15, MEDIUM confidence. No crash bugs found. Error handling could be richer but is functional.
+- **TOCTOU in research folder creation:** 2026-06-12 run 14, MEDIUM confidence. Race confirmed real but only exploitable under concurrent sessions.
+- **Global sub-agent emitter race:** 2026-06-12 run 14, MEDIUM confidence. Race confirmed real. Architecture change needed.
 
 ## Open risks
 
 ### HIGH priority
 
-- **Unhandled promise rejections on abort** — `guarded-stream.ts:219-220`
-  - `result.finishReason` and `result.totalUsage` reject silently when `pipeUIMessageStream` throws on abort
-  - No `.catch()` or cleanup; unhandled rejection in strict mode
-  - Fix: wrap in try/catch or use `.catch(() => {})` for both promises
+- **extract-page-content-tool never indexes saved content** — `src/tools/extract-page-content-tool.ts`, `src/lib/transport/tool-registry.ts:65`
+  - No `indexResearchFile` call after saving; `embeddingConfig` not passed to tool
+  - Files saved to `raw/{domain}/` which `reindex_folder`/`backfill_index` never scan
+  - Even when save succeeds, retrieval agent can never find extracted content
+  - Fix: pass `embeddingConfig` to tool, call `indexResearchFile` after write, or save files at folder root level
 
-- **Error masking in guarded-stream catch** — `guarded-stream.ts:157-167`
-  - If `controller.enqueue` throws inside catch block, original error is lost
-  - Makes debugging production failures very difficult
-  - Fix: wrap `controller.enqueue` in try/catch, log original error before attempting enqueue
+- **Global sub-agent emitter race** — `src/lib/sub-agent-emitter.ts:5-8`
+  - `currentEmitter` module-level singleton overwritten by concurrent sessions
+  - Partially mitigated by `directHandlers` Map but `currentEmitter` still at risk
+  - Impact: sub-agent events appear in wrong chat panel
+
+- **TOCTOU race in research folder creation** — `src/lib/transport/research-folder.ts:66-70`
+  - Read (list existing) and write (mkdir) are separate async ops spanning seconds
+  - Concurrent calls can produce duplicate folder names
+
+- **No re-entry guard on `DirectTransport.sendMessages()`** — `src/lib/transport/index.ts:92-203`
+  - Two concurrent calls can create duplicate folders, corrupt sub-agent event routing
+
+- **`moveResearchChatToFolder` partial failure duplication** — `src/lib/research-history.ts`
+  - Save to destination succeeds but source chat file deletion fails → duplicated data
+  - No rollback mechanism; `.catch()` swallows errors silently
 
 ### MEDIUM priority
 
-- **Concurrent writeSubAgentRuns race** — `chat.tsx:332-361`
-  - Two terminal runs completing quickly can interleave async writes; last-write-wins may lose data
-  - Fix: serialize writes with a queue or mutex
-
-- **Silent persistence failure** — `chat.tsx:360`
-  - `void persistSubAgentRuns(...)` swallows errors; user never knows persistence failed
-  - Fix: catch and surface error (toast or log)
-
-- **Text-delta fingerprint collision** — `sub-agent-store.tsx:281-282`
-  - `td:${run.id}:${run.delta}` — identical delta content for same run is deduped as re-delivery
-  - Low probability with LLM streaming but architecturally wrong
-  - Fix: include sequence counter or chunk index
-
-- **tool-result fingerprint collision** — `sub-agent-store.tsx:287`
-  - Two tool-results for same run with no `toolCallIndex` and no `toolCallId` produce same fingerprint
-  - Second result silently dropped
-  - Fix: include result content hash or require at least one identifier
-
-- **Events before start silently dropped** — `sub-agent-store.tsx:266-274`
-  - If text-delta/tool-call arrives before start event, `updateRun` is a no-op (run doesn't exist yet)
-  - Fix: buffer out-of-order events or log a warning
+- **DNS resolution has no timeout** — `src-tauri/src/lib.rs:211-221`
+- **Webview HTML extraction has no size guard** — `src-tauri/src/lib.rs:111-121`
+- **Windows reserved filenames pass validation** — `src/lib/transport/research-folder.ts:5`
+- **Memory extraction failures invisible to user** — `src/lib/transport/index.ts:149`
+- **`stripMarkdownJsonFence` fails on nested backticks** — `src/lib/memory-agent.ts:48-52`
+- **Guard retry pollutes `isResearchLikeRequest`** — `src/lib/agent-guards.ts:457-461`
 
 ### LOW priority
 
-- **TOCTOU race in folder name uniqueness** — `research-folder.ts:66-71`
-  - Check (list) and write (mkdir) are not atomic
-  - Two sessions could resolve to the same name simultaneously
-
-- **writeAppFile leaves empty directories** — `app-file-storage.ts:103-119`
-  - If `bridgeWriteTextFile` fails after `bridgeMkdir`, empty directory remains
-
-- **processMemoryMessageIds unbounded growth** — `transport/index.ts:39`
-  - Set grows linearly with message count, never pruned
+- **`processedMemoryMessageIds` Set grows unboundedly** — `src/lib/transport/index.ts:39`
+- **`resolveUniqueFolderNameFromExisting` uses `.parse()` not `.safeParse()`** — latent crash risk
+- **Deterministic fallback hardcodes sub-agent ID format** — `src/lib/transport/folder-namer.ts:113-130`
+- **Dead `ModelSelectorContext`** — `src/components/assistant-ui/model-selector.tsx:21-48`
+- **`SafePathSegmentSchema.parse` in subAgentsFilePath can throw synchronously** — `src/lib/sub-agent-persistence.ts:15-16`
+- **`extractFirstJsonObject` fails on braces inside JSON strings** — `src/lib/retrieval-agent.ts:210-222`
+- **Exa search tool defines own schema instead of reusing `searchResultSchema`** — `src/tools/exa-search-tool.ts:8-16`
+- **`embedding_dimensions: 0` passes through `??` but was blocked by `||`** — `src/lib/settings-store.ts:132`

@@ -159,4 +159,119 @@ describe("sub-agent persistence", () => {
 
     expect(runs[0].chunksReceived).toBe(0);
   });
+
+  it("rejects run with invalid report status", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-1",
+          name: "Memory Extraction",
+          toolName: "memory_agent",
+          status: "completed",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          text: "[]",
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+          report: {
+            name: "Memory Extraction",
+            status: "garbage_status",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            attempts: [],
+          },
+        },
+      ]),
+    );
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].report).toBeNull();
+  });
+
+  it("strips invalid failureCategory from report", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-1",
+          name: "Folder Naming",
+          toolName: "name_folder",
+          status: "failed",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          text: "",
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+          report: {
+            name: "Folder Naming",
+            status: "failed",
+            failureCategory: "nonexistent_category",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            attempts: [],
+          },
+        },
+      ]),
+    );
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].report).not.toBeNull();
+    expect(runs[0].report!.failureCategory).toBeUndefined();
+  });
+
+  it("preserves valid failureCategory in report", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-1",
+          name: "Folder Naming",
+          toolName: "name_folder",
+          status: "failed",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          text: "",
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+          report: {
+            name: "Folder Naming",
+            status: "failed",
+            failureCategory: "model_error",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            attempts: [],
+          },
+        },
+      ]),
+    );
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].report!.failureCategory).toBe("model_error");
+  });
+
+  it("preserves cancelled status from persisted runs", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-cancel",
+          name: "Memory Extraction",
+          toolName: "memory_agent",
+          status: "cancelled",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          finishedAt: "2026-01-01T00:00:01.000Z",
+          text: "Partial",
+          chunksReceived: 2,
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+        },
+      ]),
+    );
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("cancelled");
+  });
 });

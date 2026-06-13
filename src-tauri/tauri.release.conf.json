@@ -1,0 +1,11 @@
+{
+  "productName": "Deep Search",
+  "identifier": "com.deep-search-app.app",
+  "app": {
+    "windows": [
+      {
+        "title": "Deep Search"
+      }
+    ]
+  }
+}

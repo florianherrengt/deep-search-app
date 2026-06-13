@@ -214,6 +214,67 @@ describe("research history", () => {
     );
   });
 
+  it("continues listing chats when one file has a read error", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hi" }],
+      },
+    ];
+    const badChatId = "2026-05-21T10-00-00.000Z";
+    const goodChatId = "2026-05-22T10-00-00.000Z";
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    mockAppStorage({
+      directories: {
+        "search-results/market-map/chats": [
+          fileEntry(`${badChatId}.json`),
+          fileEntry(`${goodChatId}.json`),
+        ],
+      },
+      files: {
+        [`search-results/market-map/chats/${badChatId}.json`]: undefined as unknown as string,
+        [`search-results/market-map/chats/${goodChatId}.json`]: JSON.stringify({
+          id: goodChatId,
+          title: "Good chat",
+          createdAt: "2026-05-22T10:00:00.000Z",
+          updatedAt: "2026-05-22T10:30:00.000Z",
+          messages,
+        }),
+      },
+    });
+    fsMocks.readTextFile.mockImplementation(async (path: string) => {
+      if (path.includes(badChatId)) throw new Error("Permission denied");
+      if (path.includes(goodChatId)) {
+        return JSON.stringify({
+          id: goodChatId,
+          title: "Good chat",
+          createdAt: "2026-05-22T10:00:00.000Z",
+          updatedAt: "2026-05-22T10:30:00.000Z",
+          messages,
+        });
+      }
+      throw new Error(`Unexpected read: ${path}`);
+    });
+
+    const chats = await listResearchChats("market-map");
+
+    expect(chats).toHaveLength(1);
+    expect(chats[0].id).toBe(goodChatId);
+    expect(consoleWarn).toHaveBeenCalledWith(
+      expect.stringContaining(`Failed to read stored chat "${badChatId}"`),
+      expect.any(Error),
+    );
+
+    consoleWarn.mockRestore();
+  });
+
   it("saves chat transcripts into a dated chat file", async () => {
     const messages = [
       {
@@ -364,7 +425,9 @@ describe("research history", () => {
       },
     ];
     fsMocks.exists.mockImplementation(async (path: string) => {
-      return path === "search-results/provisional-folder";
+      if (path === "search-results/provisional-folder/chats/2026-05-22T10-11-12.123Z.json") return true;
+      if (path === "search-results/provisional-folder") return true;
+      return false;
     });
 
     await moveResearchChatToFolder({
@@ -380,13 +443,12 @@ describe("research history", () => {
     );
 
     expect(fsMocks.remove).toHaveBeenCalledWith(
-      "search-results/provisional-folder",
-      { recursive: true },
+      "search-results/provisional-folder/chats/2026-05-22T10-11-12.123Z.json",
     );
 
-    expect(tauriMocks.invoke).toHaveBeenCalledWith(
-      "delete_research_folder_index",
-      { name: "provisional-folder" },
+    expect(fsMocks.remove).not.toHaveBeenCalledWith(
+      "search-results/provisional-folder",
+      { recursive: true },
     );
   });
 
@@ -413,6 +475,38 @@ describe("research history", () => {
 
     expect(fsMocks.remove).not.toHaveBeenCalled();
     expect(tauriMocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("deletes only the moved chat file from the source folder, not the folder itself", async () => {
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+    ];
+    const chatId = "2026-05-22T10-11-12.123Z";
+    fsMocks.exists.mockImplementation(async (path: string) => {
+      if (path === `search-results/source-folder/chats/${chatId}.json`) return true;
+      if (path === "search-results/source-folder") return true;
+      return false;
+    });
+
+    await moveResearchChatToFolder({
+      fromFolderName: "source-folder",
+      toFolderName: "dest-folder",
+      chatId,
+      messages: messages as never,
+    });
+
+    expect(fsMocks.remove).toHaveBeenCalledWith(
+      `search-results/source-folder/chats/${chatId}.json`,
+    );
+
+    expect(fsMocks.remove).not.toHaveBeenCalledWith(
+      "search-results/source-folder",
+      { recursive: true },
+    );
   });
 });
 
@@ -684,5 +778,182 @@ describe("chat history metadata index", () => {
     expect(fsMocks.readTextFile).toHaveBeenCalledWith(
       `search-results/${folderName}/chats/${chatId}.json`,
     );
+  });
+});
+
+describe("saveResearchChatMessages error propagation", () => {
+  const folderName = "test-folder";
+  const chatId = "2026-06-10T10-00-00.000Z";
+  const messages = [
+    {
+      id: "user-1",
+      role: "user" as const,
+      parts: [{ type: "text" as const, text: "Hello" }],
+    },
+  ];
+
+  function validIndexJson(chats: Array<Record<string, unknown>>) {
+    return JSON.stringify({ version: 1, chats });
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    tauriMocks.invoke.mockResolvedValue(undefined);
+  });
+
+  it("rejects when upsertResearchChatSummary fails via index write failure", async () => {
+    fsMocks.exists.mockImplementation(async (path: string) => {
+      return path === `search-results/${folderName}/chats/index.json`;
+    });
+    fsMocks.readTextFile.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}/chats/index.json`) {
+        return validIndexJson([]);
+      }
+      throw new Error(`Unexpected read: ${path}`);
+    });
+
+    let writeCount = 0;
+    fsMocks.writeTextFile.mockImplementation(async () => {
+      writeCount++;
+      if (writeCount === 1) return;
+      throw new Error("disk full");
+    });
+
+    await expect(
+      saveResearchChatMessages(folderName, chatId, messages as never),
+    ).rejects.toThrow("disk full");
+
+    expect(writeCount).toBe(2);
+  });
+
+  it("returns chats from rebuild when writeResearchChatIndex fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    fsMocks.exists.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}/chats/index.json`) return false;
+      if (path === `search-results/${folderName}/chats/${chatId}.json`) return true;
+      if (
+        path === `search-results/${folderName}` ||
+        path === `search-results/${folderName}/chats`
+      )
+        return true;
+      return false;
+    });
+    fsMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}`) {
+        return [directoryEntry("chats")];
+      }
+      if (path === `search-results/${folderName}/chats`) {
+        return [fileEntry(`${chatId}.json`)];
+      }
+      return [];
+    });
+    fsMocks.readTextFile.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}/chats/${chatId}.json`) {
+        return JSON.stringify({
+          id: chatId,
+          title: "Recovered chat",
+          createdAt: "2026-06-10T10:00:00.000Z",
+          updatedAt: "2026-06-10T11:00:00.000Z",
+          messages,
+        });
+      }
+      throw new Error(`Unexpected read: ${path}`);
+    });
+    fsMocks.writeTextFile.mockRejectedValue(new Error("index write failed"));
+
+    const result = await listResearchChats(folderName);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe("Recovered chat");
+    expect(fsMocks.writeTextFile).toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `[research-history] Failed to write chat index for "${folderName}" after rebuild:`,
+      ),
+      expect.any(Error),
+    );
+
+    consoleError.mockRestore();
+  });
+});
+
+describe("upsertResearchChatSummary serialization", () => {
+  const folderName = "concurrency-test";
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    tauriMocks.invoke.mockResolvedValue(undefined);
+  });
+
+  it("concurrent saves to the same folder do not lose entries", async () => {
+    const chatIdA = "2026-06-12T10-00-00.000Z";
+    const chatIdB = "2026-06-12T11-00-00.000Z";
+    const messagesA = [
+      { id: "1", role: "user" as const, parts: [{ type: "text" as const, text: "Chat A" }] },
+    ];
+    const messagesB = [
+      { id: "2", role: "user" as const, parts: [{ type: "text" as const, text: "Chat B" }] },
+    ];
+
+    let indexContent: string | null = null;
+
+    fsMocks.exists.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}/chats/index.json`) return indexContent !== null;
+      if (path.includes(`search-results/${folderName}/chats/${chatIdA}.json`)) return true;
+      if (path.includes(`search-results/${folderName}/chats/${chatIdB}.json`)) return true;
+      if (path === `search-results/${folderName}` || path === `search-results/${folderName}/chats`) return true;
+      return false;
+    });
+
+    fsMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}/chats`) {
+        return [fileEntry(`${chatIdA}.json`), fileEntry(`${chatIdB}.json`)];
+      }
+      if (path === `search-results/${folderName}`) {
+        return [directoryEntry("chats")];
+      }
+      return [];
+    });
+
+    fsMocks.readTextFile.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}/chats/index.json` && indexContent) {
+        return indexContent;
+      }
+      if (path === `search-results/${folderName}/chats/${chatIdA}.json`) {
+        return JSON.stringify({
+          id: chatIdA, title: "Chat A",
+          createdAt: "2026-06-12T10:00:00.000Z", updatedAt: "2026-06-12T10:00:00.000Z",
+          messages: messagesA,
+        });
+      }
+      if (path === `search-results/${folderName}/chats/${chatIdB}.json`) {
+        return JSON.stringify({
+          id: chatIdB, title: "Chat B",
+          createdAt: "2026-06-12T11:00:00.000Z", updatedAt: "2026-06-12T11:00:00.000Z",
+          messages: messagesB,
+        });
+      }
+      return "";
+    });
+
+    fsMocks.writeTextFile.mockImplementation(async (_path: string, content: string) => {
+      if (typeof content === "string" && content.includes('"version"')) {
+        indexContent = content;
+      }
+    });
+
+    fsMocks.mkdir.mockResolvedValue(undefined);
+    fsMocks.remove.mockResolvedValue(undefined);
+
+    await Promise.all([
+      saveResearchChatMessages(folderName, chatIdA, messagesA as never),
+      saveResearchChatMessages(folderName, chatIdB, messagesB as never),
+    ]);
+
+    const parsed = JSON.parse(indexContent!);
+    const chatIds = parsed.chats.map((c: { id: string }) => c.id);
+    expect(chatIds).toContain(chatIdA);
+    expect(chatIds).toContain(chatIdB);
   });
 });

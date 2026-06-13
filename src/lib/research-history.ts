@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import { z } from "zod";
 import {
   createAppSubfolder,
+  deleteAppFile,
   deleteAppSubfolder,
   listAppFiles,
   listAppSubfolders,
@@ -23,6 +24,27 @@ const LEGACY_CHAT_TRANSCRIPT_FILENAME = "chat.json";
 const CHAT_FILE_EXTENSION = ".json";
 const CHAT_INDEX_FILENAME = "index.json";
 const CHAT_INDEX_VERSION = 1;
+
+const indexQueues = new Map<string, Promise<unknown>>();
+
+function serializedIndexWrite<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = indexQueues.get(key) ?? Promise.resolve();
+  const next = prev.then(
+    () => fn(),
+    (prevError) => {
+      console.warn(
+        `[research-history] previous index write failed for "${key}", proceeding`,
+        prevError instanceof Error ? prevError.message : prevError,
+      );
+      return fn();
+    },
+  );
+  indexQueues.set(key, next);
+  void next.finally(() => {
+    if (indexQueues.get(key) === next) indexQueues.delete(key);
+  }).catch(() => {});
+  return next;
+}
 
 export interface ResearchFolder {
   name: string;
@@ -176,7 +198,12 @@ async function rebuildResearchChatIndex(
     .sort(compareResearchChats);
 
   if (chats.length > 0) {
-    await writeResearchChatIndex(parsedFolderName, chats).catch(() => {});
+    await writeResearchChatIndex(parsedFolderName, chats).catch((error) => {
+      console.error(
+        `[research-history] Failed to write chat index for "${parsedFolderName}" after rebuild:`,
+        error,
+      );
+    });
   }
 
   return chats;
@@ -202,7 +229,7 @@ export async function saveResearchChatMessages(
       updatedAt: null,
       messageCount: messages.length,
       legacy: true,
-    }).catch(() => {});
+    });
     return;
   }
 
@@ -238,7 +265,7 @@ export async function saveResearchChatMessages(
     ),
   });
 
-  await upsertResearchChatSummary(parsedFolderName, summary).catch(() => {});
+  await upsertResearchChatSummary(parsedFolderName, summary);
 }
 
 export async function initializeResearchFolder(
@@ -271,7 +298,31 @@ export async function moveResearchChatToFolder({
   }
 
   await saveResearchChatMessages(parsedToFolderName, chatId, messages);
-  await deleteResearchFolder(parsedFromFolderName);
+
+  const parsedChatId = SafePathSegmentSchema.parse(chatId);
+  await deleteAppFile({
+    subfolder: researchChatsSubfolder(parsedFromFolderName),
+    filename: researchChatFilename(parsedChatId),
+  }).catch((error) => {
+    console.warn("[research-history] failed to delete source chat file during move", {
+      fromFolder: parsedFromFolderName,
+      chatId: parsedChatId,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  });
+
+  await removeResearchChatSummary(parsedFromFolderName, parsedChatId).catch(
+    (error) => {
+      console.warn(
+        "[research-history] failed to remove chat from source folder index during move",
+        {
+          fromFolder: parsedFromFolderName,
+          chatId: parsedChatId,
+          error: error instanceof Error ? error.message : "unknown",
+        },
+      );
+    },
+  );
 }
 
 export function createResearchChatId(date = new Date()): string {
@@ -282,16 +333,16 @@ async function readStoredResearchChat(
   folderName: string,
   chatId: string,
 ): Promise<StoredResearchChat | null> {
-  const content = await readAppFile({
-    subfolder: researchChatsSubfolder(folderName),
-    filename: researchChatFilename(chatId),
-  });
-
-  if (!content) {
-    return null;
-  }
-
   try {
+    const content = await readAppFile({
+      subfolder: researchChatsSubfolder(folderName),
+      filename: researchChatFilename(chatId),
+    });
+
+    if (!content) {
+      return null;
+    }
+
     const parsed = StoredResearchChatSchema.parse(tryParseJson(content));
     const messages = parsed.messages as UIMessage[];
     const storedChatId =
@@ -307,7 +358,11 @@ async function readStoredResearchChat(
       updatedAt: parsed.updatedAt ?? parsed.createdAt ?? null,
       messages,
     };
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[research-history] Failed to read stored chat "${chatId}" in "${folderName}":`,
+      error,
+    );
     return null;
   }
 }
@@ -368,7 +423,11 @@ async function readLegacyResearchChatMessages(
   try {
     const parsed = StoredChatMessagesSchema.parse(tryParseJson(content));
     return parsed as UIMessage[];
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[research-history] Failed to parse legacy chat in "${folderName}":`,
+      error,
+    );
     return [];
   }
 }
@@ -390,7 +449,11 @@ async function readResearchChatIndex(
     return parsed.chats
       .map(normalizeResearchChatSummary)
       .filter((chat): chat is ResearchChatSummary => chat !== null);
-  } catch {
+  } catch (error) {
+    console.warn(
+      `[research-history] Failed to parse chat index in "${folderName}":`,
+      error,
+    );
     return null;
   }
 }
@@ -418,15 +481,30 @@ async function upsertResearchChatSummary(
   folderName: string,
   summary: ResearchChatSummary,
 ): Promise<void> {
-  const existingChats =
-    (await readResearchChatIndex(folderName)) ??
-    (await rebuildResearchChatIndex(folderName));
-  const nextChats = [
-    summary,
-    ...existingChats.filter((chat) => chat.id !== summary.id),
-  ].sort(compareResearchChats);
+  return serializedIndexWrite(folderName, async () => {
+    const existingChats =
+      (await readResearchChatIndex(folderName)) ??
+      (await rebuildResearchChatIndex(folderName));
+    const nextChats = [
+      summary,
+      ...existingChats.filter((chat) => chat.id !== summary.id),
+    ].sort(compareResearchChats);
 
-  await writeResearchChatIndex(folderName, nextChats);
+    await writeResearchChatIndex(folderName, nextChats);
+  });
+}
+
+async function removeResearchChatSummary(
+  folderName: string,
+  chatId: string,
+): Promise<void> {
+  return serializedIndexWrite(folderName, async () => {
+    const existingChats = await readResearchChatIndex(folderName);
+    if (!existingChats) return;
+    const nextChats = existingChats.filter((chat) => chat.id !== chatId);
+    if (nextChats.length === existingChats.length) return;
+    await writeResearchChatIndex(folderName, nextChats);
+  });
 }
 
 async function readExistingResearchChatSummary(

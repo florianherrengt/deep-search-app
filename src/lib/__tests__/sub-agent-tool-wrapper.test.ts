@@ -95,6 +95,26 @@ describe("wrapToolWithSubAgentTracking", () => {
     expect(errorCall![0]).toMatchObject({ type: "error", error: "API failure" });
   });
 
+  it("wrapped execute emits cancelled event when original execute throws AbortError", async () => {
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    const tool = {
+      description: "test tool",
+      execute: vi.fn().mockRejectedValue(abortError),
+    };
+
+    const wrapped = wrapToolWithSubAgentTracking("serper_search", tool as unknown as Tool);
+
+    await expect(wrapped.execute!({ query: "test" }, { toolCallId: "tc-abort", messages: [] } as any)).rejects.toThrow();
+
+    const calls = vi.mocked(emitSubAgentEvent).mock.calls;
+    const cancelledCall = calls.find((c) => c[0].type === "cancelled");
+    expect(cancelledCall).toBeDefined();
+    expect(cancelledCall![0]).toMatchObject({ type: "cancelled", id: "sa-test-id" });
+
+    const errorCall = calls.find((c) => c[0].type === "error");
+    expect(errorCall).toBeUndefined();
+  });
+
   it("tool-result event has status error when execute throws", async () => {
     const error = new Error("API failure");
     const tool = {

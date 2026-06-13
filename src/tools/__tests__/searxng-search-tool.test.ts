@@ -66,14 +66,14 @@ describe("createSearXNGSearchTool", () => {
     });
   });
 
-  it("returns 'No results found' when invoke returns null", async () => {
+  it("throws descriptive error when invoke returns null (server unreachable)", async () => {
     const tool = createSearXNGSearchTool(
       "http://localhost:8080",
     ) as unknown as ExecutableSearXNGTool;
     tauriMocks.invoke.mockResolvedValueOnce(null);
 
-    await expect(tool.execute({ query: "test query" })).resolves.toBe(
-      "No results found.",
+    await expect(tool.execute({ query: "test query" })).rejects.toThrow(
+      "SearXNG search failed: no response from server",
     );
   });
 

@@ -4,28 +4,37 @@ type SubAgentEmitter = (event: SubAgentEvent) => void;
 
 let currentEmitter: SubAgentEmitter | null = null;
 let currentMessageId: string | null = null;
-let directHandler: SubAgentEmitter | null = null;
+let currentChatId: string | null = null;
+const directHandlers = new Map<string, SubAgentEmitter>();
 
 export function setActiveSubAgentEmitter(
   emitter: SubAgentEmitter | null,
   parentMessageId: string | null,
+  chatId?: string | null,
 ): void {
   currentEmitter = emitter;
   currentMessageId = parentMessageId;
+  if (chatId !== undefined) currentChatId = chatId;
 }
 
 export function setDirectEventHandler(
+  chatId: string,
   handler: SubAgentEmitter | null,
 ): void {
-  directHandler = handler;
+  if (handler) {
+    directHandlers.set(chatId, handler);
+  } else {
+    directHandlers.delete(chatId);
+  }
 }
 
 export function emitSubAgentEvent(event: SubAgentEvent): void {
   if (currentEmitter) {
     currentEmitter(event);
   }
-  if (directHandler) {
-    directHandler(event);
+  if (currentChatId) {
+    const handler = directHandlers.get(currentChatId);
+    if (handler) handler(event);
   }
 }
 
@@ -40,11 +49,14 @@ export function withEmitter<T>(
 ): T {
   const prevEmitter = currentEmitter;
   const prevMessageId = currentMessageId;
+  const prevChatId = currentChatId;
   setActiveSubAgentEmitter(emitter, parentMessageId);
   try {
     return fn();
   } finally {
-    setActiveSubAgentEmitter(prevEmitter, prevMessageId);
+    currentEmitter = prevEmitter;
+    currentMessageId = prevMessageId;
+    currentChatId = prevChatId;
   }
 }
 
@@ -55,10 +67,13 @@ export async function withEmitterAsync<T>(
 ): Promise<T> {
   const prevEmitter = currentEmitter;
   const prevMessageId = currentMessageId;
+  const prevChatId = currentChatId;
   setActiveSubAgentEmitter(emitter, parentMessageId);
   try {
     return await fn();
   } finally {
-    setActiveSubAgentEmitter(prevEmitter, prevMessageId);
+    currentEmitter = prevEmitter;
+    currentMessageId = prevMessageId;
+    currentChatId = prevChatId;
   }
 }

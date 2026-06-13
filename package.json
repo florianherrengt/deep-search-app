@@ -14,6 +14,7 @@
     "storybook:screenshots": "npm run build-storybook && node scripts/storybook-screenshots.mjs",
     "storybook:screenshots:dev": "node scripts/storybook-screenshots.mjs --url http://127.0.0.1:6006",
     "tauri": "npm run prepare:sidecars && tauri",
+    "tauri:build:release": "npm run prepare:sidecars && tauri build --config src-tauri/tauri.release.conf.json",
     "test": "vitest run --project unit",
     "test:unit:quiet": "mkdir -p .agent-logs && vitest run --project unit --reporter=minimal --silent=passed-only --bail=1 2>&1 | tee .agent-logs/vitest.log | tail -n 80",
     "test:unit:focused": "vitest run --project unit --reporter=minimal --silent=passed-only --bail=1",

@@ -7,6 +7,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import { readAppFile, listAppFiles, SafePathSegmentSchema } from "@/lib/app-file-storage";
+import { isAbortError } from "@/lib/abort";
 import { isRecord } from "@/lib/json";
 import type { SearchResult } from "@/lib/research-search";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
@@ -18,6 +19,10 @@ const LOG_PREFIX = "[retrieval-agent]";
 
 function logDebug(message: string, ...args: unknown[]) {
   console.debug(`${LOG_PREFIX} ${message}`, ...args);
+}
+
+function logWarn(message: string, ...args: unknown[]) {
+  console.warn(`${LOG_PREFIX} ${message}`, ...args);
 }
 
 export interface RetrievalResult {
@@ -109,8 +114,12 @@ export async function runRetrievalAgent(
           return await _listAppFiles({
             subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${folder}`,
           });
-        } catch {
-          return [];
+        } catch (error) {
+          logWarn("list_files failed for folder", {
+            folder,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+          return `Error: could not list files in folder "${folder}".`;
         }
       },
     });
@@ -132,8 +141,13 @@ export async function runRetrievalAgent(
             filename,
           });
           return content ?? null;
-        } catch {
-          return null;
+        } catch (error) {
+          logWarn("read_file failed", {
+            folder,
+            filename,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+          return `Error: could not read file "${filename}" in folder "${folder}".`;
         }
       },
     });
@@ -193,21 +207,78 @@ export async function runRetrievalAgent(
     const parsed = parseRetrievalResult(text, candidateFolders);
     emitSubAgentEvent({ type: "complete", id: saId });
     return parsed;
-  } catch {
+  } catch (error) {
+    if (isAbortError(error) || abortSignal?.aborted) {
+      logDebug("retrieval agent cancelled by user");
+      emitSubAgentEvent({ type: "cancelled", id: saId });
+      return { relevant_folders: [], relevant_memories: [] };
+    }
+    logWarn("retrieval agent failed", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
     emitSubAgentEvent({ type: "error", id: saId, error: "Retrieval agent failed" });
     return { relevant_folders: [], relevant_memories: [] };
   }
+}
+
+function extractFirstJsonObject(text: string): string | null {
+  const firstBrace = text.indexOf("{");
+  if (firstBrace === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = firstBrace; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === "\\") {
+      escape = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      if (depth === 0) return text.slice(firstBrace, i + 1);
+    }
+  }
+  return null;
 }
 
 function parseRetrievalResult(text: string, candidates: Set<string>): RetrievalResult {
   const empty: RetrievalResult = { relevant_folders: [], relevant_memories: [] };
 
   try {
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return empty;
+    const jsonStr = extractFirstJsonObject(text);
+    if (!jsonStr) {
+      logWarn("no JSON object found in retrieval agent output", { textLength: text.length });
+      return empty;
+    }
 
-    const parsed = JSON.parse(jsonMatch[0]);
-    if (!isRecord(parsed)) return empty;
+    const parsed = JSON.parse(jsonStr);
+    if (!isRecord(parsed)) {
+      logWarn("retrieval agent output is not a JSON object", { type: typeof parsed });
+      return empty;
+    }
+
+    if (!Array.isArray(parsed.relevant_folders) || !Array.isArray(parsed.relevant_memories)) {
+      logWarn("retrieval agent output has missing or wrong-type keys", {
+        keys: Object.keys(parsed),
+        foldersType: typeof parsed.relevant_folders,
+        memoriesType: typeof parsed.relevant_memories,
+      });
+    }
 
     const folders: string[] = Array.isArray(parsed.relevant_folders)
       ? parsed.relevant_folders.filter((f: unknown) => typeof f === "string" && candidates.has(f as string))
@@ -217,8 +288,19 @@ function parseRetrievalResult(text: string, candidates: Set<string>): RetrievalR
       ? parsed.relevant_memories.filter((m: unknown) => typeof m === "string")
       : [];
 
+    if (folders.length === 0 && memories.length === 0 && Object.keys(parsed).length > 0) {
+      logWarn("retrieval agent returned JSON but produced no usable results", {
+        keys: Object.keys(parsed),
+        folderCount: Array.isArray(parsed.relevant_folders) ? parsed.relevant_folders.length : "not-array",
+        memoryCount: Array.isArray(parsed.relevant_memories) ? parsed.relevant_memories.length : "not-array",
+      });
+    }
+
     return { relevant_folders: folders, relevant_memories: memories };
-  } catch {
+  } catch (err) {
+    logWarn("failed to parse retrieval agent JSON", {
+      error: err instanceof Error ? err.message : "unknown",
+    });
     return empty;
   }
 }

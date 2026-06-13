@@ -1,6 +1,6 @@
 import { fetch } from "@/lib/tauri-bridge";
 import { z } from "zod";
-import { createSearchTool } from "./create-search-tool";
+import { createSearchTool, formatSearchHttpError } from "./create-search-tool";
 import { searchQueryInputSchema } from "./search-result";
 
 const API_BASE_URL = "https://api.exa.ai";
@@ -22,6 +22,7 @@ export function createExaSearchTool(apiKey: string) {
     providerName: "Exa",
     description: "Search the web with Exa",
     responseSchema: ExaWebResponseSchema,
+    throwOnParseError: true,
     mapResults: (r) =>
       r.results.map((r) => ({
         title: r.title,
@@ -44,7 +45,9 @@ export function createExaSearchTool(apiKey: string) {
         signal: abortSignal,
       });
 
-      if (!response.ok) return "";
+      if (!response.ok) {
+        throw new Error(await formatSearchHttpError("Exa", response));
+      }
       return await response.text();
     },
   });

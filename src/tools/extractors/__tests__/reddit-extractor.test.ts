@@ -169,6 +169,37 @@ describe("RedditExtractor", () => {
       expect(mockWebview).not.toHaveBeenCalled();
     });
 
+    it("extracts posts with 'json' in the post slug", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      const result = await extractor.extract(
+        "https://www.reddit.com/r/programming/comments/abc/working-with-json-data/",
+      );
+
+      expect(mockWebview).toHaveBeenCalled();
+      expect(result).toContain("# Test Post");
+    });
+
+    it("extracts posts with 'json' in query parameters", async () => {
+      mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
+
+      const result = await extractor.extract(
+        "https://www.reddit.com/r/test/comments/abc/test_post/?utm_source=json_feed",
+      );
+
+      expect(mockWebview).toHaveBeenCalled();
+      expect(result).toContain("# Test Post");
+    });
+
+    it("returns empty string for .json path extension only", async () => {
+      const result = await extractor.extract(
+        "https://www.reddit.com/r/test/comments/abc.json",
+      );
+
+      expect(result).toBe("");
+      expect(mockWebview).not.toHaveBeenCalled();
+    });
+
     it("detects #challenge-form element as challenge", async () => {
       mockWebview.mockResolvedValueOnce(OLD_REDDIT_HTML);
 

@@ -1,6 +1,6 @@
 import { fetch } from "@/lib/tauri-bridge";
 import { z } from "zod";
-import { createSearchTool } from "./create-search-tool";
+import { createSearchTool, formatSearchHttpError } from "./create-search-tool";
 import {
   searchQueryInputSchema,
   searchResultSchema,
@@ -23,6 +23,7 @@ export function createBraveSearchTool(apiKey: string) {
     providerName: "Brave",
     description: "Search the web with Brave Search",
     responseSchema: BraveWebResponseSchema,
+    throwOnParseError: true,
     mapResults: (r) => r.web?.results ?? [],
     execute: async (query, abortSignal) => {
       const url = new URL(`${API_BASE_URL}/web/search`);
@@ -36,7 +37,9 @@ export function createBraveSearchTool(apiKey: string) {
         signal: abortSignal,
       });
 
-      if (!response.ok) return "";
+      if (!response.ok) {
+        throw new Error(await formatSearchHttpError("Brave", response));
+      }
       return await response.text();
     },
   });

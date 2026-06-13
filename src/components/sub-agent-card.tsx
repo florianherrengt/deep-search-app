@@ -31,7 +31,7 @@ export function SubAgentCard({
             color: "var(--mantine-color-dimmed)",
           }}
         />
-        <Text size="sm" fw={500}>
+        <Text size="sm" fw={500} truncate>
           {run.name}
         </Text>
         {(run.status === "running" || run.status === "streaming") && (
@@ -58,9 +58,11 @@ export function SubAgentCard({
             error
           </Text>
         )}
-        <Text size="xs" c="blue" ml={4} style={{ opacity: 0 }}>
-          inspect
-        </Text>
+        {run.status === "cancelled" && (
+          <Text size="xs" c="dimmed" ml="auto">
+            cancelled
+          </Text>
+        )}
       </UnstyledButton>
     </Box>
   );

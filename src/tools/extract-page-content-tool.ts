@@ -547,6 +547,10 @@ async function extractViaWebview(
       }
     } catch (error) {
       if (isAbortError(error)) throw error;
+      console.warn(
+        `[extract] extractViaWebview failed for ${url}:`,
+        error instanceof Error ? error.message : error,
+      );
       return null;
     } finally {
       await closeWebviewTab(id);
@@ -568,11 +572,18 @@ async function extractRawContent(
 
   const extractor = extractors.find((e) => e.canHandle(url));
   if (extractor) {
-    return {
-      html: null,
-      content: await extractor.extract(url),
-      usedCustomExtractor: true,
-    };
+    try {
+      const content = await extractor.extract(url);
+      if (content) {
+        return { html: null, content, usedCustomExtractor: true };
+      }
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      console.warn(
+        `[extract] Custom extractor ${extractor.constructor.name} failed for ${url}, falling back to ${method}`,
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
 
   if (method === "webview") {
@@ -685,7 +696,9 @@ export async function extractPageContent(
     options.abortSignal,
   );
 
-  if (!html && !content) return content;
+  if (!html && !content) {
+    return `No content could be extracted from ${url}. The page may be empty, require JavaScript rendering, or be blocked by a paywall or captcha.`;
+  }
 
   const shouldSummarize = shouldSummarizeContent(options, usedCustomExtractor);
   const researchFolder = await options.getResearchFolder?.();
@@ -705,7 +718,13 @@ export async function extractPageContent(
   }
 
   const location = rawContentLocation(url, researchFolder);
-  await saveExtractedContent({ location, html, content });
+  let saveFailed = false;
+  try {
+    await saveExtractedContent({ location, html, content });
+  } catch (err) {
+    console.error("[extract] Failed to save extracted content:", err);
+    saveFailed = true;
+  }
 
   if (shouldSummarize) {
     const summary = await trySummarizeContent(
@@ -716,12 +735,21 @@ export async function extractPageContent(
       saId,
     );
     if (summary) {
-      await saveSummaryContent(location, summary);
-      return summary;
+      try {
+        await saveSummaryContent(location, summary);
+      } catch (err) {
+        console.error("[extract] Failed to save summary content:", err);
+        saveFailed = true;
+      }
+      return saveFailed
+        ? `${summary}\n\n[Warning: Failed to save this content to the research folder. It will not be available for future searches.]`
+        : summary;
     }
   }
 
-  return content;
+  return saveFailed
+    ? `${content}\n\n[Warning: Failed to save this content to the research folder. It will not be available for future searches.]`
+    : content;
 }
 
 export const extractPageContentInputSchema = z.object({

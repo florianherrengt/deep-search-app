@@ -129,7 +129,7 @@ export function resolveEmbeddingConfig(settings: Settings) {
       || settings.openrouter_api_key,
     base_url: settings.embedding_base_url || EMBEDDING_DEFAULTS.base_url,
     model: settings.embedding_model || EMBEDDING_DEFAULTS.model,
-    dimensions: settings.embedding_dimensions || EMBEDDING_DEFAULTS.dimensions,
+    dimensions: settings.embedding_dimensions ?? EMBEDDING_DEFAULTS.dimensions,
     query_prefix: settings.embedding_query_prefix || EMBEDDING_DEFAULTS.query_prefix,
   };
 }

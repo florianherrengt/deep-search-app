@@ -69,7 +69,7 @@ export interface SubAgentReport {
 }
 
 export function truncatePreview(value: string | undefined, maxLen = 200): string | undefined {
-  if (!value) return undefined;
+  if (value == null) return undefined;
   if (value.length <= maxLen) return value;
   return value.slice(0, maxLen) + "...";
 }

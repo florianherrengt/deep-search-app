@@ -42,6 +42,15 @@ export function createResearchPlanTool(model: LanguageModel) {
 
         const text = await result.text;
 
+        if (!text || !text.trim()) {
+          emitSubAgentEvent({
+            type: "error",
+            id: saId,
+            error: "Research plan was empty — the model returned no content.",
+          });
+          return "Error: Research plan was empty. Please try again with a more specific query.";
+        }
+
         emitSubAgentEvent({ type: "complete", id: saId });
 
         return text;

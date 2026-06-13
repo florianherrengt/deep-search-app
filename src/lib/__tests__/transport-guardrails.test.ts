@@ -515,6 +515,29 @@ describe("createGuardedStream", () => {
     expect(chunks).toContainEqual({ type: "abort", reason: "aborted" });
   });
 
+  it("swallows non-AbortError when abort signal is active", async () => {
+    const abortController = new AbortController();
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        abortController.abort();
+        throw new TypeError("Connection torn down");
+      },
+    });
+
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      embeddingConfig: mockEmbeddingConfig, rerankerConfig: mockRerankerConfig,
+      messages: [userMessage("Hello")],
+      abortSignal: abortController.signal,
+    });
+
+    expect(chunks).toContainEqual({ type: "abort", reason: "aborted" });
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({ type: "finish", finishReason: "error" }),
+    );
+  });
+
   it("surfaces model errors as stream chunks", async () => {
     const model = new MockLanguageModelV3({
       doStream: async (): Promise<LanguageModelV3StreamResult> => {
