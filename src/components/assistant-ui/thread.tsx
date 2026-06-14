@@ -248,6 +248,7 @@ function MessageActionBar() {
 
 function ThreadMessage() {
   const role = useAuiState((s) => s.message.role);
+  const isRunning = useAuiState((s) => s.thread.isRunning);
   return (
     <MessagePrimitive.Root
       data-testid={role === "assistant" ? "assistant-message" : undefined}
@@ -314,6 +315,9 @@ function ThreadMessage() {
                       canSubmit: typeof toolPart.addResult === "function",
                     })
                   ) {
+                    if (toolPart.result === undefined && isRunning) {
+                      return null;
+                    }
                     return (
                       <QuestionsToolView
                         args={toolPart.args}
