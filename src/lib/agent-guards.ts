@@ -254,10 +254,10 @@ export function detectForeignCurrencyMentions(
 ): string[] {
   const matches = new Set<string>();
 
-  for (const { pattern, codesArr, codesStr } of CURRENCY_SYMBOL_MATCHERS) {
+  for (const { pattern, codesArr } of CURRENCY_SYMBOL_MATCHERS) {
     if (codesArr.includes(targetCurrency)) continue;
     for (const m of text.matchAll(pattern)) {
-      matches.add(`${m[0]} (${codesStr})`);
+      matches.add(m[0]);
     }
   }
 
@@ -271,7 +271,7 @@ export function detectForeignCurrencyMentions(
   for (const { regex, codes } of CURRENCY_NAME_MATCHERS) {
     if (codes.includes(targetCurrency)) continue;
     for (const m of text.matchAll(regex)) {
-      matches.add(`${m[0]} (${codes.join(", ")})`);
+      matches.add(m[0]);
     }
   }
 
@@ -447,10 +447,6 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
       targetCurrency,
     );
     if (foreignMentions.length > 0) {
-      const conversionNeed = formatCurrencyConversionNeed(
-        foreignMentions,
-        targetCurrency,
-      );
       const currencyToolAlreadyCalled = currentTurnMessages.some((message) =>
         hasToolCall(message, TOOL_NAMES.currency_conversion),
       );
@@ -461,15 +457,12 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
           kind: "currency_conversion",
           status: "retrying",
           title: "Currency conversion enforced",
-          message: conversionNeed,
-          reason: `Foreign currency amounts found: ${foreignMentions.join(", ")}. Target currency: ${targetCurrency}. ${conversionNeed}`,
+          message: `Convert all currencies to ${targetCurrency}.`,
+          reason: foreignMentions[0],
         },
         retryInstruction: currencyToolAlreadyCalled
-          ? `Your response still contains foreign currency amounts. ${conversionNeed} You have already used currency_conversion in this turn; rewrite the answer using only ${targetCurrency} amounts. Do not include the original foreign amounts, exchange rates, or ≈.`
-          : `Your response contains foreign currency amounts. ${conversionNeed} Use the currency_conversion tool before responding. In the final answer, show only ${targetCurrency} amounts; do not include the original foreign amounts, exchange rates, or ≈.`,
-        ...(currencyToolAlreadyCalled
-          ? {}
-          : { toolChoice: "required" as ToolChoice<TOOLS> }),
+          ? `Your response still contains foreign currency amounts. Rewrite using only ${targetCurrency}. Do not include original foreign amounts, exchange rates, or ≈.`
+          : `Convert all foreign currency amounts to ${targetCurrency}. Use the currency_conversion tool. Do not include original foreign amounts, exchange rates, or ≈. Reason: ${foreignMentions[0]}`,
       };
     }
   }
@@ -547,19 +540,6 @@ function toolRequirementRetry<TOOLS extends ToolSet>(
       toolName: nextTool,
     } as ToolChoice<TOOLS>,
   };
-}
-
-function formatCurrencyConversionNeed(
-  mentions: string[],
-  targetCurrency: Currency,
-) {
-  return `Convert ${formatList(mentions)} to ${targetCurrency}.`;
-}
-
-function formatList(items: string[]) {
-  if (items.length <= 1) return items[0] ?? "";
-  if (items.length === 2) return `${items[0]} and ${items[1]}`;
-  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
 function getCurrentTurnMessages(

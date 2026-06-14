@@ -650,7 +650,7 @@ describe("createGuardedStream", () => {
           };
         }
 
-        expect(options.toolChoice).toEqual({ type: "required" });
+        expect(options.toolChoice).toEqual({ type: "auto" });
         return {
           stream: simulateReadableStream({
             chunks: toolCallChunks("currency_conversion", "call-cc-1", {

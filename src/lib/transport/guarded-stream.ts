@@ -28,6 +28,13 @@ import { skillsStore } from "@/lib/skills-store";
 
 const MAX_GUARD_RETRIES = 2;
 
+const MAX_RETRIES_PER_GUARD: Record<GuardName, number> = {
+  question_tool: MAX_GUARD_RETRIES,
+  research_checkpoint: MAX_GUARD_RETRIES,
+  tool_call_requirement: MAX_GUARD_RETRIES,
+  currency_conversion: 1,
+};
+
 type AttemptFinish = {
   messages: UIMessage[];
   responseMessage: UIMessage;
@@ -134,7 +141,7 @@ export function createGuardedStream({
           }
 
           const guardRetryCount = retries[decision.guard];
-          if (guardRetryCount >= MAX_GUARD_RETRIES) {
+          if (guardRetryCount >= MAX_RETRIES_PER_GUARD[decision.guard]) {
             writeGuardrailEvent(controller, maxRetryWarning(decision));
             break;
           }
@@ -163,18 +170,7 @@ export function createGuardedStream({
     })();
 }
 
-async function runAttempt({
-  model,
-  tools,
-  messages,
-  activeTools,
-  toolChoice,
-  originalMessages,
-  sendStart,
-  abortSignal,
-  controller,
-  systemPrompt: effectiveSystemPrompt,
-}: {
+type RunAttemptParams = {
   model: LanguageModel;
   tools: AppToolSet;
   messages: ModelMessage[];
@@ -185,7 +181,45 @@ async function runAttempt({
   abortSignal: AbortSignal | undefined;
   controller: ReadableStreamDefaultController<UIMessageChunk>;
   systemPrompt: string;
-}): Promise<AttemptFinish> {
+};
+
+async function runAttempt(params: RunAttemptParams): Promise<AttemptFinish> {
+  try {
+    return await runAttemptOnce(params);
+  } catch (error) {
+    if (
+      params.toolChoice &&
+      !params.abortSignal?.aborted &&
+      isForcedToolChoiceUnsupported(error)
+    ) {
+      return await runAttemptOnce({ ...params, toolChoice: undefined });
+    }
+    throw error;
+  }
+}
+
+function isForcedToolChoiceUnsupported(error: unknown): boolean {
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
+  return (
+    (message.includes("tool_choice") || message.includes("tool choice")) &&
+    (message.includes("thinking") || message.includes("reasoning"))
+  );
+}
+
+async function runAttemptOnce({
+  model,
+  tools,
+  messages,
+  activeTools,
+  toolChoice,
+  originalMessages,
+  sendStart,
+  abortSignal,
+  controller,
+  systemPrompt: effectiveSystemPrompt,
+}: RunAttemptParams): Promise<AttemptFinish> {
   let finish: AttemptFinish | undefined;
   const result = streamText({
     model,
@@ -422,7 +456,7 @@ function maxRetryWarning(
     title: "Guardrail retry limit reached",
     message: "The agent kept missing this guardrail, so the latest output is shown.",
     reason: decision.event.reason,
-    attempt: MAX_GUARD_RETRIES,
+    attempt: MAX_RETRIES_PER_GUARD[decision.guard],
   };
 }
 

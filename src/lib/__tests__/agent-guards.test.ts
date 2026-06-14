@@ -327,15 +327,12 @@ describe("evaluateAssistantStep", () => {
         kind: "currency_conversion",
         status: "retrying",
       },
-      toolChoice: "required",
     });
-    expect(decision.action === "retry" && decision.event.reason).toContain(
+    expect(decision.action === "retry").not.toHaveProperty("toolChoice");
+    expect(decision.action === "retry" && decision.event.message).toContain(
       "GBP",
     );
-    expect(decision.action === "retry" && decision.event.message).toContain(
-      "Convert",
-    );
-    expect(decision.action === "retry" && decision.event.message).toContain(
+    expect(decision.action === "retry" && decision.event.reason).toContain(
       "$50",
     );
     expect(
@@ -356,7 +353,7 @@ describe("evaluateAssistantStep", () => {
       action: "retry",
       guard: "currency_conversion",
     });
-    expect(decision.action === "retry" && decision.event.message).toContain(
+    expect(decision.action === "retry" && decision.event.reason).toContain(
       "€40",
     );
   });
@@ -372,7 +369,7 @@ describe("evaluateAssistantStep", () => {
       action: "retry",
       guard: "currency_conversion",
     });
-    expect(decision.action === "retry" && decision.event.message).toContain(
+    expect(decision.action === "retry" && decision.event.reason).toContain(
       "a hundred dollars",
     );
   });
@@ -477,7 +474,7 @@ describe("evaluateAssistantStep", () => {
     );
     expect(
       decision.action === "retry" && decision.retryInstruction,
-    ).toContain("already used currency_conversion");
+    ).toContain("Rewrite");
   });
 });
 

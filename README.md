@@ -2,8 +2,7 @@
 
 A desktop research agent that runs on your machine, with your API keys, storing everything on your disk.
 
-<!-- TODO: Add screenshot here. Something like: -->
-<!-- <img src="docs/screenshot.png" alt="Deep Search screenshot" width="800"> -->
+[![Deep Search demo](https://img.youtube.com/vi/bN8V7AK_ByE/maxresdefault.jpg)](https://www.youtube.com/watch?v=bN8V7AK_ByE)
 
 ## Download
 
