@@ -304,20 +304,22 @@ export function Chat({
         researchFolder={researchFolder}
       />
       <QuestionsToolUI />
-      <Box style={{ height: "100%" }}>
+      <Box style={{ height: "100%", display: "flex", flexDirection: "column" }}>
         {chat.error && (
           <Alert variant="light" color="red" title="Connection Error" withCloseButton mb="xs">
             {chat.error.message}
           </Alert>
         )}
-        <Thread
-          models={modelsWithContextWindows}
-          selectedModelId={selectedModelId}
-          onSelectedModelIdChange={handleModelChange}
-          onConfigure={onConfigure}
-          hasEnabledModel={enabledModels.length > 0}
-          tokenCount={tokenCount}
-        />
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <Thread
+            models={modelsWithContextWindows}
+            selectedModelId={selectedModelId}
+            onSelectedModelIdChange={handleModelChange}
+            onConfigure={onConfigure}
+            hasEnabledModel={enabledModels.length > 0}
+            tokenCount={tokenCount}
+          />
+        </div>
       </Box>
     </AssistantRuntimeProvider>
   );
