@@ -26,7 +26,18 @@ export async function readSubAgentRuns(
   if (!raw) return [];
 
   const parsed = tryParseJson(raw);
-  if (!Array.isArray(parsed)) return [];
+  if (parsed === null) {
+    console.warn(
+      `[sub-agent-persistence] Failed to parse sub-agent runs file for "${folderName}/${chatId}": corrupted JSON`,
+    );
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    console.warn(
+      `[sub-agent-persistence] Sub-agent runs file for "${folderName}/${chatId}" is valid JSON but not an array (got ${typeof parsed})`,
+    );
+    return [];
+  }
 
   return normalizeSubAgentRuns(parsed, chatId);
 }
@@ -35,9 +46,22 @@ export function normalizeSubAgentRuns(
   runs: unknown[],
   parentChatId: string,
 ): SubAgentRun[] {
-  return runs
-    .map((run) => normalizeSubAgentRun(run, parentChatId))
-    .filter((run): run is SubAgentRun => run !== null);
+  const normalized: SubAgentRun[] = [];
+  let dropped = 0;
+  for (const run of runs) {
+    const result = normalizeSubAgentRun(run, parentChatId);
+    if (result) {
+      normalized.push(result);
+    } else {
+      dropped++;
+    }
+  }
+  if (dropped > 0) {
+    console.warn(
+      `[sub-agent-persistence] Dropped ${dropped} malformed sub-agent run(s) during normalization for "${parentChatId}"`,
+    );
+  }
+  return normalized;
 }
 
 function normalizeSubAgentRun(

@@ -510,12 +510,20 @@ function AppInner() {
     chatId: string,
   ) => {
     switchToTab("main");
-    const messages = await readResearchChatMessages(folderName, chatId);
-    activateSession({
-      researchChatId: chatId,
-      researchFolder: folderName,
-      initialMessages: messages,
-    });
+    try {
+      const messages = await readResearchChatMessages(folderName, chatId);
+      activateSession({
+        researchChatId: chatId,
+        researchFolder: folderName,
+        initialMessages: messages,
+      });
+    } catch (error) {
+      console.error("[App] Failed to open research chat:", error);
+      activateSession({
+        researchChatId: chatId,
+        researchFolder: folderName,
+      });
+    }
   };
 
   const handleNewResearchChat = (folderName: string) => {

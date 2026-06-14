@@ -80,7 +80,7 @@ export const settingsSchema = z.object({
   embedding_api_key: z.string(),
   embedding_base_url: z.string(),
   embedding_model: z.string(),
-  embedding_dimensions: z.number(),
+  embedding_dimensions: z.number().int().positive(),
   embedding_query_prefix: z.string(),
   reranker_api_key: z.string(),
   reranker_base_url: z.string(),

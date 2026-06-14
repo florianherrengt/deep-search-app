@@ -264,8 +264,11 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
       <Select
         label="Currency"
         value={settings.currency}
+        allowDeselect={false}
         onChange={(value) => {
-          void updateSetting("currency", value as Settings["currency"]);
+          if (value) {
+            void updateSetting("currency", value as Settings["currency"]);
+          }
         }}
         data={CURRENCIES.map((code) => ({ value: code, label: code }))}
       />

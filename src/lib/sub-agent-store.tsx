@@ -469,7 +469,7 @@ function applyEvent(
     }
 
     case "tool-call": {
-      const withRun = ensureRun(runs, event.id, parentChatId);
+      const withRun = ensureRun(runs, event.id, parentChatId, event.type);
       return updateRun(withRun, event.id, (run) => ({
         ...run,
         toolCalls: [...run.toolCalls, event.toolCall],
@@ -477,7 +477,7 @@ function applyEvent(
     }
 
     case "tool-result": {
-      const withRun = ensureRun(runs, event.id, parentChatId);
+      const withRun = ensureRun(runs, event.id, parentChatId, event.type);
       return updateRun(withRun, event.id, (run) => {
         const calls = [...run.toolCalls];
         const toolCallIndex =
@@ -497,7 +497,7 @@ function applyEvent(
     }
 
     case "complete": {
-      const withRun = ensureRun(runs, event.id, parentChatId);
+      const withRun = ensureRun(runs, event.id, parentChatId, event.type);
       return updateRun(withRun, event.id, (run) => ({
         ...run,
         status: "completed",
@@ -506,7 +506,7 @@ function applyEvent(
     }
 
     case "report": {
-      const withRun = ensureRun(runs, event.id, parentChatId);
+      const withRun = ensureRun(runs, event.id, parentChatId, event.type);
       return updateRun(withRun, event.id, (run) => ({
         ...run,
         report: event.report,
@@ -514,7 +514,7 @@ function applyEvent(
     }
 
     case "error": {
-      const withRun = ensureRun(runs, event.id, parentChatId);
+      const withRun = ensureRun(runs, event.id, parentChatId, event.type);
       return updateRun(withRun, event.id, (run) => ({
         ...run,
         status: "failed",
@@ -524,12 +524,18 @@ function applyEvent(
     }
 
     case "cancelled": {
-      const withRun = ensureRun(runs, event.id, parentChatId);
+      const withRun = ensureRun(runs, event.id, parentChatId, event.type);
       return updateRun(withRun, event.id, (run) => ({
         ...run,
         status: "cancelled",
         finishedAt: new Date().toISOString(),
       }));
+    }
+    default: {
+      console.warn("[sub-agent-store] ignoring unknown sub-agent event type", {
+        type: (event as { type: string }).type,
+      });
+      return runs;
     }
   }
 }
@@ -548,11 +554,12 @@ function ensureRun(
   runs: SubAgentRun[],
   id: string,
   parentChatId: string,
+  eventType: string,
   warnOnStub = true,
 ): SubAgentRun[] {
   if (runs.some((run) => run.id === id)) return runs;
   if (warnOnStub) {
-    console.warn("[sub-agent-store] creating stub run for out-of-order event", { id, eventType: "unknown" });
+    console.warn("[sub-agent-store] creating stub run for out-of-order event", { id, eventType });
   }
   return [
     ...runs,
@@ -583,7 +590,7 @@ function applyTextDeltaBatch(
   parentChatId: string,
   warnOnStub = true,
 ): SubAgentRun[] {
-  const withRun = ensureRun(runs, id, parentChatId, warnOnStub);
+  const withRun = ensureRun(runs, id, parentChatId, "text-delta", warnOnStub);
   return updateRun(withRun, id, (run) => {
     const next = run.text + delta;
     return {

@@ -1044,6 +1044,90 @@ describe("upsertResearchChatSummary serialization", () => {
   });
 });
 
+describe("listResearchChats index write serialization", () => {
+  const folderName = "index-serialization-test";
+  const chatIdA = "2026-06-14T10-00-00.000Z";
+  const chatIdB = "2026-06-14T11-00-00.000Z";
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    tauriMocks.invoke.mockResolvedValue(undefined);
+  });
+
+  it("does not overwrite index created by concurrent upsertResearchChatSummary", async () => {
+    const messagesA = [
+      { id: "1", role: "user" as const, parts: [{ type: "text" as const, text: "Chat A" }] },
+    ];
+
+    let indexContent: string | null = null;
+
+    fsMocks.exists.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}/chats/index.json`) return indexContent !== null;
+      if (path.includes(`search-results/${folderName}/chats/${chatIdA}.json`)) return true;
+      if (path.includes(`search-results/${folderName}/chats/${chatIdB}.json`)) return true;
+      if (path === `search-results/${folderName}` || path === `search-results/${folderName}/chats`) return true;
+      return false;
+    });
+
+    fsMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}/chats`) {
+        return [fileEntry(`${chatIdA}.json`), fileEntry(`${chatIdB}.json`)];
+      }
+      if (path === `search-results/${folderName}`) {
+        return [directoryEntry("chats")];
+      }
+      return [];
+    });
+
+    fsMocks.readTextFile.mockImplementation(async (path: string) => {
+      if (path === `search-results/${folderName}/chats/index.json` && indexContent) {
+        return indexContent;
+      }
+      if (path === `search-results/${folderName}/chats/${chatIdA}.json`) {
+        return JSON.stringify({
+          id: chatIdA, title: "Chat A",
+          createdAt: "2026-06-14T10:00:00.000Z", updatedAt: "2026-06-14T10:00:00.000Z",
+          messages: messagesA,
+        });
+      }
+      if (path === `search-results/${folderName}/chats/${chatIdB}.json`) {
+        return JSON.stringify({
+          id: chatIdB, title: "Chat B",
+          createdAt: "2026-06-14T11:00:00.000Z", updatedAt: "2026-06-14T11:00:00.000Z",
+          messages: messagesA,
+        });
+      }
+      return "";
+    });
+
+    const writeCalls: string[] = [];
+    fsMocks.writeTextFile.mockImplementation(async (_path: string, content: string) => {
+      if (typeof content === "string" && content.includes('"version"')) {
+        indexContent = content;
+        writeCalls.push(content);
+      }
+    });
+
+    fsMocks.mkdir.mockResolvedValue(undefined);
+    fsMocks.remove.mockResolvedValue(undefined);
+
+    const messagesB = [
+      { id: "2", role: "user" as const, parts: [{ type: "text" as const, text: "Chat B save" }] },
+    ];
+
+    await Promise.all([
+      listResearchChats(folderName),
+      saveResearchChatMessages(folderName, chatIdB, messagesB as never),
+    ]);
+
+    expect(indexContent).not.toBeNull();
+    const parsed = JSON.parse(indexContent!);
+    const chatIds = parsed.chats.map((c: { id: string }) => c.id);
+    expect(chatIds).toContain(chatIdA);
+    expect(chatIds).toContain(chatIdB);
+  });
+});
+
 describe("incremental JSONL chat persistence", () => {
   let files: Map<string, string>;
   let allWrites: { path: string; content: string; append: boolean }[];

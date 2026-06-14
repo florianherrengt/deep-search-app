@@ -217,7 +217,20 @@ export async function listResearchChats(
     return indexedChats.sort(compareResearchChats);
   }
 
-  return rebuildResearchChatIndex(parsedFolderName);
+  const chats = await collectResearchChatSummaries(parsedFolderName);
+  if (chats.length > 0) {
+    await serializedIndexWrite(parsedFolderName, async () => {
+      const current = await readResearchChatIndex(parsedFolderName);
+      if (current) return;
+      await writeResearchChatIndex(parsedFolderName, chats).catch((error) => {
+        console.error(
+          `[research-history] Failed to write chat index for "${parsedFolderName}" after rebuild:`,
+          error,
+        );
+      });
+    });
+  }
+  return chats;
 }
 
 export async function readResearchChatMessages(
@@ -244,7 +257,7 @@ export async function readResearchChatMessages(
   return chat?.messages ?? [];
 }
 
-async function rebuildResearchChatIndex(
+async function collectResearchChatSummaries(
   folderName: string,
 ): Promise<ResearchChatSummary[]> {
   const parsedFolderName = SafePathSegmentSchema.parse(folderName);
@@ -281,21 +294,11 @@ async function rebuildResearchChatIndex(
         })
       : null;
 
-  const chats = [...storedChats, legacyChat]
+  return [...storedChats, legacyChat]
     .filter((chat): chat is ResearchChatSummary => chat !== null)
     .sort(compareResearchChats);
-
-  if (chats.length > 0) {
-    await writeResearchChatIndex(parsedFolderName, chats).catch((error) => {
-      console.error(
-        `[research-history] Failed to write chat index for "${parsedFolderName}" after rebuild:`,
-        error,
-      );
-    });
-  }
-
-  return chats;
 }
+
 
 export async function saveResearchChatMessages(
   folderName: string,
@@ -646,7 +649,7 @@ async function upsertResearchChatSummary(
   return serializedIndexWrite(folderName, async () => {
     const existingChats =
       (await readResearchChatIndex(folderName)) ??
-      (await rebuildResearchChatIndex(folderName));
+      (await collectResearchChatSummaries(folderName));
     const nextChats = [
       summary,
       ...existingChats.filter((chat) => chat.id !== summary.id),

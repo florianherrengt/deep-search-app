@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { UIMessage } from "ai";
+import { Alert, Box, MantineProvider, Text } from "@mantine/core";
 import { PromptTemplatesProvider } from "@/hooks/use-prompt-templates";
 import { setStorybookTauriStores } from "@/lib/storybook";
 import { Chat } from "./chat";
@@ -282,4 +283,80 @@ function RestoredQuestionToolStory() {
 
 export const RestoredQuestionTool: Story = {
   render: () => <RestoredQuestionToolStory />,
+};
+
+function ErrorLayoutStory() {
+  return (
+    <MantineProvider>
+      <div style={{ height: "100vh" }}>
+        <Box style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+          <Alert
+            variant="light"
+            color="red"
+            title="Connection Error"
+            withCloseButton
+            mb="xs"
+          >
+            Invalid value for &lsquo;tool_call&rsquo;: no function named
+            &lsquo;brave_search&rsquo; was specified in the &lsquo;tools&rsquo;
+            parameter.
+          </Alert>
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <Box
+              style={{
+                height: "100%",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+              }}
+            >
+              <Box
+                style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  padding: "16px 24px",
+                }}
+              >
+                <Text size="sm" c="dimmed">
+                  Previous messages would appear here.
+                </Text>
+              </Box>
+              <Box
+                style={{
+                  flexShrink: 0,
+                  borderTop: "1px solid var(--mantine-color-default-border)",
+                  padding: "12px 24px",
+                }}
+              >
+                <div
+                  style={{
+                    borderRadius: 12,
+                    border: "1px solid var(--mantine-color-default-border)",
+                    background: "var(--mantine-color-body)",
+                    padding: "12px 16px",
+                    fontSize: 14,
+                    color: "var(--mantine-color-dimmed)",
+                  }}
+                  data-testid="composer-input"
+                >
+                  Ask something...
+                </div>
+              </Box>
+            </Box>
+          </div>
+        </Box>
+      </div>
+    </MantineProvider>
+  );
+}
+
+export const ErrorWithVisibleInput: Story = {
+  render: () => <ErrorLayoutStory />,
+  play: async ({ canvasElement }) => {
+    const { within, expect } = await import("storybook/test");
+    const canvas = within(canvasElement);
+    const input = await canvas.findByTestId("composer-input");
+    const rect = input.getBoundingClientRect();
+    await expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
+  },
 };

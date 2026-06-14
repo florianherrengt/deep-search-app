@@ -486,3 +486,46 @@ describe("file tool edge cases", () => {
     ).rejects.toThrow("multiple times");
   });
 });
+
+describe("indexing failure diagnostics", () => {
+  it("logs error when indexResearchFile fails during create_file", async () => {
+    const tool = createCreateFileTool(getFolder, mockEmbeddingConfig) as unknown as {
+      execute: (i: { filename: string; content: string }) => Promise<string>;
+    };
+
+    fsMocks.exists.mockResolvedValueOnce(false);
+    researchSearchMocks.indexResearchFile.mockRejectedValueOnce(new Error("embedding API down"));
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      tool.execute({ filename: "doc.md", content: "content" }),
+    ).resolves.toBe("OK");
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to index created file"),
+      expect.objectContaining({ folder: "test-folder", filename: "doc.md" }),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it("logs error when deleteResearchFileIndex fails during delete_file", async () => {
+    const tool = createDeleteFileTool(getFolder) as unknown as {
+      execute: (i: { filename: string }, o: { abortSignal?: AbortSignal }) => Promise<string>;
+    };
+
+    researchSearchMocks.deleteResearchFileIndex.mockRejectedValueOnce(new Error("DB locked"));
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      tool.execute({ filename: "old.md" }, { abortSignal: undefined }),
+    ).resolves.toBe("OK");
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to delete search index"),
+      expect.objectContaining({ folder: "test-folder", filename: "old.md" }),
+    );
+
+    consoleSpy.mockRestore();
+  });
+});

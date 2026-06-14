@@ -80,6 +80,22 @@ describe("SettingsFields", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
+  it("does not call updateSetting for currency with a null value", async () => {
+    const updateSetting = vi.fn().mockResolvedValue(undefined);
+    renderSettingsFields({
+      settings: { currency: "USD" },
+      updateSetting: updateSetting as never,
+    });
+
+    const currencyInput = screen
+      .getAllByLabelText("Currency")
+      .find((el): el is HTMLInputElement => el instanceof HTMLInputElement);
+    expect(currencyInput).toBeTruthy();
+
+    expect(currencyInput!.value).toBe("USD");
+    expect(updateSetting).not.toHaveBeenCalled();
+  });
+
   it("does not save provider fields on blur, only on Save button click", async () => {
     const updateSetting = vi.fn().mockResolvedValue(undefined);
     renderSettingsFields({ updateSetting: updateSetting as never });

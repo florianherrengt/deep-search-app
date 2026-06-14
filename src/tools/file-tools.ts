@@ -1,6 +1,6 @@
 import { tool, zodSchema } from "ai";
 import { z } from "zod";
-import { abortablePromise } from "@/lib/abort";
+import { abortablePromise, isAbortError } from "@/lib/abort";
 import {
   SafePathSegmentSchema,
   deleteAppFile,
@@ -70,7 +70,14 @@ export function createCreateFileTool(
         await abortablePromise(
           indexResearchFile(embeddingConfig, folder, filename, content),
           options?.abortSignal,
-        ).catch(() => {});
+        ).catch((error) => {
+          if (!isAbortError(error)) {
+            console.error("[file-tools] Failed to index created file:", {
+              folder, filename,
+              error: error instanceof Error ? error.message : "unknown",
+            });
+          }
+        });
       }
 
       return "OK";
@@ -146,7 +153,14 @@ export function createUpdateFileTool(
         await abortablePromise(
           indexResearchFile(embeddingConfig, folder, filename, newContent),
           options?.abortSignal,
-        ).catch(() => {});
+        ).catch((error) => {
+          if (!isAbortError(error)) {
+            console.error("[file-tools] Failed to index updated file:", {
+              folder, filename,
+              error: error instanceof Error ? error.message : "unknown",
+            });
+          }
+        });
       }
 
       return "OK";
@@ -175,7 +189,14 @@ export function createMoveFileTool(
       await abortablePromise(
         deleteResearchFileIndex(folder, source),
         options?.abortSignal,
-      ).catch(() => {});
+      ).catch((error) => {
+        if (!isAbortError(error)) {
+          console.error("[file-tools] Failed to delete search index for moved file:", {
+            folder, filename: source,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+        }
+      });
 
       await renameAppFile({ subfolder, oldFilename: source, newFilename: destination });
 
@@ -185,7 +206,14 @@ export function createMoveFileTool(
           await abortablePromise(
             indexResearchFile(embeddingConfig, folder, destination, content),
             options?.abortSignal,
-          ).catch(() => {});
+          ).catch((error) => {
+            if (!isAbortError(error)) {
+              console.error("[file-tools] Failed to index moved file:", {
+                folder, filename: destination,
+                error: error instanceof Error ? error.message : "unknown",
+              });
+            }
+          });
         }
       }
 
@@ -210,7 +238,14 @@ export function createDeleteFileTool(
       await abortablePromise(
         deleteResearchFileIndex(folder, filename),
         options?.abortSignal,
-      ).catch(() => {});
+      ).catch((error) => {
+        if (!isAbortError(error)) {
+          console.error("[file-tools] Failed to delete search index for deleted file:", {
+            folder, filename,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+        }
+      });
       await deleteAppFile({ subfolder, filename });
 
       return "OK";

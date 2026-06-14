@@ -279,4 +279,63 @@ describe("sub-agent persistence", () => {
     expect(runs).toHaveLength(1);
     expect(runs[0].status).toBe("cancelled");
   });
+
+  it("logs diagnostic when persistence file contains corrupted JSON", async () => {
+    mockReadAppFile.mockResolvedValue("{ corrupted json !!!");
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+
+    expect(runs).toEqual([]);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to parse sub-agent runs file"),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it("logs diagnostic when persistence file is valid JSON but not an array", async () => {
+    mockReadAppFile.mockResolvedValue(JSON.stringify({ not: "an array" }));
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+
+    expect(runs).toEqual([]);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("not an array"),
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  it("logs diagnostic count when malformed runs are dropped during normalization", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-valid",
+          name: "Memory Extraction",
+          toolName: "memory_agent",
+          status: "completed",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          text: "",
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+        },
+        { corrupted: true },
+        { missing: "everything" },
+      ]),
+    );
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].id).toBe("sa-valid");
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Dropped 2 malformed sub-agent run(s)"),
+    );
+
+    consoleSpy.mockRestore();
+  });
 });

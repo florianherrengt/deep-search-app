@@ -708,6 +708,9 @@ async fn backfill_index(
             return Ok(());
         }
 
+        let mut total_seen: u32 = 0;
+        let mut total_failed: u32 = 0;
+
         let entries = std::fs::read_dir(&search_results_dir).map_err(|e| e.to_string())?;
         for entry in entries {
             let entry = entry.map_err(|e| e.to_string())?;
@@ -727,7 +730,9 @@ async fn backfill_index(
 
             {
                 let conn = db.conn.lock().map_err(|e| e.to_string())?;
-                let _ = research_search::indexing::register_folder(&conn, &folder_name, "");
+                if let Err(e) = research_search::indexing::register_folder(&conn, &folder_name, "") {
+                    eprintln!("[backfill_index] Failed to register folder '{}': {}", folder_name, e);
+                }
             }
 
             let md_files = std::fs::read_dir(&path).map_err(|e| e.to_string())?;
@@ -752,14 +757,28 @@ async fn backfill_index(
                     continue;
                 }
 
-                let _ = research_search::indexing::index_file(
+                if let Err(e) = research_search::indexing::index_file(
                     &db,
                     &embedding_config,
                     &folder_name,
                     &filename,
                     &content,
-                );
+                ) {
+                    eprintln!(
+                        "[backfill_index] Failed to index '{}/{}': {}",
+                        folder_name, filename, e
+                    );
+                    total_failed += 1;
+                }
+                total_seen += 1;
             }
+        }
+
+        if total_seen > 0 && total_failed == total_seen {
+            return Err(format!(
+                "All {} file(s) failed to index during backfill. Check logs for details.",
+                total_failed
+            ));
         }
 
         Ok(())

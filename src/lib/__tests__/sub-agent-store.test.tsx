@@ -1176,6 +1176,54 @@ describe("loadRunsFromDisk merges with in-flight runs", () => {
       expect(runs[0].toolName).toBe("unknown");
       expect(runs[0].text).toBe("orphan text");
     });
+
+    it("stub creation warning includes the actual event type", () => {
+      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { result } = renderHook(() => useSubAgentStore(), { wrapper });
+
+      act(() => {
+        result.current.processEvent(chatId, {
+          type: "error",
+          id: "sa-1",
+          error: "boom",
+        });
+      });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("creating stub run"),
+        expect.objectContaining({ eventType: "error" }),
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    it("ignores unknown event type without corrupting store state", () => {
+      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { result } = renderHook(() => useSubAgentStore(), { wrapper });
+
+      act(() => {
+        result.current.processEvent(chatId, startEvent("sa-1"));
+      });
+
+      act(() => {
+        result.current.processEvent(chatId, {
+          type: "unknown_type",
+          id: "sa-1",
+        } as unknown as SubAgentEvent);
+      });
+
+      const runs = result.current.getRuns(chatId);
+      expect(runs).toHaveLength(1);
+      expect(runs[0].id).toBe("sa-1");
+      expect(runs[0].status).toBe("running");
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("ignoring unknown sub-agent event type"),
+        expect.objectContaining({ type: "unknown_type" }),
+      );
+
+      consoleSpy.mockRestore();
+    });
   });
 
   it("loadRunsFromDisk handles read failure gracefully", async () => {
