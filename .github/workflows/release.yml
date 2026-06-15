@@ -11,6 +11,10 @@ on:
         description: Optional release notes. Leave empty to generate notes from commits.
         required: false
         type: string
+      targets:
+        description: "Comma-separated platforms to build: macos-x64,macos-aarch64,windows,linux. Leave empty to build all."
+        required: false
+        type: string
   release:
     types:
       - published
@@ -106,6 +110,9 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+          - platform: macos-latest
             target: aarch64-apple-darwin
             args: --target aarch64-apple-darwin
           - platform: windows-latest
@@ -116,27 +123,51 @@ jobs:
             args: ""
 
     steps:
+      - name: Check platform filter
+        id: platform-check
+        shell: bash
+        run: |
+          SELECTED="${{ inputs.targets }}"
+          if [ -z "$SELECTED" ]; then
+            exit 0
+          fi
+          case "${{ matrix.target }}" in
+            x86_64-apple-darwin) SLUG="macos-x64" ;;
+            aarch64-apple-darwin) SLUG="macos-aarch64" ;;
+            x86_64-pc-windows-msvc) SLUG="windows" ;;
+            x86_64-unknown-linux-gnu) SLUG="linux" ;;
+            *) SLUG="" ;;
+          esac
+          if ! echo "$SELECTED" | grep -qw "$SLUG"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping ${{ matrix.target }} (not in selection: $SELECTED)"
+          fi
+
       - name: Checkout release tag
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.prepare-release.outputs.tag }}
 
       - name: Setup Node
+        if: steps.platform-check.outputs.skip != 'true'
         uses: actions/setup-node@v6
         with:
           node-version: lts/*
           cache: npm
 
       - name: Setup Rust
+        if: steps.platform-check.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
       - name: Set release version
+        if: steps.platform-check.outputs.skip != 'true'
         run: npm run release:set-version -- "${{ needs.prepare-release.outputs.tag }}"
 
       - name: Install Tauri Linux dependencies
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.platform-check.outputs.skip != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -150,9 +181,11 @@ jobs:
             patchelf
 
       - name: Install dependencies
+        if: steps.platform-check.outputs.skip != 'true'
         run: npm ci
 
       - name: Write updater config
+        if: steps.platform-check.outputs.skip != 'true'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -191,6 +224,7 @@ jobs:
           NODE
 
       - name: Build and upload release assets
+        if: steps.platform-check.outputs.skip != 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
