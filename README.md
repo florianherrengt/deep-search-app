@@ -24,6 +24,16 @@ The app auto-updates when new versions come out.
 3. Add at least one search provider API key.
 4. Ask a question.
 
+## Why not use OpenCode directly?
+
+Everything this app does can be done with a custom OpenCode config — that's what [local-deep-search](https://github.com/example-user/local-deep-search) was before I built this app. But that route has tradeoffs.
+
+Some agents don't always follow instructions — they skip currency conversions, forget to fact-check, or gloss over contradictions. You can add guardrails with OpenCode plugins, but once your config gets custom enough, you're maintaining what's effectively an app inside a config file.
+
+Deep Search bakes those guardrails in. The agent has to fetch and read sources — it can't skip steps. Tool calls are enforced, not suggested. It also adds proper search with embeddings: the LLM can search past research, create memories, and find files across topics. And you configure everything from a UI — API keys, providers, settings — without touching a config file.
+
+If you just want a chat agent that can browse the web, OpenCode already does that well. This app is for when you want enforced research steps, persistent memory, and a polished UI without building it yourself.
+
 ## You own everything
 
 You pick the LLM provider. You pick the search backends. You hold the API keys. The app talks directly to the services you choose — no middleman, no cloud server routing your questions through someone else's infrastructure.
