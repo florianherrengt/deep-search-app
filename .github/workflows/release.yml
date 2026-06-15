@@ -25,7 +25,7 @@ jobs:
       release_id: ${{ steps.release.outputs.release_id }}
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
-      msi_version: ${{ steps.version.outputs.msi_version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
 
     steps:
       - name: Checkout
@@ -50,16 +50,6 @@ jobs:
               console.log(`${key}=${value}`);
             }
           ' "$release_json" >> "$GITHUB_OUTPUT"
-          # Compute MSI-compatible numeric version (no prerelease labels)
-          msi_version="$(node -e "
-            const { version } = JSON.parse(process.argv[1]);
-            const [base] = version.split('-');
-            const parts = base.split('.');
-            // Use patch as 4th component, clamp to 65535
-            const revision = Math.min(parseInt(parts[2], 10), 65535);
-            console.log(parts[0] + '.' + parts[1] + '.' + parts[2] + '.' + revision);
-          " "$release_json")"
-          echo "msi_version=${msi_version}" >> "$GITHUB_OUTPUT"
 
       - name: Create or locate release
         id: release
@@ -201,15 +191,16 @@ jobs:
           );
           NODE
 
-      - name: Set MSI-compatible version (Windows only)
-        if: runner.os == 'Windows'
+      - name: Exclude MSI from Windows prerelease bundle
+        if: runner.os == 'Windows' && needs.prepare-release.outputs.prerelease == 'true'
         shell: bash
         run: |
           node -e "
             const fs = require('node:fs');
-            const msiVersion = '${{ needs.prepare-release.outputs.msi_version }}';
-            fs.writeFileSync('src-tauri/msi-version.json', JSON.stringify({ version: msiVersion }, null, 2));
-            console.log('MSI version override: ' + msiVersion);
+            fs.writeFileSync('src-tauri/bundle-targets.json', JSON.stringify({
+              bundle: { targets: ['nsis', 'app'] }
+            }, null, 2));
+            console.log('Prerelease detected — excluding MSI from Windows bundle targets');
           "
 
       - name: Build and upload release assets
@@ -224,4 +215,4 @@ jobs:
           tagName: ${{ needs.prepare-release.outputs.tag }}
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
-          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json --config src-tauri/updater-config.json ${{ runner.os == 'Windows' && '--config src-tauri/msi-version.json' || '' }}
+          args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json --config src-tauri/updater-config.json ${{ runner.os == 'Windows' && needs.prepare-release.outputs.prerelease == 'true' && '--config src-tauri/bundle-targets.json' || '' }}
