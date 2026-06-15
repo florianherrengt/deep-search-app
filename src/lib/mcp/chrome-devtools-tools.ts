@@ -41,6 +41,12 @@ export async function shutdownChromeDevToolsMcp() {
   await client?.close();
 }
 
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    void shutdownChromeDevToolsMcp();
+  });
+}
+
 async function createChromeDevToolsMcpToolsInternal(): Promise<ToolSet> {
   const client = await getChromeDevToolsMcpClient();
   const { tools: mcpTools } = await client.listTools(undefined, {

@@ -1,6 +1,4 @@
 import { tool, zodSchema, streamText, type LanguageModel } from "ai";
-import { load, type CheerioAPI } from "cheerio";
-import type { AnyNode, Element, Text } from "domhandler";
 import { z } from "zod";
 import { invoke } from "@/lib/tauri-bridge";
 import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
@@ -20,14 +18,18 @@ import { tryParseJson } from "@/lib/json";
 import slugify from "slugify";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";
 import {
-  extractors,
-  setWebViewExtractor,
-  setAmazonWebViewExtractor,
-  setShopifyWebViewExtractor,
-  type WebViewExtractorOptions,
-} from "./extractors";
+  sanitizeHtml,
+  extractVisibleTextFromHtml,
+  createSearchExtractEngine,
+  RedditExtractor,
+  AmazonExtractor,
+  ShopifyExtractor,
+  isRedditChallengeHtml,
+  isAmazonChallengePage,
+  type SearchExtractEngine,
+} from "@deep-search/search-extract";
+import { createAppPageLoader } from "./extraction-page-loader";
 
-const MIN_CONTENT_LENGTH = 200;
 const DEFAULT_WEBVIEW_RETRY_INTERVAL_MS = 5_000;
 const DEFAULT_WEBVIEW_MAX_WAIT_MS = 5 * 60_000;
 
@@ -42,12 +44,6 @@ interface ExtractPageContentOptions {
   abortSignal?: AbortSignal;
 }
 
-type ExtractedPageContent = {
-  html: string | null;
-  content: string;
-  usedCustomExtractor: boolean;
-};
-
 type RawContentLocation = {
   rawPath: string;
   page: string;
@@ -55,6 +51,18 @@ type RawContentLocation = {
 
 let webviewExtractionQueue: Promise<void> = Promise.resolve();
 let nextWebviewTabId = 0;
+
+let _engine: SearchExtractEngine | null = null;
+
+function getEngine(): SearchExtractEngine {
+  if (!_engine) {
+    _engine = createSearchExtractEngine({
+      pageLoader: createAppPageLoader({ fetchHtml, extractViaWebview }),
+      extractors: [new RedditExtractor(), new AmazonExtractor(), new ShopifyExtractor()],
+    });
+  }
+  return _engine;
+}
 
 function createWebviewTabId(): string {
   nextWebviewTabId += 1;
@@ -197,295 +205,6 @@ async function summarizeContent(
   return result.text;
 }
 
-const STRUCTURAL_PRUNE_TAGS = [
-  "audio",
-  "base",
-  "canvas",
-  "embed",
-  "footer",
-  "head",
-  "header",
-  "iframe",
-  "link",
-  "map",
-  "meta",
-  "nav",
-  "noscript",
-  "object",
-  "picture",
-  "script",
-  "source",
-  "style",
-  "svg",
-  "template",
-  "title",
-  "track",
-  "video",
-  "aside",
-] as const;
-
-const BLOCK_TAGS = new Set([
-  "address",
-  "article",
-  "blockquote",
-  "body",
-  "caption",
-  "dd",
-  "details",
-  "dialog",
-  "div",
-  "dl",
-  "dt",
-  "fieldset",
-  "figcaption",
-  "figure",
-  "form",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "hr",
-  "html",
-  "li",
-  "main",
-  "menu",
-  "ol",
-  "p",
-  "pre",
-  "section",
-  "summary",
-  "table",
-  "tbody",
-  "tfoot",
-  "thead",
-  "tr",
-  "ul",
-]);
-
-const TABLE_CELL_TAGS = new Set(["td", "th"]);
-const PRUNED_ROLE_VALUES = new Set([
-  "alertdialog",
-  "banner",
-  "complementary",
-  "contentinfo",
-  "dialog",
-  "navigation",
-]);
-
-const NOISE_ATTRIBUTE_PATTERN =
-  /\b(cookie|cookies|consent|gdpr|ccpa|privacy[-_\s]?choices|popup|pop[-_\s]?up|popover|modal|overlay|newsletter|captcha|recaptcha|hcaptcha|interstitial|tracking|tracker|beacon|pixel|ad[-_\s]?(slot|container|banner|unit)|advertisement)\b/i;
-
-const MAX_REPEATED_LINE_OCCURRENCES = 2;
-
-function isTextNode(node: AnyNode): node is Text {
-  return node.type === "text";
-}
-
-function isElementNode(node: AnyNode): node is Element {
-  return "tagName" in node && "children" in node;
-}
-
-function tagName(node: Element): string {
-  return node.tagName.toLowerCase();
-}
-
-function normalizeInlineWhitespace(text: string): string {
-  return text.replace(/\u00a0/g, " ").replace(/[^\S\n]+/g, " ").trim();
-}
-
-function shouldAddSpace(previous: string | undefined, next: string): boolean {
-  if (!previous || previous === "\n") return false;
-  if (/\s$/.test(previous)) return false;
-  if (/^[,.;:!?%)\]}]/.test(next)) return false;
-  if (/[([{]$/.test(previous)) return false;
-  return true;
-}
-
-function appendText(parts: string[], text: string) {
-  const normalized = normalizeInlineWhitespace(text);
-  if (!normalized) return;
-
-  const previous = parts[parts.length - 1];
-  if (shouldAddSpace(previous, normalized)) {
-    parts.push(" ");
-  }
-  parts.push(normalized);
-}
-
-function appendBreak(parts: string[]) {
-  if (parts.length === 0 || parts[parts.length - 1] === "\n") return;
-  parts.push("\n");
-}
-
-function appendLine(parts: string[], line: string) {
-  const normalized = normalizeInlineWhitespace(line);
-  if (!normalized) return;
-  appendBreak(parts);
-  parts.push(normalized);
-  appendBreak(parts);
-}
-
-function isHiddenByStyle(style: string | undefined): boolean {
-  if (!style) return false;
-  const compact = style.replace(/\s+/g, "").toLowerCase();
-  return (
-    compact.includes("display:none") ||
-    compact.includes("visibility:hidden") ||
-    compact.includes("visibility:collapse") ||
-    compact.includes("opacity:0") ||
-    compact.includes("width:0") ||
-    compact.includes("height:0")
-  );
-}
-
-function attributeText($: CheerioAPI, element: Element): string {
-  const el = $(element);
-  return [
-    el.attr("id"),
-    el.attr("class"),
-    el.attr("role"),
-    el.attr("aria-label"),
-    el.attr("data-testid"),
-    el.attr("data-test"),
-    el.attr("name"),
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(" ");
-}
-
-function shouldPruneElement($: CheerioAPI, element: Element): boolean {
-  const el = $(element);
-  const role = el.attr("role")?.toLowerCase().trim();
-
-  return (
-    el.attr("hidden") !== undefined ||
-    el.attr("aria-hidden")?.toLowerCase() === "true" ||
-    el.attr("type")?.toLowerCase() === "hidden" ||
-    isHiddenByStyle(el.attr("style")) ||
-    (role !== undefined && PRUNED_ROLE_VALUES.has(role)) ||
-    NOISE_ATTRIBUTE_PATTERN.test(attributeText($, element))
-  );
-}
-
-function pruneDom($: CheerioAPI) {
-  $(STRUCTURAL_PRUNE_TAGS.join(",")).remove();
-  $("*").each((_, element) => {
-    if (isElementNode(element) && shouldPruneElement($, element)) {
-      $(element).remove();
-    }
-  });
-}
-
-function collectInlineText($: CheerioAPI, node: AnyNode): string {
-  if (isTextNode(node)) {
-    return normalizeInlineWhitespace(node.data);
-  }
-  if (!isElementNode(node)) return "";
-
-  const name = tagName(node);
-  if (name === "br") return " ";
-  if (name === "tr") {
-    const cells = node.children
-      .filter(
-        (child): child is Element =>
-          isElementNode(child) && TABLE_CELL_TAGS.has(tagName(child)),
-      )
-      .map((cell) => collectInlineText($, cell))
-      .filter(Boolean);
-    return cells.join(" | ");
-  }
-
-  return node.children
-    .map((child) => collectInlineText($, child))
-    .filter(Boolean)
-    .join(" ");
-}
-
-function walkTextNode($: CheerioAPI, node: AnyNode, parts: string[]) {
-  if (isTextNode(node)) {
-    appendText(parts, node.data);
-    return;
-  }
-  if (!isElementNode(node)) return;
-
-  const name = tagName(node);
-  if (name === "br") {
-    appendBreak(parts);
-    return;
-  }
-  if (name === "hr") {
-    appendBreak(parts);
-    return;
-  }
-  if (name === "tr") {
-    const cells = node.children
-      .filter(
-        (child): child is Element =>
-          isElementNode(child) && TABLE_CELL_TAGS.has(tagName(child)),
-      )
-      .map((cell) => collectInlineText($, cell))
-      .filter(Boolean);
-
-    if (cells.length > 0) {
-      appendLine(parts, cells.join(" | "));
-      return;
-    }
-  }
-
-  const isBlock = BLOCK_TAGS.has(name);
-  if (isBlock) appendBreak(parts);
-  for (const child of node.children) {
-    walkTextNode($, child, parts);
-  }
-  if (isBlock) appendBreak(parts);
-}
-
-function normalizeExtractedText(text: string): string {
-  const lines = text
-    .replace(/\u00a0/g, " ")
-    .replace(/[^\S\n]+/g, " ")
-    .replace(/[ \t]*\n[ \t]*/g, "\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const occurrences = new Map<string, number>();
-  const cappedLines: string[] = [];
-
-  for (const line of lines) {
-    const key = line.toLowerCase().replace(/\s+/g, " ");
-    const count = occurrences.get(key) ?? 0;
-    occurrences.set(key, count + 1);
-    if (count >= MAX_REPEATED_LINE_OCCURRENCES) continue;
-    cappedLines.push(line);
-  }
-
-  return cappedLines.join("\n").trim();
-}
-
-export function extractVisibleTextFromHtml(html: string): string {
-  const $ = load(html);
-  pruneDom($);
-
-  const roots =
-    $("body").length > 0
-      ? $("body").contents().toArray()
-      : $.root().contents().toArray();
-  const parts: string[] = [];
-
-  for (const node of roots) {
-    walkTextNode($, node, parts);
-  }
-
-  return normalizeExtractedText(parts.join(""));
-}
-
-export function sanitizeHtml(html: string): string {
-  return extractVisibleTextFromHtml(html);
-}
-
 function normalizeWebviewHtml(html: string): string {
   const trimmed = html.trim();
   if (!trimmed.startsWith('"') && !trimmed.startsWith("{")) return html;
@@ -504,9 +223,30 @@ function normalizeWebviewHtml(html: string): string {
   return html;
 }
 
+function getRetryOptions(url: string) {
+  const isReddit = /\.?reddit\.com\//.test(url);
+  const isAmazon = /\.?amazon\./.test(url) && /\/dp\//i.test(url);
+
+  if (isReddit) {
+    return {
+      shouldRetry: isRedditChallengeHtml,
+      maxWaitMs: 5 * 60_000,
+      retryIntervalMs: 5_000,
+    };
+  }
+  if (isAmazon) {
+    return {
+      shouldRetry: isAmazonChallengePage,
+      maxWaitMs: 3 * 60_000,
+      retryIntervalMs: 3_000,
+    };
+  }
+  return undefined;
+}
+
 async function extractViaWebview(
   url: string,
-  options?: WebViewExtractorOptions,
+  _options?: unknown,
   abortSignal?: AbortSignal,
 ): Promise<string | null> {
   validateUrl(url);
@@ -529,19 +269,21 @@ async function extractViaWebview(
       await switchWebviewTab(id, abortSignal);
       const startedAt = Date.now();
 
+      const retryOptions = getRetryOptions(url);
+
       while (true) {
         throwIfAborted(abortSignal);
         const rawHtml = await extractWebviewContent(id, abortSignal);
         const html = normalizeWebviewHtml(rawHtml);
-        const shouldRetry = options?.shouldRetry?.(html) ?? false;
+        const shouldRetry = retryOptions?.shouldRetry?.(html) ?? false;
 
         if (!shouldRetry) return html;
 
-        const maxWaitMs = options?.maxWaitMs ?? DEFAULT_WEBVIEW_MAX_WAIT_MS;
+        const maxWaitMs = retryOptions?.maxWaitMs ?? DEFAULT_WEBVIEW_MAX_WAIT_MS;
         if (Date.now() - startedAt >= maxWaitMs) return html;
 
         await abortableDelay(
-          options?.retryIntervalMs ?? DEFAULT_WEBVIEW_RETRY_INTERVAL_MS,
+          retryOptions?.retryIntervalMs ?? DEFAULT_WEBVIEW_RETRY_INTERVAL_MS,
           abortSignal,
         );
       }
@@ -557,61 +299,6 @@ async function extractViaWebview(
       if (tabAnnounced) emitBrowserTabClosed({ id });
     }
   });
-}
-
-setWebViewExtractor(extractViaWebview);
-setAmazonWebViewExtractor(extractViaWebview);
-setShopifyWebViewExtractor(extractViaWebview);
-
-async function extractRawContent(
-  url: string,
-  method: ExtractionMethod,
-  abortSignal?: AbortSignal,
-): Promise<ExtractedPageContent> {
-  throwIfAborted(abortSignal);
-
-  const extractor = extractors.find((e) => e.canHandle(url));
-  if (extractor) {
-    try {
-      const content = await extractor.extract(url);
-      if (content) {
-        return { html: null, content, usedCustomExtractor: true };
-      }
-    } catch (error) {
-      if (isAbortError(error)) throw error;
-      console.warn(
-        `[extract] Custom extractor ${extractor.constructor.name} failed for ${url}, falling back to ${method}`,
-        error instanceof Error ? error.message : error,
-      );
-    }
-  }
-
-  if (method === "webview") {
-    const html = await extractViaWebview(url, undefined, abortSignal);
-    return {
-      html,
-      content: html ? sanitizeHtml(html) : "",
-      usedCustomExtractor: false,
-    };
-  }
-
-  const html = await fetchHtml(url, abortSignal);
-  const content = html ? sanitizeHtml(html) : "";
-
-  if (method === "auto" && content.length < MIN_CONTENT_LENGTH) {
-    const webviewHtml = await extractViaWebview(url, undefined, abortSignal);
-    return {
-      html: webviewHtml,
-      content: webviewHtml ? sanitizeHtml(webviewHtml) : "",
-      usedCustomExtractor: false,
-    };
-  }
-
-  return {
-    html,
-    content,
-    usedCustomExtractor: false,
-  };
 }
 
 function shouldSummarizeContent(
@@ -679,6 +366,11 @@ async function trySummarizeContent(
   }
 }
 
+function mapAppMethod(method: ExtractionMethod): "auto" | "fetch" | "render" {
+  if (method === "webview") return "render";
+  return method;
+}
+
 export async function extractPageContent(
   url: string,
   options: ExtractPageContentOptions & { subAgentId?: string } = {},
@@ -690,11 +382,15 @@ export async function extractPageContent(
     emitSubAgentEvent({ type: "text-delta", id: saId, delta: `Extracting content from ${url}...\n\n` });
   }
 
-  const { html, content, usedCustomExtractor } = await extractRawContent(
-    url,
-    forced,
-    options.abortSignal,
-  );
+  const engine = getEngine();
+  const extractResult = await engine.extract(url, {
+    method: mapAppMethod(forced),
+    summarize: false,
+    signal: options.abortSignal,
+  });
+
+  const { content, html: rawHtml, usedCustomExtractor } = extractResult;
+  const html = rawHtml ?? null;
 
   if (!html && !content) {
     return `No content could be extracted from ${url}. The page may be empty, require JavaScript rendering, or be blocked by a paywall or captcha.`;
@@ -758,7 +454,7 @@ export const extractPageContentInputSchema = z.object({
     .string()
     .optional()
     .describe(
-      "What you want from the page — focuses the summary on specific information (e.g. \"price\", \"ingredients list\", \"author biography\").",
+      'What you want from the page — focuses the summary on specific information (e.g. "price", "ingredients list", "author biography").',
     ),
   summarize: z
     .boolean()
@@ -830,3 +526,5 @@ export function createExtractPageContentTool(
     },
   });
 }
+
+export { sanitizeHtml, extractVisibleTextFromHtml };

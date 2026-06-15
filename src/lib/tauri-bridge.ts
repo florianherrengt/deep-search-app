@@ -290,6 +290,7 @@ export interface SidecarCommand {
 }
 
 export interface SidecarChild {
+  readonly pid: number;
   write(data: string): Promise<void>;
   kill(): Promise<void>;
 }
@@ -301,6 +302,18 @@ export async function createSidecarCommand(
   requireTauri();
   const { Command } = await import("@tauri-apps/plugin-shell");
   return Command.sidecar(program, args) as unknown as SidecarCommand;
+}
+
+export async function registerSidecarPid(pid: number): Promise<void> {
+  requireTauri();
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("register_sidecar_pid", { pid }).catch(() => {});
+}
+
+export async function unregisterSidecarPid(): Promise<void> {
+  requireTauri();
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("unregister_sidecar_pid").catch(() => {});
 }
 
 export interface AppUpdate {

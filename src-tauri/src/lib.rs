@@ -3,6 +3,7 @@ pub mod research_search;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 use std::sync::mpsc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use ipnet::IpNet;
@@ -18,6 +19,10 @@ const FETCH_TIMEOUT_SECS: u64 = 10;
 const MAX_FETCH_REDIRECTS: usize = 5;
 const MAX_HTML_BYTES: usize = 5 * 1024 * 1024;
 const MAX_JSON_BYTES: usize = 1024 * 1024;
+
+struct SidecarState {
+    pid: Mutex<Option<u32>>,
+}
 
 #[tauri::command]
 async fn open_tab(app: AppHandle, url: String, id: String) -> Result<(), String> {
@@ -787,6 +792,18 @@ async fn backfill_index(
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+fn register_sidecar_pid(state: tauri::State<SidecarState>, pid: u32) {
+    eprintln!("[sidecar] Registered sidecar PID {}", pid);
+    *state.pid.lock().unwrap() = Some(pid);
+}
+
+#[tauri::command]
+fn unregister_sidecar_pid(state: tauri::State<SidecarState>) {
+    eprintln!("[sidecar] Unregistered sidecar PID");
+    *state.pid.lock().unwrap() = None;
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -803,6 +820,7 @@ pub fn run() {
             std::fs::create_dir_all(&app_data).map_err(|e| e.to_string())?;
             let db = research_search::init_database(&app_data)?;
             app.manage(db);
+            app.manage(SidecarState { pid: Mutex::new(None) });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -822,6 +840,8 @@ pub fn run() {
             search_research_with_diagnostics,
             list_research_folders_db,
             backfill_index,
+            register_sidecar_pid,
+            unregister_sidecar_pid,
         ]);
 
     #[cfg(debug_assertions)]
@@ -831,8 +851,30 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_playwright::init());
 
     builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<SidecarState>() {
+                    let pid = state.pid.lock().unwrap().take();
+                    if let Some(pid) = pid {
+                        eprintln!("[sidecar] App exiting — killing sidecar PID {}", pid);
+                        #[cfg(unix)]
+                        {
+                            let _ = std::process::Command::new("kill")
+                                .args(["-TERM", &pid.to_string()])
+                                .output();
+                        }
+                        #[cfg(windows)]
+                        {
+                            let _ = std::process::Command::new("taskkill")
+                                .args(["/PID", &pid.to_string(), "/F"])
+                                .output();
+                        }
+                    }
+                }
+            }
+        });
 }
 
 #[cfg(test)]

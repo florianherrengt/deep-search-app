@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const tauriMocks = vi.hoisted(() => ({
-  invoke: vi.fn(),
+  fetch: vi.fn(),
 }));
 
-vi.mock("@/lib/tauri-bridge", () => ({ invoke: tauriMocks.invoke }));
+vi.mock("@/lib/tauri-bridge", () => tauriMocks);
 
 import { createSearXNGSearchTool } from "@/tools/searxng-search-tool";
 
@@ -23,14 +23,10 @@ describe("createSearXNGSearchTool", () => {
     const tool = createSearXNGSearchTool(
       "http://localhost:8080",
     ) as unknown as ExecutableSearXNGTool;
-    tauriMocks.invoke.mockResolvedValueOnce(
-      JSON.stringify({
+    tauriMocks.fetch.mockResolvedValueOnce(
+      mockResponse(200, {
         results: [
-          {
-            title: "Local result",
-            url: "https://example.com",
-            content: "From local SearXNG",
-          },
+          { title: "Local result", url: "https://example.com", content: "From local SearXNG" },
         ],
       }),
     );
@@ -38,42 +34,33 @@ describe("createSearXNGSearchTool", () => {
     await expect(tool.execute({ query: "test query" })).resolves.toBe(
       "Local result: https://example.com\nFrom local SearXNG",
     );
-    expect(tauriMocks.invoke).toHaveBeenCalledWith("fetch_searxng_json", {
-      baseUrl: "http://localhost:8080",
-      query: "test query",
-    });
   });
 
   it("defaults baseUrl to http://localhost:8080 when none is provided", async () => {
     const tool = createSearXNGSearchTool() as unknown as ExecutableSearXNGTool;
-    tauriMocks.invoke.mockResolvedValueOnce(
-      JSON.stringify({
+    tauriMocks.fetch.mockResolvedValueOnce(
+      mockResponse(200, {
         results: [
-          {
-            title: "Result",
-            url: "https://example.com",
-            content: "Content",
-          },
+          { title: "Result", url: "https://example.com", content: "Content" },
         ],
       }),
     );
 
-    await tool.execute({ query: "test query" });
-
-    expect(tauriMocks.invoke).toHaveBeenCalledWith("fetch_searxng_json", {
-      baseUrl: "http://localhost:8080",
-      query: "test query",
-    });
+    await expect(tool.execute({ query: "test query" })).resolves.toBe(
+      "Result: https://example.com\nContent",
+    );
   });
 
-  it("throws descriptive error when invoke returns null (server unreachable)", async () => {
+  it("surfaces HTTP errors instead of returning empty results", async () => {
     const tool = createSearXNGSearchTool(
       "http://localhost:8080",
     ) as unknown as ExecutableSearXNGTool;
-    tauriMocks.invoke.mockResolvedValueOnce(null);
+    tauriMocks.fetch.mockResolvedValueOnce(
+      mockResponse(502, undefined, false, "Bad Gateway", "upstream error"),
+    );
 
     await expect(tool.execute({ query: "test query" })).rejects.toThrow(
-      "SearXNG search failed: no response from server",
+      "SearXNG search failed with HTTP 502",
     );
   });
 
@@ -81,8 +68,8 @@ describe("createSearXNGSearchTool", () => {
     const tool = createSearXNGSearchTool(
       "http://localhost:8080",
     ) as unknown as ExecutableSearXNGTool;
-    tauriMocks.invoke.mockResolvedValueOnce(
-      JSON.stringify({ results: [] }),
+    tauriMocks.fetch.mockResolvedValueOnce(
+      mockResponse(200, { results: [] }),
     );
 
     await expect(tool.execute({ query: "test query" })).resolves.toBe(
@@ -98,3 +85,19 @@ describe("createSearXNGSearchTool", () => {
     expect(() => createSearXNGSearchTool("ftp://invalid-protocol.com")).toThrow();
   });
 });
+
+function mockResponse(
+  status: number,
+  body?: unknown,
+  ok = true,
+  statusText = "",
+  textOverride?: string,
+) {
+  const textContent = textOverride ?? JSON.stringify(body);
+  return {
+    ok,
+    status,
+    statusText,
+    text: async () => textContent,
+  };
+}

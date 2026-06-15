@@ -45,7 +45,7 @@ fi
 trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
 
 reset_at() {
-  node scripts/z-ai-quota.mjs | awk '/TOKENS_LIMIT/ { print $1, $2; exit }'
+  node ../ai-usage/z-ai-quota.mjs | awk '/TOKENS_LIMIT/ { print $1, $2; exit }'
 }
 
 write_continue_state() {

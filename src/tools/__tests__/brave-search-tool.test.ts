@@ -30,7 +30,7 @@ describe("createBraveSearchTool", () => {
     });
 
     await expect(tool.execute({ query: "test" })).rejects.toThrow(
-      "Brave search failed with HTTP 429 Too Many Requests",
+      "Brave search failed with HTTP 429",
     );
   });
 
@@ -44,7 +44,7 @@ describe("createBraveSearchTool", () => {
     });
 
     await expect(tool.execute({ query: "test" })).rejects.toThrow(
-      "Brave search failed with HTTP 403 Forbidden",
+      "Brave search failed with HTTP 403",
     );
   });
 

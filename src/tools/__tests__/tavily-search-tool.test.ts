@@ -72,7 +72,7 @@ describe("createTavilySearchTool", () => {
     });
 
     await expect(tool.execute({ query: "standing desk" })).rejects.toThrow(
-      "Tavily search failed with HTTP 401 Unauthorized",
+      "Tavily search failed with HTTP 401",
     );
   });
 

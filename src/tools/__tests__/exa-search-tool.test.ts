@@ -30,7 +30,7 @@ describe("createExaSearchTool", () => {
     });
 
     await expect(tool.execute({ query: "test" })).rejects.toThrow(
-      "Exa search failed with HTTP 401 Unauthorized",
+      "Exa search failed with HTTP 401",
     );
   });
 
@@ -44,7 +44,7 @@ describe("createExaSearchTool", () => {
     });
 
     await expect(tool.execute({ query: "test" })).rejects.toThrow(
-      "Exa search failed with HTTP 500 Internal Server Error",
+      "Exa search failed with HTTP 500",
     );
   });
 

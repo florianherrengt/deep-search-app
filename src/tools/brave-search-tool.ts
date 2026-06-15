@@ -1,46 +1,18 @@
 import { fetch } from "@/lib/tauri-bridge";
-import { z } from "zod";
-import { createSearchTool, formatSearchHttpError } from "./create-search-tool";
 import {
+  createSearchExtractEngine,
+  createAiSdkSearchTool,
   searchQueryInputSchema,
-  searchResultSchema,
-} from "./search-result";
-
-const API_BASE_URL = "https://api.search.brave.com/res/v1";
-
-const BraveWebResponseSchema = z.object({
-  web: z
-    .object({
-      results: z.array(searchResultSchema).optional(),
-    })
-    .optional(),
-});
+} from "@deep-search/search-extract";
 
 export const braveSearchInputSchema = searchQueryInputSchema;
 
 export function createBraveSearchTool(apiKey: string) {
-  return createSearchTool({
-    providerName: "Brave",
-    description: "Search the web with Brave Search",
-    responseSchema: BraveWebResponseSchema,
-    throwOnParseError: true,
-    mapResults: (r) => r.web?.results ?? [],
-    execute: async (query, abortSignal) => {
-      const url = new URL(`${API_BASE_URL}/web/search`);
-      url.searchParams.set("q", query);
-
-      const response = await fetch(url.toString(), {
-        headers: {
-          accept: "application/json",
-          "x-subscription-token": apiKey,
-        },
-        signal: abortSignal,
-      });
-
-      if (!response.ok) {
-        throw new Error(await formatSearchHttpError("Brave", response));
-      }
-      return await response.text();
+  const engine = createSearchExtractEngine({
+    fetch,
+    searchProviders: {
+      brave: { apiKey },
     },
   });
+  return createAiSdkSearchTool(engine, "brave", "Search the web with Brave Search");
 }

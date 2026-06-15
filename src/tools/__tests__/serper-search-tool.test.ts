@@ -78,7 +78,7 @@ describe("createSerperSearchTool", () => {
     });
 
     await expect(tool.execute({ query: "coastal camping" })).rejects.toThrow(
-      "Serper search failed with HTTP 403 Forbidden",
+      "Serper search failed with HTTP 403",
     );
   });
 

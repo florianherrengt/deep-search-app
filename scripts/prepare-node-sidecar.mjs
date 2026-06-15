@@ -1,9 +1,14 @@
-import { constants, copyFile, mkdir, stat } from "node:fs/promises";
+import { constants, copyFile, mkdir, stat, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const projectRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const sidecarDir = join(projectRoot, "src-tauri", "binaries");
+const sidecarModePath = join(projectRoot, "src", "lib", "mcp", "sidecar-mode.json");
 
 const targetTriple =
   process.env.TAURI_TARGET_TRIPLE ||
@@ -18,13 +23,29 @@ const sourceNode =
 const targetNode = join(sidecarDir, `node-${targetTriple}${extension}`);
 
 await mkdir(sidecarDir, { recursive: true });
-await copyFileIfNeeded(sourceNode, targetNode);
 
-if (process.platform !== "win32") {
-  await copyFileMode(targetNode);
+// Step 2: Try compilation (Option B)
+if (process.env.SKIP_SIDECAR_COMPILE !== "1" && process.env.SKIP_SIDECAR_COMPILE !== "true") {
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      process.execPath,
+      [join(projectRoot, "scripts", "build-sidecar-compiled.mjs")],
+      { cwd: projectRoot },
+    );
+    if (stdout) console.log(stdout);
+    await writeFile(sidecarModePath, JSON.stringify({ mode: "compiled" }, null, 2));
+    console.log("Compiled sidecar binary created");
+  } catch {
+    console.warn("Sidecar compilation failed, falling back to node binary");
+    await copyNodeBinaryFallback();
+  }
+} else {
+  await copyNodeBinaryFallback();
 }
 
 console.log(`Prepared Node sidecar: ${targetNode}`);
+
+// Helper functions
 
 function getDefaultTargetTriple(platform, arch) {
   if (platform === "darwin" && arch === "arm64") return "aarch64-apple-darwin";
@@ -38,6 +59,31 @@ function getDefaultTargetTriple(platform, arch) {
   throw new Error(
     `Unsupported Node sidecar target for ${platform}/${arch}. Set TAURI_TARGET_TRIPLE and NODE_SIDECAR_PATH explicitly.`,
   );
+}
+
+async function copyNodeBinaryFallback() {
+  await copyFileIfNeeded(sourceNode, targetNode);
+
+  if (process.platform !== "win32") {
+    await copyFileMode(targetNode);
+  }
+
+  // Strip and re-sign on macOS
+  if (process.platform === "darwin") {
+    try {
+      await execFileAsync("codesign", ["--remove-signature", targetNode]);
+      await execFileAsync("codesign", [
+        "--sign", "-",
+        "--entitlements", join(projectRoot, "scripts", "node-sidecar-entitlements.plist"),
+        "--options", "runtime",
+        targetNode,
+      ]);
+    } catch (error) {
+      console.warn("Warning: codesign operations failed:", error.message);
+    }
+  }
+
+  await writeFile(sidecarModePath, JSON.stringify({ mode: "node" }, null, 2));
 }
 
 async function copyFileIfNeeded(source, target) {

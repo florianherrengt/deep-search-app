@@ -1,4 +1,5 @@
 import type { SidecarCommand, SidecarChild } from "@/lib/tauri-bridge";
+import { registerSidecarPid, unregisterSidecarPid } from "@/lib/tauri-bridge";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 
@@ -33,17 +34,26 @@ export class TauriStdioTransport implements Transport {
       );
     });
     this.command.on("close", ({ code, signal }) => {
+      void unregisterSidecarPid();
       this.child = null;
       this.started = false;
+      console.info(
+        `[sidecar] Process exited (code ${code ?? "null"}, signal ${signal ?? "null"})`,
+      );
       this.onclose?.();
       this.onerror?.(
         new Error(
           `Chrome DevTools MCP sidecar exited with code ${code ?? "null"} signal ${signal ?? "null"}.${this._stderrTail ? ` Last stderr: ${this._stderrTail}` : ""}`,
         ),
       );
+      void this.dumpStderrToLogFile();
     });
 
     this.child = await this.command.spawn();
+    console.info(
+      `[sidecar] Spawned chrome-devtools-mcp sidecar (PID ${this.child.pid})`,
+    );
+    void registerSidecarPid(this.child.pid);
   }
 
   async send(message: JSONRPCMessage): Promise<void> {
@@ -55,6 +65,7 @@ export class TauriStdioTransport implements Transport {
 
   async close(): Promise<void> {
     this.started = false;
+    void unregisterSidecarPid();
     await this.child?.kill().catch(() => {});
     this.child = null;
     this.onclose?.();
@@ -87,5 +98,24 @@ export class TauriStdioTransport implements Transport {
   private handleStderr(data: string) {
     this._stderrTail = `${this._stderrTail}${data}`.slice(-MAX_STDERR_CHARS);
     console.warn("[chrome-devtools-mcp]", data);
+  }
+
+  private async dumpStderrToLogFile() {
+    if (!this._stderrTail) return;
+    try {
+      const { isTauri } = await import("@/lib/tauri-bridge");
+      if (!isTauri()) return;
+      const { writeTextFile, mkdir } = await import("@tauri-apps/plugin-fs");
+      const { appDataDir, join } = await import("@tauri-apps/api/path");
+      const logDir = await join(await appDataDir(), "sidecar-logs");
+      await mkdir(logDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const logPath = await join(logDir, `sidecar-stderr-${timestamp}.log`);
+      const content = `[${new Date().toISOString()}] Sidecar exited unexpectedly.\n\nStderr tail:\n${this._stderrTail}\n`;
+      await writeTextFile(logPath, content);
+      console.info(`[sidecar] Stderr log written to ${logPath}`);
+    } catch (error) {
+      console.warn("[sidecar] Failed to write stderr log file:", error);
+    }
   }
 }
