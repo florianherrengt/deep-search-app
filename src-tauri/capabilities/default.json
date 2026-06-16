@@ -42,25 +42,8 @@
             {
               "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
             },
-            "--auto-connect"
-          ]
-        },
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": [
-            "--auto-connect"
-          ]
-        },
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": [
             {
-              "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
-            },
-            {
-              "validator": "^--browser-url=https?://.+$"
+              "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
           ]
         },
@@ -69,7 +52,7 @@
           "sidecar": true,
           "args": [
             {
-              "validator": "^--browser-url=https?://.+$"
+              "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
           ]
         }
@@ -85,25 +68,8 @@
             {
               "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
             },
-            "--auto-connect"
-          ]
-        },
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": [
-            "--auto-connect"
-          ]
-        },
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": [
             {
-              "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
-            },
-            {
-              "validator": "^--browser-url=https?://.+$"
+              "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
           ]
         },
@@ -112,7 +78,7 @@
           "sidecar": true,
           "args": [
             {
-              "validator": "^--browser-url=https?://.+$"
+              "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
           ]
         }
@@ -128,25 +94,8 @@
             {
               "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
             },
-            "--auto-connect"
-          ]
-        },
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": [
-            "--auto-connect"
-          ]
-        },
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": [
             {
-              "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
-            },
-            {
-              "validator": "^--browser-url=https?://.+$"
+              "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
           ]
         },
@@ -155,7 +104,7 @@
           "sidecar": true,
           "args": [
             {
-              "validator": "^--browser-url=https?://.+$"
+              "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
           ]
         }
