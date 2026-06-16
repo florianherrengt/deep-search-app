@@ -18,6 +18,11 @@ export default defineConfig({
     include: ["react/jsx-dev-runtime"],
   },
   test: {
+    server: {
+      deps: {
+        inline: [/@deep-search\/search-extract/, /research-orchestrator/],
+      },
+    },
     projects: [
       {
         extends: true,

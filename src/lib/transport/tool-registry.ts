@@ -1,23 +1,22 @@
 import { type LanguageModel, type ToolSet } from "ai";
-import { questionsTool } from "@/tools/questions-tool";
-import { createBraveSearchTool } from "@/tools/brave-search-tool";
-import { disambiguateTool } from "@/tools/disambiguate-tool";
-import { createExaSearchTool } from "@/tools/exa-search-tool";
-import { createSerperSearchTool } from "@/tools/serper-search-tool";
-import { createTavilySearchTool } from "@/tools/tavily-search-tool";
-import { createSearXNGSearchTool } from "@/tools/searxng-search-tool";
+import {
+  questionsTool,
+  createDisambiguateTool,
+  createSearchTools,
+  createSequentialThinkingTool,
+  createResearchPlanTool,
+  createResearchCheckpointTool,
+  type SearchKeys as PkgSearchKeys,
+} from "research-orchestrator";
+import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
 import { createExtractPageContentTool } from "@/tools/extract-page-content-tool";
 import { createCreateFileTool, createReadFileTool, createUpdateFileTool, createMoveFileTool, createDeleteFileTool, createListFilesTool } from "@/tools/file-tools";
-import { createResearchCheckpointTool } from "@/tools/research-checkpoint-tool";
-import { createSequentialThinkingTool } from "@/tools/sequential-thinking-tool";
 import { createLoadSkillTool } from "@/tools/load-skill-tool";
 import { createSearchResearchTool } from "@/tools/search-research-tool";
 import { createSwitchResearchFolderTool } from "@/tools/switch-research-folder-tool";
-import { createResearchPlanTool } from "@/tools/research-plan-tool";
 import { createCurrencyConversionTool } from "@/tools/currency-conversion-tool";
 import { createFactsCheckTool } from "@/tools/facts-check-tool";
 import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
-import { isValidServiceUrl } from "@/lib/url-validation";
 import type { Currency, ChromeMcpConnectionMode } from "@/lib/settings-store";
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { createChromeDevToolsMcpTools } from "@/lib/mcp/chrome-devtools-tools";
@@ -58,28 +57,38 @@ export async function createTools({
   for (const [name, t] of Object.entries(chromeDevToolsToolsRaw)) {
     chromeDevToolsTools[name] = t as any;
   }
+
+  const pkgSearchKeys: PkgSearchKeys | undefined = searchKeys
+    ? {
+        braveApiKey: searchKeys.braveApiKey ?? undefined,
+        exaApiKey: searchKeys.exaApiKey ?? undefined,
+        serperApiKey: searchKeys.serperApiKey ?? undefined,
+        tavilyApiKey: searchKeys.tavilyApiKey ?? undefined,
+        searxngBaseUrl: searchKeys.searxngBaseUrl ?? undefined,
+      }
+    : undefined;
+
+  const searchTools = createSearchTools(pkgSearchKeys, bridgeFetch);
+
   const tools = {
     ask_questions: questionsTool,
-    disambiguate: disambiguateTool,
-    ...(searchKeys?.braveApiKey ? { brave_search: createBraveSearchTool(searchKeys.braveApiKey) } : {}),
-    ...(searchKeys?.exaApiKey ? { exa_search: createExaSearchTool(searchKeys.exaApiKey) } : {}),
-    ...(searchKeys?.serperApiKey ? { serper_search: createSerperSearchTool(searchKeys.serperApiKey) } : {}),
-    ...(searchKeys?.tavilyApiKey ? { tavily_search: createTavilySearchTool(searchKeys.tavilyApiKey) } : {}),
-    ...(searchKeys?.searxngBaseUrl && isValidServiceUrl(searchKeys.searxngBaseUrl) ? { searxng_search: createSearXNGSearchTool(searchKeys.searxngBaseUrl) } : {}),
+    disambiguate: createDisambiguateTool(bridgeFetch),
+    ...searchTools,
+    sequential_thinking: createSequentialThinkingTool(),
+    create_research_plan: createResearchPlanTool(model),
+    research_checkpoint: createResearchCheckpointTool(model),
+
     extract_page_content: createExtractPageContentTool(model, getResearchFolder),
+    facts_check: createFactsCheckTool(model),
     create_file: createCreateFileTool(getResearchFolder, embeddingConfig),
     read_file: createReadFileTool(getResearchFolder),
     update_file: createUpdateFileTool(getResearchFolder, embeddingConfig),
     move_file: createMoveFileTool(getResearchFolder, embeddingConfig),
     delete_file: createDeleteFileTool(getResearchFolder),
     list_files: createListFilesTool(getResearchFolder),
-    research_checkpoint: createResearchCheckpointTool(model),
-    sequential_thinking: createSequentialThinkingTool(),
     load_skill: createLoadSkillTool(),
     search_research: createSearchResearchTool(embeddingConfig, rerankerConfig, model),
     switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
-    create_research_plan: createResearchPlanTool(model),
-    facts_check: createFactsCheckTool(model),
     currency_conversion: createCurrencyConversionTool(searchKeys?.currency ?? "USD"),
     ...chromeDevToolsTools,
   } as const satisfies ToolSet;
