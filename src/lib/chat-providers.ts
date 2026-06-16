@@ -9,7 +9,7 @@ import { createZhipu } from "zhipu-ai-provider";
 import { validateUrl, validateServiceUrl } from "@/lib/url-validation";
 
 
-export const chatProviderSchema = z.enum(["openrouter", "anthropic", "deepseek", "zhipu", "local"]);
+export const chatProviderSchema = z.enum(["openrouter", "anthropic", "deepseek", "zhipu", "opencode-zen", "local"]);
 
 export type ChatProvider = z.infer<typeof chatProviderSchema>;
 
@@ -35,6 +35,7 @@ const CHAT_PROVIDER_LABELS: Record<ChatProvider, string> = {
   anthropic: "Anthropic",
   deepseek: "DeepSeek",
   zhipu: "Zhipu",
+  "opencode-zen": "OpenCode Zen",
   local: "Local / OpenAI Compatible",
 };
 
@@ -43,10 +44,13 @@ export const CHAT_PROVIDER_DEFAULT_MODELS: Record<ChatProvider, string> = {
   anthropic: "claude-sonnet-4-5",
   deepseek: "deepseek-chat",
   zhipu: "glm-4.7-flash",
+  "opencode-zen": "claude-sonnet-4-6",
   local: "",
 };
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+
+const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
 
 const ALLOWED_ZHIPU_BASE_URL_ORIGINS = new Set([
   "https://open.bigmodel.cn",
@@ -106,6 +110,13 @@ export function createChatLanguageModel({
       return createZhipu({
         apiKey: trimmedApiKey,
         baseURL: normalizeZhipuBaseURL(trimmedBaseURL),
+        fetch: providerFetch,
+      })(modelId);
+    case "opencode-zen":
+      return createOpenAICompatible({
+        name: "opencode-zen",
+        apiKey: trimmedApiKey,
+        baseURL: OPENCODE_ZEN_BASE_URL,
         fetch: providerFetch,
       })(modelId);
     case "local":

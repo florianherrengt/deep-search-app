@@ -63,6 +63,10 @@ describe("chat provider settings", () => {
         disabled: true,
       },
       {
+        provider: "opencode-zen",
+        disabled: true,
+      },
+      {
         provider: "local",
         disabled: true,
       },
@@ -95,6 +99,7 @@ describe("chat provider settings", () => {
       { provider: "anthropic", contextWindowTokens: 200_000 },
       { provider: "deepseek", contextWindowTokens: 128_000 },
       { provider: "zhipu" },
+      { provider: "opencode-zen" },
       { provider: "local" },
     ]);
     expect(
