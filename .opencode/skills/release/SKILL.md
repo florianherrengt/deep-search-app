@@ -5,7 +5,7 @@ description: Use when the user asks to create a release, publish a release, cut 
 
 # Create a Release
 
-Cut a new release by triggering the "Publish Release" GitHub Actions workflow, which builds Tauri desktop binaries for macOS (aarch64), Windows (x86_64), and Linux (x86_64) and uploads them as release assets.
+Cut a new release by triggering the "Publish Release" GitHub Actions workflow, which builds the Tauri desktop binary for macOS x86_64 (`_x64.dmg`) and uploads it as a release asset.
 
 ## When to use
 
@@ -105,7 +105,7 @@ https://github.com/<OWNER>/<REPO>/releases/tag/<VERSION_TAG>
 
 ## Notes
 
-- The workflow builds for 3 targets: `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`
+- The workflow builds for 1 target: `x86_64-apple-darwin` (produces `_x64.dmg`)
 - The workflow requires secrets: `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, `TAURI_UPDATER_PUBKEY`
 - The workflow is defined in `.github/workflows/release.yml`
 - Version bumping uses `npm run release:set-version` which runs `scripts/set-release-version.mjs`
