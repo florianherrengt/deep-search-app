@@ -14,6 +14,7 @@ interface AppUpdateInfo {
 export type AppUpdateState =
   | { status: "hidden" }
   | { status: "checking" }
+  | { status: "check-error"; error: string }
   | { status: "available"; update: AppUpdateInfo }
   | { status: "downloading"; update: AppUpdateInfo; progress: number | null }
   | { status: "installing"; update: AppUpdateInfo; progress: number | null }
@@ -23,6 +24,7 @@ export type AppUpdateState =
 type AppUpdateAction =
   | { type: "check_started" }
   | { type: "check_completed"; update: AppUpdateInfo | null }
+  | { type: "check_failed"; error: string }
   | { type: "download_started"; update: AppUpdateInfo }
   | { type: "download_progress"; update: AppUpdateInfo; progress: number | null }
   | { type: "install_started"; update: AppUpdateInfo; progress: number | null }
@@ -41,6 +43,8 @@ export function appUpdateReducer(
       return action.update === null
         ? { status: "hidden" }
         : { status: "available", update: action.update };
+    case "check_failed":
+      return { status: "check-error", error: action.error };
     case "download_started":
       return { status: "downloading", update: action.update, progress: null };
     case "download_progress":
@@ -73,16 +77,16 @@ export function useAppUpdate() {
   const [state, dispatch] = useReducer(appUpdateReducer, {
     status: "hidden",
   });
+  const cancelledRef = useRef(false);
 
-  useEffect(() => {
+  const checkForUpdates = useCallback(() => {
     if (!isTauri()) return;
-
-    let cancelled = false;
+    cancelledRef.current = false;
     dispatch({ type: "check_started" });
 
     void checkForUpdate({ timeout: CHECK_TIMEOUT_MS })
       .then((update) => {
-        if (cancelled) {
+        if (cancelledRef.current) {
           void update?.close().catch(() => undefined);
           return;
         }
@@ -98,19 +102,32 @@ export function useAppUpdate() {
           update: toUpdateInfo(update),
         });
       })
-      .catch(() => {
-        if (!cancelled) {
-          dispatch({ type: "check_completed", update: null });
+      .catch((error) => {
+        if (!cancelledRef.current) {
+          dispatch({
+            type: "check_failed",
+            error: getErrorMessage(error),
+          });
         }
       });
+  }, []);
 
+  useEffect(() => {
+    checkForUpdates();
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       const update = updateRef.current;
       updateRef.current = null;
       void update?.close().catch(() => undefined);
     };
-  }, []);
+  }, [checkForUpdates]);
+
+  const retry = useCallback(() => {
+    const update = updateRef.current;
+    updateRef.current = null;
+    void update?.close().catch(() => undefined);
+    checkForUpdates();
+  }, [checkForUpdates]);
 
   const installUpdate = useCallback(async () => {
     const update = updateRef.current;
@@ -175,6 +192,7 @@ export function useAppUpdate() {
   return {
     state,
     installUpdate,
+    retryUpdate: retry,
     dismissUpdate,
   };
 }

@@ -39,6 +39,24 @@ describe("appUpdateReducer", () => {
     expect(next).toEqual({ status: "available", update: updateInfo });
   });
 
+  it("check_failed → check-error", () => {
+    const state: AppUpdateState = { status: "checking" };
+    const next = appUpdateReducer(state, {
+      type: "check_failed",
+      error: "Network error",
+    });
+    expect(next).toEqual({ status: "check-error", error: "Network error" });
+  });
+
+  it("dismissed from check-error → hidden", () => {
+    const state: AppUpdateState = {
+      status: "check-error",
+      error: "Some error",
+    };
+    const next = appUpdateReducer(state, { type: "dismissed" });
+    expect(next).toEqual({ status: "hidden" });
+  });
+
   it("download_started → downloading with null progress", () => {
     const state: AppUpdateState = { status: "available", update: updateInfo };
     const next = appUpdateReducer(state, {

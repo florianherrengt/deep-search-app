@@ -50,6 +50,15 @@ export const Error: Story = {
   ],
 };
 
+export const CheckError: Story = {
+  decorators: [
+    withAppUpdateState({
+      status: "check-error",
+      error: "Could not check for updates: Failed to fetch update info",
+    }),
+  ],
+};
+
 export const Hidden: Story = {
   decorators: [withAppUpdateState({ status: "hidden" })],
   render: () => (
