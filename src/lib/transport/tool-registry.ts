@@ -18,7 +18,7 @@ import { createCurrencyConversionTool } from "@/tools/currency-conversion-tool";
 import { createFactsCheckTool } from "@/tools/facts-check-tool";
 import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
 import { isValidServiceUrl } from "@/lib/url-validation";
-import type { Currency } from "@/lib/settings-store";
+import type { Currency, ChromeMcpConnectionMode } from "@/lib/settings-store";
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { createChromeDevToolsMcpTools } from "@/lib/mcp/chrome-devtools-tools";
 
@@ -30,6 +30,8 @@ export interface SearchToolKeys {
   searxngBaseUrl?: string | null;
   currency?: Currency;
   chromeDevToolsMcpEnabled?: boolean;
+  chromeDevToolsMcpConnectionMode?: ChromeMcpConnectionMode;
+  chromeDevToolsMcpBrowserUrl?: string | null;
 }
 
 export async function createTools({
@@ -49,6 +51,8 @@ export async function createTools({
 }) {
   const chromeDevToolsToolsRaw = await createChromeDevToolsMcpTools({
     enabled: Boolean(searchKeys?.chromeDevToolsMcpEnabled),
+    connectionMode: searchKeys?.chromeDevToolsMcpConnectionMode,
+    browserUrl: searchKeys?.chromeDevToolsMcpBrowserUrl ?? undefined,
   });
   const chromeDevToolsTools: ToolSet = {};
   for (const [name, t] of Object.entries(chromeDevToolsToolsRaw)) {

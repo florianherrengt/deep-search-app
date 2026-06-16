@@ -426,6 +426,8 @@ function AppInner() {
     searxngBaseUrl: settings.searxng_url || null,
     currency: settings.currency,
     chromeDevToolsMcpEnabled: settings.chrome_devtools_mcp_enabled,
+    chromeDevToolsMcpConnectionMode: settings.chrome_devtools_mcp_connection_mode,
+    chromeDevToolsMcpBrowserUrl: settings.chrome_devtools_mcp_browser_url || null,
   };
   const effectiveSelectedModelId = selectedModelId || defaultChatModelId;
 
