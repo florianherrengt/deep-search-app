@@ -115,6 +115,26 @@ export const CHAT_PROVIDER_SETTINGS = [
     clearOnRemove: ["zhipu_api_key", "zhipu_base_url"],
   },
   {
+    provider: "opencode-zen",
+    apiKeyKey: "opencode_zen_api_key",
+    modelKey: "opencode_zen_model",
+    fields: [
+      {
+        key: "opencode_zen_model",
+        label: "Model",
+        type: "text",
+        placeholder: CHAT_PROVIDER_DEFAULT_MODELS["opencode-zen"],
+      },
+      {
+        key: "opencode_zen_api_key",
+        label: "API Key",
+        type: "password",
+        placeholder: "sk-...",
+      },
+    ],
+    clearOnRemove: ["opencode_zen_api_key"],
+  },
+  {
     provider: "local",
     apiKeyKey: "local_api_key",
     modelKey: "local_model",

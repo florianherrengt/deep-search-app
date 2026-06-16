@@ -56,6 +56,7 @@ LLM (pick one or more):
 
 - Anthropic (Claude)
 - OpenRouter
+- OpenCode Zen
 - Zhipu
 
 Search (pick one or more):
