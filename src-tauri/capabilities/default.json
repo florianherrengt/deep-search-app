@@ -113,6 +113,7 @@
         { "url": "https://api.z.ai/**" },
         { "url": "https://google.serper.dev/**" },
         { "url": "https://open.bigmodel.cn/**" },
+        { "url": "https://opencode.ai/**" },
         { "url": "https://openrouter.ai/**" }
       ]
     },
@@ -131,6 +132,7 @@
         { "url": "https://api.z.ai/**" },
         { "url": "https://google.serper.dev/**" },
         { "url": "https://open.bigmodel.cn/**" },
+        { "url": "https://opencode.ai/**" },
         { "url": "https://openrouter.ai/**" }
       ]
     },
@@ -149,6 +151,7 @@
         { "url": "https://api.z.ai/**" },
         { "url": "https://google.serper.dev/**" },
         { "url": "https://open.bigmodel.cn/**" },
+        { "url": "https://opencode.ai/**" },
         { "url": "https://openrouter.ai/**" }
       ]
     }
