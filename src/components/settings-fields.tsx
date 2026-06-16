@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { CheckIcon } from "lucide-react";
-import { Button, TextInput, Select, Box, Stack, Text, Group, Checkbox, Paper } from "@mantine/core";
+import { Button, TextInput, Select, SegmentedControl, Box, Stack, Text, Group, Checkbox, Paper } from "@mantine/core";
 import { generateText } from "ai";
 import {
   CHAT_PROVIDER_SETTINGS,
@@ -294,22 +294,45 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
         />
         {settings.chrome_devtools_mcp_enabled && (
           <Stack gap="xs" mt="sm">
-            <SettingInput
-              field={{
-                key: "chrome_devtools_mcp_browser_url",
-                label: "Browser URL (optional)",
-                type: "text",
-                placeholder: "http://127.0.0.1:9222",
+            <Text size="sm" fw={500}>Connection method</Text>
+            <SegmentedControl
+              fullWidth
+              value={settings.chrome_devtools_mcp_connection_mode}
+              onChange={(value) => {
+                void updateSetting(
+                  "chrome_devtools_mcp_connection_mode",
+                  value as Settings["chrome_devtools_mcp_connection_mode"],
+                );
               }}
-              inputId={`${fieldIdPrefix}-chrome_devtools_mcp_browser_url`}
-              value={String(settings.chrome_devtools_mcp_browser_url ?? "")}
-              onCommit={handleCommit}
+              data={[
+                { value: "auto", label: "Auto-connect" },
+                { value: "browser-url", label: "Connect to URL" },
+              ]}
             />
-            <Text size="xs" c="dimmed">
-              Leave blank to auto-connect to a local Chrome with remote debugging enabled
-              (chrome://inspect/#remote-debugging). Set a URL to connect to a Chrome already
-              started with <code>--remote-debugging-port</code>.
-            </Text>
+            {settings.chrome_devtools_mcp_connection_mode === "auto" ? (
+              <Text size="xs" c="dimmed">
+                Attaches to a local Chrome (M144+) with remote debugging enabled from
+                chrome://inspect/#remote-debugging.
+              </Text>
+            ) : (
+              <>
+                <SettingInput
+                  field={{
+                    key: "chrome_devtools_mcp_browser_url",
+                    label: "Browser URL",
+                    type: "text",
+                    placeholder: "http://127.0.0.1:9222",
+                  }}
+                  inputId={`${fieldIdPrefix}-chrome_devtools_mcp_browser_url`}
+                  value={String(settings.chrome_devtools_mcp_browser_url ?? "")}
+                  onCommit={handleCommit}
+                />
+                <Text size="xs" c="dimmed">
+                  Connects to a Chrome already started with{" "}
+                  <code>--remote-debugging-port</code> (host and port).
+                </Text>
+              </>
+            )}
           </Stack>
         )}
       </Paper>

@@ -44,6 +44,10 @@ export type Currency = (typeof CURRENCIES)[number];
 
 const currencySchema = z.enum(CURRENCIES);
 
+export const CHROME_MCP_CONNECTION_MODES = ["auto", "browser-url"] as const;
+export const chromeMcpConnectionModeSchema = z.enum(CHROME_MCP_CONNECTION_MODES);
+export type ChromeMcpConnectionMode = z.infer<typeof chromeMcpConnectionModeSchema>;
+
 export const EMBEDDING_DEFAULTS = {
   base_url: "https://openrouter.ai/api/v1",
   model: "qwen/qwen3-embedding-4b",
@@ -77,6 +81,7 @@ export const settingsSchema = z.object({
   zhipu_model: z.string(),
   currency: currencySchema,
   chrome_devtools_mcp_enabled: z.boolean(),
+  chrome_devtools_mcp_connection_mode: chromeMcpConnectionModeSchema,
   chrome_devtools_mcp_browser_url: z.string(),
   embedding_api_key: z.string(),
   embedding_base_url: z.string(),
@@ -111,6 +116,7 @@ export const settingsDefaults: Settings = {
   zhipu_model: CHAT_PROVIDER_DEFAULT_MODELS.zhipu,
   currency: "USD",
   chrome_devtools_mcp_enabled: false,
+  chrome_devtools_mcp_connection_mode: "auto",
   chrome_devtools_mcp_browser_url: "",
   embedding_api_key: "",
   embedding_base_url: EMBEDDING_DEFAULTS.base_url,
