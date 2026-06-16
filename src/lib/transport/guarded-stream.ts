@@ -1,4 +1,5 @@
 import { createGuardedStream as runGuardedLoop } from "research-orchestrator";
+import type { ProviderOptionsCallback } from "research-orchestrator";
 import { type LanguageModel, type UIMessage, type UIMessageChunk } from "ai";
 import { SafePathSegmentSchema } from "@/lib/app-file-storage";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
@@ -51,6 +52,28 @@ export function createGuardedStream({
       const skillsData = await skillsStore.get();
       const effectiveSystemPrompt = buildSystemPrompt(skillsData.skills);
 
+      const getProviderOptions: ProviderOptionsCallback = ({
+        model: streamModel,
+        toolChoice,
+      }) => {
+        if (!toolChoice || toolChoice === "auto") return undefined;
+
+        const info = streamModel as {
+          provider?: string;
+          modelId?: string;
+        };
+        const isDeepSeek =
+          (typeof info.provider === "string" &&
+            info.provider.startsWith("deepseek")) ||
+          (typeof info.modelId === "string" &&
+            info.modelId.toLowerCase().includes("deepseek"));
+
+        if (isDeepSeek) {
+          return { deepseek: { thinking: { type: "disabled" } } };
+        }
+        return undefined;
+      };
+
       await runGuardedLoop({
         model,
         messages,
@@ -58,6 +81,7 @@ export function createGuardedStream({
         tools,
         systemPrompt: effectiveSystemPrompt,
         isHiddenText: isSubAgentOutputTextPart,
+        getProviderOptions,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         evaluateStep: (({
           messages: stepMessages,
