@@ -16,7 +16,7 @@ function extractPartText(part: unknown): string {
   if (p.type === "reasoning" && typeof p.text === "string") return p.text;
   if (
     typeof p.type === "string" &&
-    (p.type as string).startsWith("tool-")
+    p.type.startsWith("tool-")
   ) {
     const args = JSON.stringify(p.args ?? "");
     const result = JSON.stringify(p.result ?? "");
@@ -24,7 +24,7 @@ function extractPartText(part: unknown): string {
   }
   if (
     typeof p.type === "string" &&
-    (p.type as string).startsWith("data-") &&
+    p.type.startsWith("data-") &&
     typeof p.data === "object"
   ) {
     return JSON.stringify(p.data ?? "");

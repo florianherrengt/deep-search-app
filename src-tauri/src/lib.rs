@@ -793,15 +793,17 @@ async fn backfill_index(
 }
 
 #[tauri::command]
-fn register_sidecar_pid(state: tauri::State<SidecarState>, pid: u32) {
+fn register_sidecar_pid(state: tauri::State<SidecarState>, pid: u32) -> Result<(), String> {
     eprintln!("[sidecar] Registered sidecar PID {}", pid);
-    *state.pid.lock().unwrap() = Some(pid);
+    *state.pid.lock().map_err(|e| e.to_string())? = Some(pid);
+    Ok(())
 }
 
 #[tauri::command]
-fn unregister_sidecar_pid(state: tauri::State<SidecarState>) {
+fn unregister_sidecar_pid(state: tauri::State<SidecarState>) -> Result<(), String> {
     eprintln!("[sidecar] Unregistered sidecar PID");
-    *state.pid.lock().unwrap() = None;
+    *state.pid.lock().map_err(|e| e.to_string())? = None;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -856,7 +858,11 @@ pub fn run() {
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<SidecarState>() {
-                    let pid = state.pid.lock().unwrap().take();
+                    let Ok(mut guard) = state.pid.lock() else {
+                        eprintln!("[sidecar] Cannot lock sidecar PID on exit (mutex poisoned)");
+                        return;
+                    };
+                    let pid = guard.take();
                     if let Some(pid) = pid {
                         eprintln!("[sidecar] App exiting — killing sidecar PID {}", pid);
                         #[cfg(unix)]

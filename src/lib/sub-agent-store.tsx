@@ -682,13 +682,15 @@ function hasPendingTextDeltasForChat(
   return false;
 }
 
+const MAX_PRUNE_ITERATIONS = 5_000;
+
 function pruneEventFingerprints(fingerprints: Set<string>): void {
   if (fingerprints.size <= 10_000) return;
 
   const toDelete: string[] = [];
   let i = 0;
   for (const value of fingerprints) {
-    if (i >= 5000) break;
+    if (i >= MAX_PRUNE_ITERATIONS) break;
     toDelete.push(value);
     i++;
   }

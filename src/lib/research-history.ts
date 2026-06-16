@@ -130,11 +130,11 @@ function parseChatFileContent(content: string): ParsedChatFile | null {
         title: asString(obj.title),
         createdAt:
           typeof obj.createdAt === "string" || obj.createdAt === null
-            ? (obj.createdAt as string | null)
+            ? obj.createdAt
             : undefined,
         updatedAt:
           typeof obj.updatedAt === "string" || obj.updatedAt === null
-            ? (obj.updatedAt as string | null)
+            ? obj.updatedAt
             : undefined,
       },
     };
@@ -158,7 +158,7 @@ function parseChatFileContent(content: string): ParsedChatFile | null {
         title: asString(m.title),
         createdAt:
           typeof m.createdAt === "string" || m.createdAt === null
-            ? (m.createdAt as string | null)
+            ? m.createdAt
             : undefined,
         updatedAt: asString(m.updatedAt),
       };

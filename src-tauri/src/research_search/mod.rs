@@ -135,6 +135,10 @@ pub fn register_sqlite_vec_extension() {
         *const rusqlite::ffi::sqlite3_api_routines,
     ) -> c_int;
 
+    // SAFETY: transmute reinterprets the function pointer from *const () to
+    // SqliteExtensionInit. Both have the same underlying C ABI signature
+    // (sqlite3*, char**, const sqlite3_api_routines*) -> c_int, so the call
+    // through sqlite3_auto_extension is sound.
     unsafe {
         let init = std::mem::transmute::<*const (), SqliteExtensionInit>(
             sqlite_vec::sqlite3_vec_init as *const (),

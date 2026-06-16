@@ -553,43 +553,6 @@ impl SearchDiagnostics {
     }
 }
 
-pub fn knn_search_pub(conn: &Connection, query_bytes: &[u8]) -> Result<Vec<RankedItem>, String> {
-    knn_search(conn, query_bytes)
-}
-
-pub fn fts_search_pub(conn: &Connection, query: &str) -> Result<Vec<RankedItem>, String> {
-    fts_search(conn, query)
-}
-
-pub fn adaptive_rrf_pub(vec_results: &[RankedItem], fts_results: &[RankedItem]) -> Vec<(i64, f64)> {
-    adaptive_rrf(vec_results, fts_results, 1.0, 1.0)
-}
-
-pub fn adaptive_rrf_weighted(
-    vec_results: &[RankedItem],
-    fts_results: &[RankedItem],
-    vec_weight: f64,
-    fts_weight: f64,
-) -> Vec<(i64, f64)> {
-    adaptive_rrf(vec_results, fts_results, vec_weight, fts_weight)
-}
-
-pub fn classify_query_pub(query: &str) -> QueryType {
-    classify_query(query)
-}
-
-pub fn mmr_dedup_pub(
-    conn: &Connection,
-    fused: &[(i64, f64)],
-    query_embedding: &[f32],
-) -> Result<Vec<i64>, String> {
-    mmr_dedup(conn, fused, query_embedding)
-}
-
-pub fn get_chunk_info_pub(conn: &Connection, chunk_id: i64) -> Result<ChunkInfo, String> {
-    get_chunk_info(conn, chunk_id)
-}
-
 fn knn_search(conn: &Connection, query_bytes: &[u8]) -> Result<Vec<RankedItem>, String> {
     let mut stmt = conn
         .prepare(schema::KNN_SEARCH)
@@ -605,11 +568,6 @@ fn knn_search(conn: &Connection, query_bytes: &[u8]) -> Result<Vec<RankedItem>, 
         rank += 1;
     }
     Ok(results)
-}
-
-fn fts_search(conn: &Connection, query: &str) -> Result<Vec<RankedItem>, String> {
-    let sanitized = sanitize_fts_query(query);
-    fts_search_with_query(conn, &sanitized)
 }
 
 fn fts_search_with_query(conn: &Connection, query: &str) -> Result<Vec<RankedItem>, String> {
