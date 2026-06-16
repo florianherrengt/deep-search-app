@@ -11,11 +11,14 @@ const MCP_REQUEST_TIMEOUT_MS = 30_000;
 let clientPromise: Promise<Client> | null = null;
 let transportRef: TauriStdioTransport | null = null;
 let toolsPromise: Promise<ToolSet> | null = null;
+let activeConnectionKey: string | null = null;
 
 export async function createChromeDevToolsMcpTools({
   enabled,
+  browserUrl,
 }: {
   enabled: boolean;
+  browserUrl?: string;
 }): Promise<ToolSet> {
   if (!enabled) {
     await shutdownChromeDevToolsMcp();
@@ -24,7 +27,15 @@ export async function createChromeDevToolsMcpTools({
 
   if (!isTauri()) return {};
 
-  toolsPromise ??= createChromeDevToolsMcpToolsInternal().catch((error) => {
+  // Reconnect if the connection target changed; the cached client is bound to
+  // whichever Chrome instance it first attached to.
+  const connectionKey = browserUrl?.trim() || "auto-connect";
+  if (activeConnectionKey !== null && activeConnectionKey !== connectionKey) {
+    await shutdownChromeDevToolsMcp();
+  }
+  activeConnectionKey = connectionKey;
+
+  toolsPromise ??= createChromeDevToolsMcpToolsInternal(browserUrl).catch((error) => {
     toolsPromise = null;
     console.warn("[chrome-devtools-mcp] Failed to initialize tools:", error);
     return {};
@@ -38,6 +49,7 @@ export async function shutdownChromeDevToolsMcp() {
   clientPromise = null;
   transportRef = null;
   toolsPromise = null;
+  activeConnectionKey = null;
   await client?.close();
 }
 
@@ -47,8 +59,10 @@ if (typeof window !== "undefined") {
   });
 }
 
-async function createChromeDevToolsMcpToolsInternal(): Promise<ToolSet> {
-  const client = await getChromeDevToolsMcpClient();
+async function createChromeDevToolsMcpToolsInternal(
+  browserUrl?: string,
+): Promise<ToolSet> {
+  const client = await getChromeDevToolsMcpClient(browserUrl);
   const { tools: mcpTools } = await client.listTools(undefined, {
     timeout: MCP_REQUEST_TIMEOUT_MS,
   });
@@ -93,9 +107,9 @@ async function createChromeDevToolsMcpToolsInternal(): Promise<ToolSet> {
   ) satisfies ToolSet;
 }
 
-async function getChromeDevToolsMcpClient(): Promise<Client> {
+async function getChromeDevToolsMcpClient(browserUrl?: string): Promise<Client> {
   clientPromise ??= (async () => {
-    const command = await createChromeDevToolsMcpCommand();
+    const command = await createChromeDevToolsMcpCommand({ browserUrl });
     const transport = new TauriStdioTransport(command);
     transportRef = transport;
     const client = new Client(

@@ -292,6 +292,26 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             );
           }}
         />
+        {settings.chrome_devtools_mcp_enabled && (
+          <Stack gap="xs" mt="sm">
+            <SettingInput
+              field={{
+                key: "chrome_devtools_mcp_browser_url",
+                label: "Browser URL (optional)",
+                type: "text",
+                placeholder: "http://127.0.0.1:9222",
+              }}
+              inputId={`${fieldIdPrefix}-chrome_devtools_mcp_browser_url`}
+              value={String(settings.chrome_devtools_mcp_browser_url ?? "")}
+              onCommit={handleCommit}
+            />
+            <Text size="xs" c="dimmed">
+              Leave blank to auto-connect to a local Chrome with remote debugging enabled
+              (chrome://inspect/#remote-debugging). Set a URL to connect to a Chrome already
+              started with <code>--remote-debugging-port</code>.
+            </Text>
+          </Stack>
+        )}
       </Paper>
     </Stack>
   );

@@ -30,6 +30,7 @@ export interface SearchToolKeys {
   searxngBaseUrl?: string | null;
   currency?: Currency;
   chromeDevToolsMcpEnabled?: boolean;
+  chromeDevToolsMcpBrowserUrl?: string | null;
 }
 
 export async function createTools({
@@ -49,6 +50,7 @@ export async function createTools({
 }) {
   const chromeDevToolsToolsRaw = await createChromeDevToolsMcpTools({
     enabled: Boolean(searchKeys?.chromeDevToolsMcpEnabled),
+    browserUrl: searchKeys?.chromeDevToolsMcpBrowserUrl ?? undefined,
   });
   const chromeDevToolsTools: ToolSet = {};
   for (const [name, t] of Object.entries(chromeDevToolsToolsRaw)) {
