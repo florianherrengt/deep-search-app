@@ -20,60 +20,66 @@ const RateResponseSchema = z.object({
   rate: z.number(),
 });
 
-const currencyConversionInputSchema = z.object({
+const ConversionItemSchema = z.object({
   amount: z.number().positive().describe("The amount of money to convert"),
   from_currency: z
     .string()
     .describe("Currency code of the amount (e.g. USD, EUR, GBP)"),
 });
 
-const currencyConversionOutputSchema = z.string();
+const currencyConversionInputSchema = z.array(ConversionItemSchema);
+
+const currencyConversionOutputSchema = z.array(z.string());
 
 export function createCurrencyConversionTool(targetCurrency: Currency) {
   return tool({
-    description: `Convert a foreign price, cost, fee, or other monetary amount to ${targetCurrency}. Use before final answers that would otherwise show a foreign currency; report only ${targetCurrency} unless the user asks for original currencies.`,
+    description: `Convert foreign prices, costs, fees, or other monetary amounts to ${targetCurrency}. Accepts an array of { amount, from_currency } objects. Use before final answers that would otherwise show a foreign currency; report only ${targetCurrency} unless the user asks for original currencies.`,
     strict: true,
     inputSchema: zodSchema(currencyConversionInputSchema),
     outputSchema: zodSchema(currencyConversionOutputSchema),
-    execute: async ({ amount, from_currency }, options) => {
-      const from = from_currency.toUpperCase();
-      const to = targetCurrency;
+    execute: async (input, options) => {
+      const convertOne = async (item: { amount: number; from_currency: string }) => {
+        const from = item.from_currency.toUpperCase();
+        const to = targetCurrency;
 
-      if (from === to) {
-        return amount.toFixed(2);
-      }
+        if (from === to) {
+          return item.amount.toFixed(2);
+        }
 
-      const key = cacheKey(from, to);
+        const key = cacheKey(from, to);
 
-      let cached = ratesCache.get(key);
-      if (!cached) {
-        const response = await fetch(
-          `${API_BASE}/rate/${from}/${to}`,
-          {
-            headers: { accept: "application/json" },
-            signal: options?.abortSignal,
-          },
-        );
-
-        if (!response.ok) {
-          throw new Error(
-            `Currency API error: ${response.status} ${response.statusText}`,
+        let cached = ratesCache.get(key);
+        if (!cached) {
+          const response = await fetch(
+            `${API_BASE}/rate/${from}/${to}`,
+            {
+              headers: { accept: "application/json" },
+              signal: options?.abortSignal,
+            },
           );
+
+          if (!response.ok) {
+            throw new Error(
+              `Currency API error: ${response.status} ${response.statusText}`,
+            );
+          }
+
+          const parsed = RateResponseSchema.safeParse(await response.json());
+          if (!parsed.success) {
+            throw new Error("Invalid response from currency API");
+          }
+
+          cached = {
+            rate: parsed.data.rate,
+            date: parsed.data.date,
+          };
+          ratesCache.set(key, cached);
         }
 
-        const parsed = RateResponseSchema.safeParse(await response.json());
-        if (!parsed.success) {
-          throw new Error("Invalid response from currency API");
-        }
+        return (item.amount * cached.rate).toFixed(2);
+      };
 
-        cached = {
-          rate: parsed.data.rate,
-          date: parsed.data.date,
-        };
-        ratesCache.set(key, cached);
-      }
-
-      return (amount * cached.rate).toFixed(2);
+      return Promise.all(input.map(convertOne));
     },
   });
 }
