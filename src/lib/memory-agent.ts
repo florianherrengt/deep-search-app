@@ -52,9 +52,20 @@ function stripMarkdownJsonFence(text: string): string {
   return stripped.trim();
 }
 
+function buildMemoryExtractionPrompt(
+  existingContent: string | null,
+  userContent: string,
+): string {
+  const existing = existingContent && existingContent.trim()
+    ? existingContent.trim()
+    : "None.";
+
+  return `Here are the existing memories stored about the user:\n\n${existing}\n\nHere is new user content to analyze for additional memories:\n\n${userContent}`;
+}
+
 export async function extractAndStoreMemories(
   userMessage: string,
-  getResearchFolder: () => Promise<string>,
+  getResearchFolder: () => Promise<string | null | undefined>,
   model: LanguageModel,
   abortSignal?: AbortSignal,
   deps?: ExtractAndStoreMemoriesDeps,
@@ -63,6 +74,12 @@ export async function extractAndStoreMemories(
   const _writeAppFile = deps?.writeAppFile ?? writeAppFile;
   const _emitEvent = deps?.emitEvent ?? emitSubAgentEvent;
   const saId = createSubAgentId();
+
+  // Resolve research folder FIRST — throw if unavailable
+  const folder = await getResearchFolder();
+  if (!folder) {
+    throw new Error("No research folder available for memory extraction.");
+  }
 
   logDebug("starting extraction", {
     subAgentId: saId,
@@ -79,75 +96,82 @@ export async function extractAndStoreMemories(
   });
 
   try {
-    const result = streamText({
-      model,
-      system: memoryAgentPrompt,
-      prompt: userMessage,
-      abortSignal,
-    });
+    const memorySubfolder = `${SEARCH_RESULTS_SUBFOLDER}/${folder}`;
 
-    let chunksReceived = 0;
-    for await (const textPart of result.textStream) {
-      chunksReceived++;
-      _emitEvent({ type: "text-delta", id: saId, delta: textPart });
-    }
-
-    const text = await result.text;
-
-    logDebug("stream completed", {
-      chunksReceived,
-      resultLength: text.length,
-      resultPreview: text.slice(0, 200),
-    });
-
-    let newFacts: string[];
-    try {
-      const parsed = JSON.parse(stripMarkdownJsonFence(text));
-      if (!Array.isArray(parsed)) {
-        logWarn("LLM returned non-array", { type: typeof parsed });
-        _emitEvent({ type: "complete", id: saId });
-        return { memoriesStored: 0 };
-      }
-      newFacts = parsed
-        .filter((f): f is string => typeof f === "string" && f.trim().length > 0)
-        .map((f) => f.replace(/\n/g, " ").trim())
-        .filter((f) => f.length > 0);
-    } catch (parseError) {
-      logWarn("LLM output is not valid JSON", {
-        error: parseError instanceof Error ? parseError.message : "unknown",
-        rawPreview: text.slice(0, 100),
-      });
-      _emitEvent({ type: "complete", id: saId });
-      return { memoriesStored: 0 };
-    }
-
-    if (newFacts.length === 0) {
-      logDebug("no facts extracted");
-      _emitEvent({ type: "complete", id: saId });
-      return { memoriesStored: 0 };
-    }
-
-    logDebug("parsed facts", { factCount: newFacts.length, facts: newFacts });
-
-    const folder = await getResearchFolder();
-    const subfolder = `${SEARCH_RESULTS_SUBFOLDER}/${folder}`;
-
-    const stored = await serializedWrite(subfolder, async () => {
-      const existing = await _readAppFile({
-        subfolder,
+    const stored = await serializedWrite(memorySubfolder, async () => {
+      // Read existing memories INSIDE serializedWrite
+      const existingContent = await _readAppFile({
+        subfolder: memorySubfolder,
         filename: "memories.md",
       });
 
-      const existingFacts = parseMemoriesContent(existing);
-      const merged = [...new Set([...existingFacts, ...newFacts])];
+      // Build LLM prompt
+      const prompt = buildMemoryExtractionPrompt(existingContent, userMessage);
 
-      const content = formatMemoriesContent(merged);
-      await _writeAppFile({ subfolder, filename: "memories.md", content });
+      // Call LLM
+      const result = streamText({
+        model,
+        system: memoryAgentPrompt,
+        prompt,
+        abortSignal,
+      });
 
-      const stored = newFacts.filter((f) => !existingFacts.includes(f)).length;
-      logDebug("memories stored", { stored, total: merged.length });
-      return stored;
+      let chunksReceived = 0;
+      for await (const textPart of result.textStream) {
+        chunksReceived++;
+        _emitEvent({ type: "text-delta", id: saId, delta: textPart });
+      }
+
+      const text = await result.text;
+
+      logDebug("stream completed", {
+        chunksReceived,
+        resultLength: text.length,
+        resultPreview: text.slice(0, 200),
+      });
+
+      // Parse LLM output
+      const stripped = stripMarkdownJsonFence(text);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(stripped);
+      } catch (parseError) {
+        throw new Error(
+          `LLM returned invalid JSON: ${parseError instanceof Error ? parseError.message : "unknown parse error"}`,
+        );
+      }
+
+      if (!Array.isArray(parsed)) {
+        throw new Error("LLM returned non-array JSON");
+      }
+
+      const facts = parsed
+        .map((f) => {
+          if (typeof f !== "string") {
+            throw new Error("LLM returned non-string entry in array");
+          }
+          return f;
+        })
+        .map((f) => f.replace(/\n/g, " ").trim())
+        .filter((f) => f.length > 0);
+
+      if (facts.length === 0) {
+        // No facts to store — do NOT write to disk
+        return 0;
+      }
+
+      // Write merged memories
+      logDebug("writing merged memories", { factCount: facts.length });
+      const content = formatMemoriesContent(facts);
+      await _writeAppFile({ subfolder: memorySubfolder, filename: "memories.md", content });
+      logDebug("memories stored", { stored: facts.length, total: facts.length });
+      return facts.length;
     });
+
+    if (stored === 0) {
+      _emitEvent({ type: "complete", id: saId });
+      return { memoriesStored: 0 };
+    }
 
     _emitEvent({ type: "complete", id: saId });
     return { memoriesStored: stored };
@@ -155,24 +179,14 @@ export async function extractAndStoreMemories(
     if (isAbortError(error) || abortSignal?.aborted) {
       logDebug("extraction cancelled by user");
       _emitEvent({ type: "cancelled", id: saId });
-      return { memoriesStored: 0 };
+      throw error;
     }
     logWarn("extraction failed", {
       error: error instanceof Error ? error.message : "unknown",
     });
     _emitEvent({ type: "error", id: saId, error: "Memory extraction failed" });
-    return { memoriesStored: 0 };
+    throw error;
   }
-}
-
-function parseMemoriesContent(content: string | null): string[] {
-  if (!content) return [];
-  return content
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => /^[-*+]\s/.test(line))
-    .map((line) => line.replace(/^[-*+]\s+/, "").trim())
-    .filter((line) => line.length > 0);
 }
 
 function formatMemoriesContent(facts: string[]): string {

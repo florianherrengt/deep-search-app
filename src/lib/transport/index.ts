@@ -27,14 +27,124 @@ export { createGuardedStream } from "./guarded-stream";
 export type { SearchToolKeys } from "./tool-registry";
 export type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 
-export interface ResearchFolderChangeOptions {
-  previousFolderName?: string;
+export type MemoryExtractionCandidate = {
+  id: string;
+  source: "user-message" | "tool-answer";
+  toolName?: "ask_questions";
+  content: string;
+  messageIndex: number;
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Collects memory-extraction candidates from the message history.
+ *
+ * Pure and stateless: it inspects `messages` and returns 0–2 candidates; it
+ * performs no I/O, no logging, and never throws. Deduplication of already-
+ * extracted messages is handled separately by `processedMemoryMessageIds` in
+ * the `sendMessages` trigger block — this function simply reports what is
+ * eligible right now.
+ *
+ * Returns at most ONE candidate per source type:
+ *   - "user-message": the latest user message containing non-empty text.
+ *   - "tool-answer":  the latest assistant message with `ask_questions`
+ *                     answers in `output-available` state.
+ *
+ * Scan order is end → start so each source resolves to its MOST RECENT
+ * eligible message (matches the old "find last user message" semantics). Once
+ * a source is resolved it is not replaced by an older occurrence.
+ *
+ * A source is only marked "found" when a valid, non-empty candidate exists for
+ * it. An unanswered (`input-available`) or errored (`output-error`)
+ * ask_questions part, or one whose answers are all empty/malformed, does NOT
+ * mark "tool-answer" as found — so an earlier assistant message can still
+ * supply the tool-answer candidate instead.
+ *
+ * Candidates are returned sorted by `messageIndex` ascending (oldest-first)
+ * so extraction runs in conversation order: each extraction lets the LLM
+ * rewrite the full memory list, and oldest-first gives the most natural merge
+ * progression.
+ *
+ * The design is intentionally generic: new candidate sources (other tools,
+ * onboarding, forms) can be added by appending another source block without
+ * changing the extraction engine or the trigger block.
+ *
+ * Spec: specs/memory-extraction-ask-questions.md §9.1, §12.3.
+ */
+export function collectMemoryCandidates(
+  messages: UIMessage[],
+): MemoryExtractionCandidate[] {
+  const result: MemoryExtractionCandidate[] = [];
+  const foundSources = new Set<string>();
+
+  // Scan newest → oldest; pick up at most the latest eligible message per source.
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+
+    // Source: user-message
+    if (msg.role === "user" && !foundSources.has("user-message")) {
+      const text = msg.parts
+        .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
+        .map((p) => p.text)
+        .join(" ")
+        .trim();
+      if (text) {
+        result.push({ id: msg.id, source: "user-message", content: text, messageIndex: i });
+        foundSources.add("user-message");
+      }
+    }
+
+    // Source: tool-answer (ask_questions answers)
+    if (msg.role === "assistant" && !foundSources.has("tool-answer")) {
+      const qaEntries: Array<{ question: string; answer: string }> = [];
+
+      for (const part of msg.parts) {
+        if (!isRecord(part) || part.type !== "tool-ask_questions") continue;
+        // Only answered questions are eligible; input-available/output-error are not.
+        if (part.state !== "output-available") continue;
+        if (!isRecord(part.output) || !Array.isArray(part.output.answers)) continue;
+
+        for (const entry of part.output.answers) {
+          // Skip malformed entries; the question is kept only as context.
+          if (!isRecord(entry)) continue;
+          if (typeof entry.question !== "string") continue;
+          if (typeof entry.answer !== "string") continue;
+          const answerText = entry.answer.trim();
+          if (answerText.length === 0) continue;
+          qaEntries.push({
+            question: entry.question.trim(),
+            answer: answerText,
+          });
+        }
+      }
+
+      // Only register the source when at least one valid answer exists; otherwise
+      // leave it unmarked so an earlier assistant message can still supply it.
+      if (qaEntries.length > 0) {
+        const content =
+          "The following content contains user-authored answers to app-generated questions.\n\n" +
+          JSON.stringify(qaEntries, null, 2);
+        result.push({
+          id: msg.id,
+          source: "tool-answer",
+          toolName: "ask_questions",
+          content,
+          messageIndex: i,
+        });
+        foundSources.add("tool-answer");
+      }
+    }
+
+    // Stop scanning once all sources are found
+    if (foundSources.size === 2) break;
+  }
+
+  // Extraction runs oldest-first so the LLM merge progresses in conversation order.
+  return result.sort((a, b) => a.messageIndex - b.messageIndex);
 }
 
-const LOG_PREFIX = "[transport]";
-
-function logDebug(message: string, ...args: unknown[]) {
-  console.debug(`${LOG_PREFIX} ${message}`, ...args);
+export interface ResearchFolderChangeOptions {
+  previousFolderName?: string;
 }
 
 export class DirectTransport implements ChatTransport<UIMessage> {
@@ -133,36 +243,47 @@ export class DirectTransport implements ChatTransport<UIMessage> {
           }
 
           if (transport.researchFolder && trigger === "submit-message") {
-            const candidate = findLastUserMessageForExtraction(messages);
-            if (
-              candidate &&
-              !transport.processedMemoryMessageIds.has(candidate.id)
-            ) {
-              transport.processedMemoryMessageIds.add(candidate.id);
-              logDebug("triggering memory extraction", {
-                messageId: candidate.id,
-                messageLength: candidate.text.length,
-                messagePreview: candidate.text.slice(0, 100),
+            const correlationId = crypto.randomUUID();
+
+            const candidates = collectMemoryCandidates(messages);
+
+            if (candidates.length === 0) {
+              console.debug("[memory-extraction]", {
+                correlationId,
+                decision: "skip-no-candidate",
               });
-              const extractionFolder = transport.researchFolder;
-              void extractAndStoreMemories(
-                candidate.text,
-                async () => extractionFolder!,
+            }
+
+            for (const candidate of candidates) {
+              if (transport.processedMemoryMessageIds.has(candidate.id)) {
+                console.debug("[memory-extraction]", {
+                  correlationId,
+                  candidateId: candidate.id,
+                  source: candidate.source,
+                  ...(candidate.toolName ? { toolName: candidate.toolName } : {}),
+                  decision: "skip-processed",
+                });
+                continue;
+              }
+
+              console.debug("[memory-extraction]", {
+                correlationId,
+                candidateId: candidate.id,
+                source: candidate.source,
+                ...(candidate.toolName ? { toolName: candidate.toolName } : {}),
+                decision: "extract",
+                contentLength: candidate.content.length,
+              });
+
+              await extractAndStoreMemories(
+                candidate.content,
+                async () => transport.researchFolder,
                 model,
                 abortSignal,
                 { emitEvent: subAgentEmitter },
-              ).catch((err) => {
-                logDebug("memory extraction failed", {
-                  messageId: candidate.id,
-                  error: err instanceof Error ? err.message : "unknown",
-                });
-              });
-            } else if (!candidate) {
-              logDebug("no eligible user message for memory extraction");
-            } else {
-              logDebug("skipping already-processed message", {
-                messageId: candidate.id,
-              });
+              );
+
+              transport.processedMemoryMessageIds.add(candidate.id);
             }
           }
 
@@ -325,23 +446,6 @@ function errorMessage(error: unknown): string {
 
 export function isEligibleForMemoryExtraction(message: UIMessage): boolean {
   return message.role === "user";
-}
-
-function findLastUserMessageForExtraction(
-  messages: UIMessage[],
-): { id: string; text: string } | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (isEligibleForMemoryExtraction(msg)) {
-      const text = msg.parts
-        .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
-        .map((p) => p.text)
-        .join(" ")
-        .trim();
-      if (text) return { id: msg.id, text };
-    }
-  }
-  return null;
 }
 
 type PreviousResearchChoice =
