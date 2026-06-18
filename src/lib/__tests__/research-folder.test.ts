@@ -145,7 +145,7 @@ describe("validateResearchFolderName", () => {
   });
 
   it("rejects names with too many words", () => {
-    expect(validateResearchFolderName("one-two-three-four-five-six")).toContain(
+    expect(validateResearchFolderName("one-two-three-four-five-six-seven-eight-nine")).toContain(
       "too many words",
     );
   });

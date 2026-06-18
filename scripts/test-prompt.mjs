@@ -12,10 +12,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const promptsDir = join(__dirname, "..", "src", "lib", "transport");
 
 const PROMPTS = {
-  "chat-title": {
-    path: join(promptsDir, "chat-title-prompt.md"),
-    label: "Chat title generation",
-  },
   "title-slug": {
     path: join(promptsDir, "title-slug-prompt.md"),
     label: "Title → kebab-case slug",

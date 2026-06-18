@@ -156,11 +156,6 @@ describe("DirectTransport research folder lifecycle", () => {
             stream: simulateReadableStream({ chunks: textChunks("acme-ordering") }),
           };
         }
-        if (streamCallIndex === 2) {
-          return {
-            stream: simulateReadableStream({ chunks: textChunks("ACME ordering") }),
-          };
-        }
         events.push("stream-started");
         return {
           stream: simulateReadableStream({ chunks: textChunks("Done.") }),
@@ -222,11 +217,6 @@ describe("DirectTransport research folder lifecycle", () => {
         if (streamCallIndex === 1) {
           return {
             stream: simulateReadableStream({ chunks: textChunks("acme-tools") }),
-          };
-        }
-        if (streamCallIndex === 2) {
-          return {
-            stream: simulateReadableStream({ chunks: textChunks("ACME tools") }),
           };
         }
         events.push("tool-stream-started");
@@ -639,7 +629,7 @@ describe("DirectTransport research folder lifecycle", () => {
     let streamCallIndex = 0;
     const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {
       streamCallIndex++;
-      const text = streamCallIndex === 2 ? "acme-failure" : "Done.";
+      const text = streamCallIndex === 1 ? "acme-failure" : "Done.";
       return {
         stream: simulateReadableStream({ chunks: textChunks(text) }),
       };
@@ -860,23 +850,16 @@ describe("DirectTransport coffee beans scenario", () => {
     );
   });
 
-  it("uses deterministic fallback with topic words when model fails", async () => {
-    let streamCallIndex = 0;
+  it("streams error when model fails all naming attempts with no fallback", async () => {
     const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {
-      streamCallIndex++;
-      if (streamCallIndex === 1) {
-        return {
-          stream: simulateReadableStream({ chunks: textChunks("Coffee Beans") }),
-        };
-      }
-      const text = "invalid output with spaces and special chars!";
+      const text = "invalid output with spaces and special chars plus extra filler words here more";
       return {
         stream: simulateReadableStream({ chunks: textChunks(text) }),
       };
     });
     const model = new MockLanguageModelV3({
       doGenerate: async () => ({
-        content: [{ type: "text", text: "invalid output with spaces and special chars!" }],
+        content: [{ type: "text", text: "invalid output with spaces and special chars plus extra filler words here more" }],
         finishReason: { unified: "stop", raw: "stop" },
         usage: tokenUsage(),
         warnings: [],
@@ -887,20 +870,19 @@ describe("DirectTransport coffee beans scenario", () => {
     const onFolderChange = vi.fn();
     const transport = createTransport(onFolderChange);
 
-    await consumeStream(
-      await transport.sendMessages({
-        trigger: "submit-message",
-        chatId: "runtime-chat",
-        messageId: "user-1",
-        messages: [userMessage("I'm looking for the best coffee beans for espresso")],
-        abortSignal: undefined,
-      }),
-    );
+    const stream = await transport.sendMessages({
+      trigger: "submit-message",
+      chatId: "runtime-chat",
+      messageId: "user-1",
+      messages: [userMessage("I'm looking for the best coffee beans for espresso")],
+      abortSignal: undefined,
+    });
+    const chunks = await collectChunks(stream);
 
-    expect(onFolderChange).toHaveBeenCalled();
-    const folderName = onFolderChange.mock.calls[0][0];
-    expect(folderName).not.toBe("im-looking-for-the-best");
-    expect(folderName).toContain("coffee");
+    expect(onFolderChange).not.toHaveBeenCalled();
+    const errorChunk = chunks.find((c: unknown) => (c as any)?.type === "error");
+    expect(errorChunk).toBeDefined();
+    expect((errorChunk as any).errorText).toContain("Research could not start");
   });
 
   it("does not extract memory from assistant or tool messages", async () => {
@@ -1080,7 +1062,7 @@ function createModel(folderNameResponse: string) {
     }),
     doStream: async (): Promise<LanguageModelV3StreamResult> => {
       streamCallCount++;
-      const text = streamCallCount <= 2 ? folderNameResponse : "Done.";
+      const text = streamCallCount <= 1 ? folderNameResponse : "Done.";
       return {
         stream: simulateReadableStream({
           chunks: textChunks(text),

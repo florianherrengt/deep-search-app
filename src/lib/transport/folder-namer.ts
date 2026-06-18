@@ -14,7 +14,6 @@ import {
   truncatePreview,
 } from "../sub-agent-report";
 import TITLE_SLUG_SYSTEM from "./title-slug-prompt.md?raw";
-import CHAT_TITLE_SYSTEM from "./chat-title-prompt.md?raw";
 
 const MAX_ATTEMPTS = 3;
 const STARTUP_NAME_ERROR_PREFIX =
@@ -85,12 +84,6 @@ export function extractCandidate(raw: string): string {
   return candidate.trim();
 }
 
-export function titleSlugFallback(title: string): string {
-  const slug = slugifyFolderName(title);
-  const words = slug.split("-").slice(0, 5);
-  return words.join("-");
-}
-
 export interface FolderNamingResult {
   folderName: string;
   report: SubAgentReport;
@@ -150,8 +143,12 @@ export async function generateFolderSlugWithReport(
         model,
         system: TITLE_SLUG_SYSTEM,
         prompt,
-        maxOutputTokens: 30,
+        maxOutputTokens: 120,
         abortSignal: options?.abortSignal,
+        providerOptions: {
+          deepseek: { thinking: { type: "disabled" } },
+          openrouter: { reasoning: { max_tokens: 0 } },
+        },
       });
 
       let chunksReceived = 0;
@@ -336,86 +333,21 @@ export async function generateFolderSlugWithReport(
     return { folderName: resolved, report };
   }
 
-  logWarn("all model attempts exhausted, using fallback slug");
-
-  const fallbackSlug = titleSlugFallback(title);
-  const fallbackValidation = validateResearchFolderName(fallbackSlug);
-
-  if (fallbackValidation) {
-    const finalError = `${STARTUP_NAME_ERROR_PREFIX} Failed to generate a valid folder name. Fallback slug "${fallbackSlug}" was rejected: ${fallbackValidation}`;
-    logError("fallback also failed", {
-      fallbackSlug,
-      rejection: fallbackValidation,
-    });
-
-    const report = buildReport(
-      reportStartedAt,
-      attempts,
-      undefined,
-      "rejected",
-      "validation_error",
-      finalError,
-      `Folder naming failed: ${fallbackValidation}`,
-      formatDebugSummary(attempts),
-    );
-
-    emitSubAgentEvent({ type: "report", id: saId, report });
-    emitSubAgentEvent({ type: "error", id: saId, error: finalError });
-    throw new Error(finalError);
-  }
-
-  let resolved: string;
-  try {
-    resolved = await resolveUniqueFolderName(fallbackSlug);
-  } catch (error) {
-    const errMsg = errorMessage(error);
-    logError("fallback unique name resolution failed", { error: errMsg });
-    const report = buildReport(
-      reportStartedAt,
-      attempts,
-      undefined,
-      "failed",
-      "filesystem_error",
-      `${STARTUP_NAME_ERROR_PREFIX} ${errMsg}`,
-      `Folder naming failed after fallback: ${errMsg}`,
-      formatDebugSummary(attempts),
-    );
-    emitSubAgentEvent({ type: "report", id: saId, report });
-    const finalError = `${STARTUP_NAME_ERROR_PREFIX} ${errMsg}`;
-    emitSubAgentEvent({ type: "error", id: saId, error: finalError });
-    throw new Error(finalError);
-  }
-
-  logDebug("folder naming succeeded via fallback", {
-    folderName: resolved,
-    source: "fallback",
-  });
-
-  const fallbackAttempt: SubAgentAttemptReport = {
-    attempt: MAX_ATTEMPTS + 1,
-    startedAt: new Date().toISOString(),
-    finishedAt: new Date().toISOString(),
-    durationMs: 0,
-    parsedOutputPreview: truncatePreview(fallbackSlug),
-    sanitizedOutputPreview: truncatePreview(fallbackSlug),
-    accepted: true,
-  };
-  attempts.push(fallbackAttempt);
-
+  logError("all model attempts exhausted, failing");
+  const finalError = `${STARTUP_NAME_ERROR_PREFIX} Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts.`;
   const report = buildReport(
     reportStartedAt,
     attempts,
-    resolved,
-    "success",
     undefined,
-    undefined,
+    "rejected",
+    "validation_error",
+    finalError,
+    `Folder naming failed after ${MAX_ATTEMPTS} LLM attempts.`,
     formatDebugSummary(attempts),
   );
-
   emitSubAgentEvent({ type: "report", id: saId, report });
-  emitSubAgentEvent({ type: "complete", id: saId });
-
-  return { folderName: resolved, report };
+  emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+  throw new Error(finalError);
 }
 
 function buildReport(
@@ -454,46 +386,6 @@ function formatDebugSummary(attempts: SubAgentAttemptReport[]): string {
     })
     .join("\n");
 }
-
-export function generateChatTitle(
-  model: LanguageModel,
-  userMessage: string,
-  options?: { abortSignal?: AbortSignal },
-): Promise<string> {
-  return _generateChatTitle(model, userMessage, options);
-}
-
-async function _generateChatTitle(
-  model: LanguageModel,
-  userMessage: string,
-  options?: { abortSignal?: AbortSignal },
-): Promise<string> {
-  const result = streamText({
-    model,
-    system: CHAT_TITLE_SYSTEM,
-    prompt: userMessage,
-    maxOutputTokens: 60,
-    abortSignal: options?.abortSignal,
-  });
-
-  for await (const _ of result.textStream) {
-    // consume the stream
-  }
-
-  const raw = (await result.text).trim();
-
-  const cleaned = raw
-    .replace(/^["'`]/, "")
-    .replace(/["'`.]$/, "")
-    .trim();
-
-  if (!cleaned) {
-    throw new Error("Chat title generation returned empty text");
-  }
-
-  return cleaned;
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error.";
 }

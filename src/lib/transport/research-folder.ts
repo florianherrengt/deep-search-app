@@ -3,7 +3,7 @@ import { listAppSubfolders, SafePathSegmentSchema } from "@/lib/app-file-storage
 
 const RESEARCH_FOLDER_SLUG_MAX_LENGTH = 100;
 const VALID_RESEARCH_FOLDER_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-const MAX_RESEARCH_FOLDER_WORDS = 5;
+export const MAX_RESEARCH_FOLDER_WORDS = 8;
 const DATE_ONLY_NAME = /^\d{4}-\d{2}-\d{2}(?:-\d{2}-\d{2}-\d{2})?$/;
 
 export function slugifyFolderName(text: string): string {

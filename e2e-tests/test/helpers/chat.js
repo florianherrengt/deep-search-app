@@ -744,7 +744,7 @@ export async function installOpenRouterMock(responses) {
         .trim()
         .split(/\s+/)
         .filter(Boolean)
-        .slice(0, 5);
+        .slice(0, 8);
 
       return words.join('-') || 'e2e-research';
     }

@@ -21,7 +21,8 @@ import {
 } from "@/lib/research-history";
 import { extractAndStoreMemories } from "@/lib/memory-agent";
 import { isRecord } from "@/lib/json";
-import { generateFolderSlug, generateChatTitle } from "./folder-namer";
+import { generateFolderSlug } from "./folder-namer";
+import { slugifyFolderName } from "./research-folder";
 
 export { createGuardedStream } from "./guarded-stream";
 export type { SearchToolKeys } from "./tool-registry";
@@ -212,13 +213,11 @@ export class DirectTransport implements ChatTransport<UIMessage> {
         try {
           if (!transport.researchFolder) {
             if (firstMessage) {
-              const chatTitle = await generateChatTitle(model, firstMessage, {
-                abortSignal,
-              }).catch(() => undefined);
+              const chatTitle = slugifyFolderName(firstMessage);
 
               const folderName = await generateFolderSlug(
                 model,
-                chatTitle ?? firstMessage,
+                firstMessage,
                 { abortSignal },
               );
 
@@ -227,7 +226,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
                 folderName,
                 transport.researchChatId,
                 messages,
-                { title: chatTitle },
+                { title: chatTitle || undefined },
               );
 
               transport.researchFolder = folderName;
