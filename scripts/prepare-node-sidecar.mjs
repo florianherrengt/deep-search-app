@@ -79,7 +79,7 @@ async function copyNodeBinaryFallback() {
         targetNode,
       ]);
     } catch (error) {
-      console.warn("Warning: codesign operations failed:", error.message);
+      throw new Error(`codesign operations failed: ${error.message}`, { cause: error });
     }
   }
 
