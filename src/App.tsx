@@ -28,7 +28,7 @@ import { AppUpdateButton } from "@/components/app-update-button";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
 import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
 import { ResearchSidebar } from "@/components/research-sidebar";
-import { SubAgentProvider, useSubAgentRunsByChat, useSubAgentSelectedRunId } from "@/lib/sub-agent-store";
+import { SubAgentProvider } from "@/lib/sub-agent-store";
 import { SubAgentSidebar } from "@/components/sub-agent-sidebar";
 import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
 import {
@@ -255,12 +255,16 @@ function AppInner() {
   researchChatsStatusRef.current = researchChatsStatus;
   const [selectedModelId, setSelectedModelId] = useState("");
   const [subAgentSidebarOpen, setSubAgentSidebarOpen] = useState(false);
-  const openSubAgentSidebar = useCallback(() => {
-    setSubAgentSidebarOpen(true);
-  }, []);
   const closeSubAgentSidebar = useCallback(() => {
     setSubAgentSidebarOpen(false);
   }, []);
+  const handleToggleSubAgentSidebar = useCallback(() => {
+    if (activeTabId !== "main") {
+      switchToTab("main");
+    }
+    if (!activeResearchChatId) return;
+    setSubAgentSidebarOpen((prev) => !prev);
+  }, [activeTabId, activeResearchChatId, switchToTab]);
   const chatModelOptions = useMemo(
     () => getChatModelOptions(settings),
     [settings],
@@ -685,10 +689,6 @@ function AppInner() {
             onReindexFolder={handleReindexResearchFolder}
           />
           <div className="md-flex-fill" style={{ display: "flex" }}>
-            <SubAgentSidebarAutoOpen
-              chatId={activeResearchChatId}
-              onOpen={openSubAgentSidebar}
-            />
             <div style={{ flex: 1, minWidth: 0 }}>
               {visibleChatSessions.map((session) => (
                 <div
@@ -751,44 +751,13 @@ function AppInner() {
       }
       tabs={tabs}
       activeTabId={activeTabId}
+      subAgentSidebarOpen={subAgentSidebarOpen}
+      onToggleSubAgentSidebar={handleToggleSubAgentSidebar}
       toolbarEnd={<AppUpdateButton />}
       onSwitchTab={switchToTab}
       onCloseTab={closeTab}
     />
   );
-}
-
-function SubAgentSidebarAutoOpen({
-  chatId,
-  onOpen,
-}: {
-  chatId: string | null;
-  onOpen: () => void;
-}) {
-  useSubAgentRenderCounter("SubAgentSidebarAutoOpen");
-  const runsByChat = useSubAgentRunsByChat();
-  const selectedRunId = useSubAgentSelectedRunId();
-  const sidebarRuns = chatId
-    ? (runsByChat[chatId] ?? []).filter(r => r.displayTarget?.type !== "toolCall")
-    : [];
-  const runCount = sidebarRuns.length;
-  const previousRef = useRef({ chatId: null as string | null, runCount: 0 });
-
-  useEffect(() => {
-    const previous = previousRef.current;
-    const chatChanged = previous.chatId !== chatId;
-    const countIncreased = runCount > previous.runCount;
-    previousRef.current = { chatId, runCount };
-
-    if (!chatId || runCount === 0) return;
-    if (chatChanged || countIncreased) onOpen();
-  }, [chatId, onOpen, runCount]);
-
-  useEffect(() => {
-    if (selectedRunId) onOpen();
-  }, [onOpen, selectedRunId]);
-
-  return null;
 }
 
 function createChatSessionId(prefix: string) {

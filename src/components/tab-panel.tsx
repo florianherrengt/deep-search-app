@@ -12,6 +12,8 @@ interface TabPanelProps {
   promptsPanel: ReactNode;
   skillsPanel: ReactNode;
   toolbarEnd?: ReactNode;
+  subAgentSidebarOpen?: boolean;
+  onToggleSubAgentSidebar?: () => void;
   tabs: BrowserTab[];
   activeTabId: string;
   onSwitchTab: (id: string) => void;
@@ -25,6 +27,8 @@ export function TabPanel({
   promptsPanel,
   skillsPanel,
   toolbarEnd,
+  subAgentSidebarOpen,
+  onToggleSubAgentSidebar,
   tabs,
   activeTabId,
   onSwitchTab,
@@ -96,8 +100,18 @@ export function TabPanel({
             </Button>
           </Group>
         ))}
+        {onToggleSubAgentSidebar && (
+          <Button
+            variant={subAgentSidebarOpen ? "light" : "subtle"}
+            size="compact-sm"
+            onClick={onToggleSubAgentSidebar}
+            style={{ marginLeft: "auto" }}
+          >
+            Sub agents
+          </Button>
+        )}
         {toolbarEnd && (
-          <Box style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "center" }}>
+          <Box style={{ flexShrink: 0, display: "flex", alignItems: "center", marginLeft: onToggleSubAgentSidebar ? 0 : "auto" }}>
             {toolbarEnd}
           </Box>
         )}
