@@ -199,7 +199,7 @@ function ComposerInput({ previousSearches }: { previousSearches: string[] }) {
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key !== "Tab" || previousSearches.length === 0) return;
+      if (event.key !== "Tab" || event.ctrlKey || previousSearches.length === 0) return;
       event.preventDefault();
       let newIndex: number;
       if (historyIndex === -1) {

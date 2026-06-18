@@ -140,6 +140,16 @@ describe("ComposerInput tab cycling", () => {
     await waitFor(() => expect(textarea.value).toBe("third query"));
   });
 
+  it("does not intercept Ctrl+Tab (lets sidebar folder cycling handle it)", () => {
+    renderThread(SEARCHES);
+    const textarea = getTextarea();
+
+    fireEvent.keyDown(textarea, { key: "Tab", ctrlKey: true });
+
+    // The textarea value should NOT change — Ctrl+Tab is reserved for sidebar cycling
+    expect(textarea.value).toBe("");
+  });
+
   it("allows full rotation and back to start", async () => {
     renderThread(SEARCHES);
     const textarea = getTextarea();

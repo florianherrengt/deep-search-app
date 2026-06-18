@@ -227,6 +227,7 @@ export function ResearchSidebar({
       <Box
         component="aside"
         data-testid="research-sidebar"
+        aria-keyshortcuts="Ctrl+Tab Ctrl+Shift+Tab"
         className="md-flex-col md-divider-right"
         style={{ width: 256, flexShrink: 0 }}
       >

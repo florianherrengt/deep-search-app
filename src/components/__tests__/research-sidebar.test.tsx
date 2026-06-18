@@ -1,9 +1,42 @@
-import type { ComponentProps } from "react";
+// @vitest-environment jsdom
+import { useEffect, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeAll } from "vitest";
+import { cleanup, render, fireEvent, waitFor } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
 import { ResearchSidebar } from "@/components/research-sidebar";
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
+
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+  if (typeof ResizeObserver === "undefined") {
+    (globalThis as Record<string, unknown>).ResizeObserver = class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  }
+  Object.defineProperty(Element.prototype, "scrollTo", {
+    configurable: true,
+    value: vi.fn(),
+  });
+});
+
+afterEach(() => {
+  cleanup();
+});
 
 const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
 const mockRerankerConfig: RerankerConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "cohere/rerank-4-pro" };
@@ -124,7 +157,169 @@ describe("ResearchSidebar", () => {
     expect(html).not.toContain("Research running in pricing-review");
     expect(html).not.toContain("Research running in Pricing options");
   });
+
+  it("includes aria-keyshortcuts on the sidebar element", () => {
+    const html = renderSidebar({
+      folders: [{ name: "acme-market-map" }, { name: "pricing-review" }],
+    });
+
+    expect(html).toContain('aria-keyshortcuts="Ctrl+Tab Ctrl+Shift+Tab"');
+  });
 });
+
+// ── Ctrl+Tab keyboard cycling ──────────────────────────────────────────────
+
+describe("Ctrl+Tab folder cycling", () => {
+  const FOLDERS = [
+    { name: "acme-market-map" },
+    { name: "pricing-review" },
+    { name: "supplier-audit" },
+  ];
+
+  it("does nothing when there are fewer than 2 folders", () => {
+    const onSelect = vi.fn();
+    renderCyclingWrapper({
+      folders: [{ name: "only-folder" }],
+      activeFolderName: null,
+      onSelectFolder: onSelect,
+    });
+
+    fireEvent.keyDown(window, { key: "Tab", ctrlKey: true });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("selects the first folder on Ctrl+Tab when none is active", async () => {
+    const onSelect = vi.fn();
+    renderCyclingWrapper({
+      folders: FOLDERS,
+      activeFolderName: null,
+      onSelectFolder: onSelect,
+    });
+
+    fireEvent.keyDown(window, { key: "Tab", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(onSelect).toHaveBeenCalledWith("acme-market-map");
+    });
+  });
+
+  it("selects the last folder on Ctrl+Shift+Tab when none is active", async () => {
+    const onSelect = vi.fn();
+    renderCyclingWrapper({
+      folders: FOLDERS,
+      activeFolderName: null,
+      onSelectFolder: onSelect,
+    });
+
+    fireEvent.keyDown(window, { key: "Tab", ctrlKey: true, shiftKey: true });
+
+    await waitFor(() => {
+      expect(onSelect).toHaveBeenCalledWith("supplier-audit");
+    });
+  });
+
+  it("cycles forward through folders with Ctrl+Tab", async () => {
+    const onSelect = vi.fn();
+    renderCyclingWrapper({
+      folders: FOLDERS,
+      activeFolderName: "pricing-review",
+      onSelectFolder: onSelect,
+    });
+
+    fireEvent.keyDown(window, { key: "Tab", ctrlKey: true });
+    await waitFor(() => {
+      expect(onSelect).toHaveBeenCalledWith("supplier-audit");
+    });
+  });
+
+  it("cycles backward through folders with Ctrl+Shift+Tab", async () => {
+    const onSelect = vi.fn();
+    renderCyclingWrapper({
+      folders: FOLDERS,
+      activeFolderName: "pricing-review",
+      onSelectFolder: onSelect,
+    });
+
+    fireEvent.keyDown(window, { key: "Tab", ctrlKey: true, shiftKey: true });
+    await waitFor(() => {
+      expect(onSelect).toHaveBeenCalledWith("acme-market-map");
+    });
+  });
+
+  it("wraps from last to first folder with Ctrl+Tab", async () => {
+    const onSelect = vi.fn();
+    renderCyclingWrapper({
+      folders: FOLDERS,
+      activeFolderName: "supplier-audit",
+      onSelectFolder: onSelect,
+    });
+
+    fireEvent.keyDown(window, { key: "Tab", ctrlKey: true });
+    await waitFor(() => {
+      expect(onSelect).toHaveBeenCalledWith("acme-market-map");
+    });
+  });
+
+  it("wraps from first to last folder with Ctrl+Shift+Tab", async () => {
+    const onSelect = vi.fn();
+    renderCyclingWrapper({
+      folders: FOLDERS,
+      activeFolderName: "acme-market-map",
+      onSelectFolder: onSelect,
+    });
+
+    fireEvent.keyDown(window, { key: "Tab", ctrlKey: true, shiftKey: true });
+    await waitFor(() => {
+      expect(onSelect).toHaveBeenCalledWith("supplier-audit");
+    });
+  });
+
+  it("does not intercept plain Tab (without Ctrl)", () => {
+    const onSelect = vi.fn();
+    renderCyclingWrapper({
+      folders: FOLDERS,
+      activeFolderName: "acme-market-map",
+      onSelectFolder: onSelect,
+    });
+
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("does intercept Ctrl+Tab when focus is in a text input", () => {
+    const onSelect = vi.fn();
+    const { container } = renderCyclingWrapper({
+      folders: FOLDERS,
+      activeFolderName: "acme-market-map",
+      onSelectFolder: onSelect,
+    });
+
+    const input = document.createElement("input");
+    container.appendChild(input);
+    input.focus();
+
+    fireEvent.keyDown(input, { key: "Tab", ctrlKey: true });
+    expect(onSelect).toHaveBeenCalledWith("pricing-review");
+  });
+
+  it("does intercept Ctrl+Tab when focus is in a textarea", () => {
+    const onSelect = vi.fn();
+    const { container } = renderCyclingWrapper({
+      folders: FOLDERS,
+      activeFolderName: "acme-market-map",
+      onSelectFolder: onSelect,
+    });
+
+    const textarea = document.createElement("textarea");
+    container.appendChild(textarea);
+    textarea.focus();
+
+    fireEvent.keyDown(textarea, { key: "Tab", ctrlKey: true });
+    expect(onSelect).toHaveBeenCalledWith("pricing-review");
+  });
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 type ResearchSidebarProps = ComponentProps<typeof ResearchSidebar>;
 
@@ -151,4 +346,71 @@ function renderSidebar(props: Partial<ResearchSidebarProps> = {}) {
       />
     </MantineProvider>,
   );
+}
+
+interface CyclingWrapperProps {
+  folders: { name: string }[];
+  activeFolderName: string | null;
+  onSelectFolder: (name: string) => void;
+}
+
+/**
+ * Minimal wrapper that mounts ResearchSidebar together with the same
+ * Ctrl+Tab window keydown listener that AppInner uses.
+ */
+function CyclingWrapper({ folders, activeFolderName, onSelectFolder }: CyclingWrapperProps) {
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab" || !e.ctrlKey) return;
+
+      if (folders.length < 2) return;
+
+      e.preventDefault();
+
+      const currentIndex = folders.findIndex(f => f.name === activeFolderName);
+      let nextIndex: number;
+
+      if (currentIndex === -1) {
+        nextIndex = e.shiftKey ? folders.length - 1 : 0;
+      } else if (e.shiftKey) {
+        nextIndex = currentIndex === 0 ? folders.length - 1 : currentIndex - 1;
+      } else {
+        nextIndex = currentIndex === folders.length - 1 ? 0 : currentIndex + 1;
+      }
+
+      const nextFolder = folders[nextIndex];
+      if (nextFolder) {
+        onSelectFolder(nextFolder.name);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [folders, activeFolderName, onSelectFolder]);
+
+  return (
+    <MantineProvider>
+      <ResearchSidebar
+        folders={folders}
+        activeFolderName={activeFolderName}
+        chats={[]}
+        activeChatId={null}
+        embeddingConfig={mockEmbeddingConfig}
+        rerankerConfig={mockRerankerConfig}
+        status="ready"
+        chatsStatus="idle"
+        onNewChat={vi.fn()}
+        onSelectFolder={onSelectFolder}
+        onNewResearchChat={vi.fn()}
+        onSelectChat={vi.fn()}
+        onRenameFolder={vi.fn()}
+        onDeleteFolder={vi.fn()}
+        onReindexFolder={vi.fn()}
+      />
+    </MantineProvider>
+  );
+}
+
+function renderCyclingWrapper(props: CyclingWrapperProps) {
+  return render(<CyclingWrapper {...props} />);
 }

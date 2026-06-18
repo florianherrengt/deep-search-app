@@ -407,6 +407,40 @@ function AppInner() {
     switchToTab,
   });
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleSelectResearchFolderRef = useRef<(folderName: string) => void>(null!);
+
+  // Ctrl+Tab cycles through the "Previous Searches" folder list in the research sidebar.
+  // Ctrl+Shift+Tab cycles backward.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab" || !e.ctrlKey) return;
+
+      if (researchFolders.length < 2) return;
+
+      e.preventDefault();
+
+      const currentIndex = researchFolders.findIndex(f => f.name === activeResearchFolder);
+      let nextIndex: number;
+
+      if (currentIndex === -1) {
+        nextIndex = e.shiftKey ? researchFolders.length - 1 : 0;
+      } else if (e.shiftKey) {
+        nextIndex = currentIndex === 0 ? researchFolders.length - 1 : currentIndex - 1;
+      } else {
+        nextIndex = currentIndex === researchFolders.length - 1 ? 0 : currentIndex + 1;
+      }
+
+      const nextFolder = researchFolders[nextIndex];
+      if (nextFolder) {
+        handleSelectResearchFolderRef.current(nextFolder.name);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [researchFolders, activeResearchFolder]);
+
   if (loading) return null;
 
   if (settingsError) {
@@ -511,6 +545,8 @@ function AppInner() {
       });
     }
   };
+
+  handleSelectResearchFolderRef.current = handleSelectResearchFolder;
 
   const handleSelectResearchChat = async (
     folderName: string,
