@@ -1,4 +1,7 @@
 import { createTauriPageLoader } from "@deep-search/search-extract";
+import { createChromeMcpPageLoader } from "./chrome-mcp-page-loader";
+
+export { createChromeMcpPageLoader };
 
 export function createAppPageLoader(opts: {
   fetchHtml: (url: string, signal?: AbortSignal) => Promise<string | null>;

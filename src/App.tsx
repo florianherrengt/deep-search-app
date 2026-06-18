@@ -428,6 +428,7 @@ function AppInner() {
     chromeDevToolsMcpEnabled: settings.chrome_devtools_mcp_enabled,
     chromeDevToolsMcpConnectionMode: settings.chrome_devtools_mcp_connection_mode,
     chromeDevToolsMcpBrowserUrl: settings.chrome_devtools_mcp_browser_url || null,
+    webExtractionBackend: settings.web_extraction_backend,
   };
   const effectiveSelectedModelId = selectedModelId || defaultChatModelId;
 

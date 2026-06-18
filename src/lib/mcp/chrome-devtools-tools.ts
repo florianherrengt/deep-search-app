@@ -113,7 +113,7 @@ async function createChromeDevToolsMcpToolsInternal(
   ) satisfies ToolSet;
 }
 
-async function getChromeDevToolsMcpClient(
+export async function getChromeDevToolsMcpClient(
   connection: { connectionMode?: ChromeMcpConnectionMode; browserUrl?: string },
 ): Promise<Client> {
   clientPromise ??= (async () => {

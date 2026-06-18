@@ -2,9 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/tauri-bridge", () => ({
   invoke: vi.fn(),
+  isTauri: vi.fn(() => true),
 }));
 
-import { invoke } from "@/lib/tauri-bridge";
+const mockMcpCallTool = vi.fn();
+const mockMcpGetClient = vi.fn();
+
+vi.mock("@/lib/mcp/chrome-devtools-tools", () => ({
+  getChromeDevToolsMcpClient: (...args: unknown[]) => mockMcpGetClient(...args),
+}));
+
+import { invoke, isTauri } from "@/lib/tauri-bridge";
 import {
   extractPageContent,
   fetchHtml,
@@ -355,5 +363,162 @@ describe("extractPageContent edge cases", () => {
     expect(mockInvoke).toHaveBeenCalledWith("fetch_html", {
       url: "https://store.myshopify.com/products/test-product",
     });
+  });
+});
+
+describe("extractPageContent with Chrome MCP backend", () => {
+  const CHROME_MCP_HTML = "<html><body><p>Extracted via Chrome</p></body></html>";
+
+  const chromeMcpConfig = {
+    enabled: true,
+    connectionMode: "auto" as const,
+    backend: "chrome-mcp" as const,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(isTauri).mockReturnValue(true);
+    mockMcpGetClient.mockResolvedValue({ callTool: mockMcpCallTool });
+  });
+
+  it("extracts content using Chrome MCP when backend is chrome-mcp", async () => {
+    mockMcpCallTool
+      .mockResolvedValueOnce({ content: [], isError: false })
+      .mockResolvedValueOnce({ content: [{ type: "text", text: CHROME_MCP_HTML }], isError: false });
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      { summarize: false, chromeMcp: chromeMcpConfig },
+    );
+
+    expect(result).toContain("Extracted via Chrome");
+    expect(mockMcpCallTool).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "navigate_page" }),
+      undefined,
+      expect.anything(),
+    );
+    expect(mockMcpCallTool).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "evaluate_script" }),
+      undefined,
+      expect.anything(),
+    );
+    expect(mockInvoke).not.toHaveBeenCalledWith("open_tab", expect.anything());
+  });
+
+  it("returns error when Chrome MCP is not connected", async () => {
+    mockMcpGetClient.mockRejectedValue(new Error("Chrome MCP is not connected"));
+
+    await expect(
+      extractPageContent(
+        "https://example.com/page",
+        { summarize: false, chromeMcp: chromeMcpConfig },
+      ),
+    ).rejects.toThrow("Chrome MCP is not connected");
+  });
+
+  it("returns error when navigation fails", async () => {
+    mockMcpCallTool.mockRejectedValue(new Error("Navigation timed out"));
+
+    await expect(
+      extractPageContent(
+        "https://example.com/page",
+        { summarize: false, chromeMcp: chromeMcpConfig },
+      ),
+    ).rejects.toThrow("Navigation timed out");
+  });
+
+  it("returns error when evaluate_script returns empty content", async () => {
+    mockMcpCallTool
+      .mockResolvedValueOnce({ content: [], isError: false })
+      .mockResolvedValueOnce({ content: [], isError: false });
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      { summarize: false, chromeMcp: chromeMcpConfig },
+    );
+
+    expect(result).toContain("No content could be extracted");
+  });
+
+  it("uses Tauri webview when backend is tauri-webview (default)", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "extract_content") return OLD_REDDIT_HTML;
+      return undefined;
+    });
+
+    const result = await extractPageContent(
+      "https://www.reddit.com/r/test/comments/abc/test_post/",
+      {
+        summarize: false,
+        chromeMcp: { enabled: true, backend: "tauri-webview" },
+      },
+    );
+
+    expect(result).toContain("# Test Post");
+    expect(mockInvoke).toHaveBeenCalledWith("open_tab", expect.objectContaining({
+      url: "https://old.reddit.com/r/test/comments/abc/test_post/",
+    }));
+    expect(mockMcpCallTool).not.toHaveBeenCalled();
+  });
+
+  it("uses Tauri webview when Chrome MCP is enabled but backend is tauri-webview", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "extract_content") return OLD_REDDIT_HTML;
+      return undefined;
+    });
+
+    const result = await extractPageContent(
+      "https://www.reddit.com/r/test/comments/abc/test_post/",
+      {
+        summarize: false,
+        chromeMcp: { enabled: true, backend: "tauri-webview" },
+      },
+    );
+
+    expect(result).toContain("# Test Post");
+    expect(mockMcpCallTool).not.toHaveBeenCalled();
+  });
+
+  it("uses Tauri webview when Chrome MCP is not enabled even if backend is chrome-mcp", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "extract_content") return OLD_REDDIT_HTML;
+      return undefined;
+    });
+
+    const result = await extractPageContent(
+      "https://www.reddit.com/r/test/comments/abc/test_post/",
+      {
+        summarize: false,
+        chromeMcp: { enabled: false, backend: "chrome-mcp" },
+      },
+    );
+
+    expect(result).toContain("# Test Post");
+    expect(mockMcpCallTool).not.toHaveBeenCalled();
+  });
+
+  it("produces the same result shape with Chrome MCP as with webview", async () => {
+    mockMcpCallTool
+      .mockResolvedValueOnce({ content: [], isError: false })
+      .mockResolvedValueOnce({ content: [{ type: "text", text: "<html><body><p>Same content</p></body></html>" }], isError: false });
+
+    const chromeResult = await extractPageContent(
+      "https://example.com/page",
+      { summarize: false, chromeMcp: chromeMcpConfig },
+    );
+
+    expect(chromeResult).toContain("Same content");
+
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "extract_content") return "<html><body><p>Same content</p></body></html>";
+      return undefined;
+    });
+
+    const webviewResult = await extractPageContent(
+      "https://example.com/page",
+      { summarize: false, method: "webview" },
+    );
+
+    expect(chromeResult).toBe(webviewResult);
   });
 });

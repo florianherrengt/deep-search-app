@@ -48,6 +48,10 @@ export const CHROME_MCP_CONNECTION_MODES = ["auto", "browser-url"] as const;
 export const chromeMcpConnectionModeSchema = z.enum(CHROME_MCP_CONNECTION_MODES);
 export type ChromeMcpConnectionMode = z.infer<typeof chromeMcpConnectionModeSchema>;
 
+export const WEB_EXTRACTION_BACKENDS = ["tauri-webview", "chrome-mcp"] as const;
+export const webExtractionBackendSchema = z.enum(WEB_EXTRACTION_BACKENDS);
+export type WebExtractionBackend = z.infer<typeof webExtractionBackendSchema>;
+
 export const EMBEDDING_DEFAULTS = {
   base_url: "https://openrouter.ai/api/v1",
   model: "qwen/qwen3-embedding-4b",
@@ -85,6 +89,7 @@ export const settingsSchema = z.object({
   chrome_devtools_mcp_enabled: z.boolean(),
   chrome_devtools_mcp_connection_mode: chromeMcpConnectionModeSchema,
   chrome_devtools_mcp_browser_url: z.string(),
+  web_extraction_backend: webExtractionBackendSchema,
   embedding_api_key: z.string(),
   embedding_base_url: z.string(),
   embedding_model: z.string(),
@@ -122,6 +127,7 @@ export const settingsDefaults: Settings = {
   chrome_devtools_mcp_enabled: false,
   chrome_devtools_mcp_connection_mode: "auto",
   chrome_devtools_mcp_browser_url: "",
+  web_extraction_backend: "tauri-webview",
   embedding_api_key: "",
   embedding_base_url: EMBEDDING_DEFAULTS.base_url,
   embedding_model: EMBEDDING_DEFAULTS.model,

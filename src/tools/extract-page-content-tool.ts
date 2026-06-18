@@ -28,7 +28,8 @@ import {
   isAmazonChallengePage,
   type SearchExtractEngine,
 } from "@deep-search/search-extract";
-import { createAppPageLoader } from "./extraction-page-loader";
+import { createAppPageLoader, createChromeMcpPageLoader } from "./extraction-page-loader";
+import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 
 const DEFAULT_WEBVIEW_RETRY_INTERVAL_MS = 5_000;
 const DEFAULT_WEBVIEW_MAX_WAIT_MS = 5 * 60_000;
@@ -42,6 +43,12 @@ interface ExtractPageContentOptions {
   model?: LanguageModel;
   getResearchFolder?: () => Promise<string | null | undefined>;
   abortSignal?: AbortSignal;
+  chromeMcp?: {
+    enabled: boolean;
+    connectionMode?: ChromeMcpConnectionMode;
+    browserUrl?: string;
+    backend: WebExtractionBackend;
+  };
 }
 
 type RawContentLocation = {
@@ -53,14 +60,34 @@ let webviewExtractionQueue: Promise<void> = Promise.resolve();
 let nextWebviewTabId = 0;
 
 let _engine: SearchExtractEngine | null = null;
+let _engineKey: string | undefined;
 
-function getEngine(): SearchExtractEngine {
-  if (!_engine) {
-    _engine = createSearchExtractEngine({
-      pageLoader: createAppPageLoader({ fetchHtml, extractViaWebview }),
-      extractors: [new RedditExtractor(), new AmazonExtractor(), new ShopifyExtractor()],
-    });
-  }
+function getEngine(
+  chromeMcp?: {
+    enabled: boolean;
+    connectionMode?: ChromeMcpConnectionMode;
+    browserUrl?: string;
+    backend: WebExtractionBackend;
+  },
+): SearchExtractEngine {
+  const backend = chromeMcp?.backend ?? "tauri-webview";
+  const shouldUseChromeMcp = backend === "chrome-mcp" && chromeMcp?.enabled;
+  const engineKey = shouldUseChromeMcp ? `chrome-mcp:${chromeMcp?.connectionMode ?? ""}` : "tauri-webview";
+
+  if (_engine && _engineKey === engineKey) return _engine;
+
+  const pageLoader = shouldUseChromeMcp
+    ? createChromeMcpPageLoader({
+        connectionMode: chromeMcp!.connectionMode,
+        browserUrl: chromeMcp!.browserUrl,
+      })
+    : createAppPageLoader({ fetchHtml, extractViaWebview });
+
+  _engine = createSearchExtractEngine({
+    pageLoader,
+    extractors: [new RedditExtractor(), new AmazonExtractor(), new ShopifyExtractor()],
+  });
+  _engineKey = engineKey;
   return _engine;
 }
 
@@ -382,7 +409,7 @@ export async function extractPageContent(
     emitSubAgentEvent({ type: "text-delta", id: saId, delta: `Extracting content from ${url}...\n\n` });
   }
 
-  const engine = getEngine();
+  const engine = getEngine(options.chromeMcp);
   const extractResult = await engine.extract(url, {
     method: mapAppMethod(forced),
     summarize: false,
@@ -473,6 +500,12 @@ export const extractPageContentInputSchema = z.object({
 export function createExtractPageContentTool(
   model: LanguageModel,
   getResearchFolder: () => Promise<string>,
+  chromeMcp?: {
+    enabled: boolean;
+    connectionMode?: ChromeMcpConnectionMode;
+    browserUrl?: string;
+    backend: WebExtractionBackend;
+  },
 ) {
   return tool({
     description:
@@ -507,6 +540,7 @@ export function createExtractPageContentTool(
           getResearchFolder,
           abortSignal: options?.abortSignal,
           subAgentId: saId,
+          chromeMcp,
         });
 
         emitSubAgentEvent({ type: "complete", id: saId });

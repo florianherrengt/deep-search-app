@@ -27,7 +27,9 @@ const ConversionItemSchema = z.object({
     .describe("Currency code of the amount (e.g. USD, EUR, GBP)"),
 });
 
-const currencyConversionInputSchema = z.array(ConversionItemSchema);
+const currencyConversionInputSchema = z.object({
+  conversions: z.array(ConversionItemSchema).describe("List of conversions to perform"),
+});
 
 const currencyConversionOutputSchema = z.array(z.string());
 
@@ -79,7 +81,7 @@ export function createCurrencyConversionTool(targetCurrency: Currency) {
         return (item.amount * cached.rate).toFixed(2);
       };
 
-      return Promise.all(input.map(convertOne));
+      return Promise.all(input.conversions.map(convertOne));
     },
   });
 }

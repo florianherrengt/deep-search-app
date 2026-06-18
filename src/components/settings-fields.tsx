@@ -15,6 +15,7 @@ import {
   CURRENCIES,
   EMBEDDING_DEFAULTS,
   RERANKER_DEFAULTS,
+  WEB_EXTRACTION_BACKENDS,
   resolveEmbeddingConfig,
 } from "@/lib/settings-store";
 import { backfillIndex } from "@/lib/research-search";
@@ -336,6 +337,30 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             )}
           </Stack>
         )}
+        <Stack gap="xs" mt="sm">
+          <Text size="sm" fw={500}>Extraction backend</Text>
+          <Select
+            disabled={!settings.chrome_devtools_mcp_enabled}
+            value={settings.web_extraction_backend}
+            onChange={(value) => {
+              if (value) {
+                void updateSetting(
+                  "web_extraction_backend",
+                  value as Settings["web_extraction_backend"],
+                );
+              }
+            }}
+            data={WEB_EXTRACTION_BACKENDS.map((b) => ({
+              value: b,
+              label: b === "tauri-webview" ? "Tauri webview" : "Chrome MCP",
+            }))}
+          />
+          <Text size="xs" c="dimmed">
+            {settings.chrome_devtools_mcp_enabled
+              ? "Chrome MCP uses your local Chrome browser to render and extract pages. Tauri webview is the built-in renderer."
+              : "Enable Chrome DevTools MCP above to unlock Chrome MCP as an extraction backend."}
+          </Text>
+        </Stack>
       </Paper>
     </Stack>
   );

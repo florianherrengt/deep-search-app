@@ -17,7 +17,7 @@ import { createSwitchResearchFolderTool } from "@/tools/switch-research-folder-t
 import { createCurrencyConversionTool } from "@/tools/currency-conversion-tool";
 import { createFactsCheckTool } from "@/tools/facts-check-tool";
 import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
-import type { Currency, ChromeMcpConnectionMode } from "@/lib/settings-store";
+import type { Currency, ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { createChromeDevToolsMcpTools } from "@/lib/mcp/chrome-devtools-tools";
 
@@ -31,6 +31,7 @@ export interface SearchToolKeys {
   chromeDevToolsMcpEnabled?: boolean;
   chromeDevToolsMcpConnectionMode?: ChromeMcpConnectionMode;
   chromeDevToolsMcpBrowserUrl?: string | null;
+  webExtractionBackend?: WebExtractionBackend;
 }
 
 export async function createTools({
@@ -78,7 +79,18 @@ export async function createTools({
     create_research_plan: createResearchPlanTool(model),
     research_checkpoint: createResearchCheckpointTool(model),
 
-    extract_page_content: createExtractPageContentTool(model, getResearchFolder),
+    extract_page_content: createExtractPageContentTool(
+      model,
+      getResearchFolder,
+      searchKeys?.chromeDevToolsMcpEnabled
+        ? {
+            enabled: true,
+            connectionMode: searchKeys.chromeDevToolsMcpConnectionMode,
+            browserUrl: searchKeys.chromeDevToolsMcpBrowserUrl ?? undefined,
+            backend: searchKeys?.webExtractionBackend ?? "tauri-webview",
+          }
+        : undefined,
+    ),
     facts_check: createFactsCheckTool(model),
     create_file: createCreateFileTool(getResearchFolder, embeddingConfig),
     read_file: createReadFileTool(getResearchFolder),
