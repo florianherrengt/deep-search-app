@@ -27,7 +27,7 @@ const ConversionItemSchema = z.object({
     .describe("Currency code of the amount (e.g. USD, EUR, GBP)"),
 });
 
-const currencyConversionInputSchema = z.object({
+export const currencyConversionInputSchema = z.object({
   conversions: z.array(ConversionItemSchema).describe("List of conversions to perform"),
 });
 
