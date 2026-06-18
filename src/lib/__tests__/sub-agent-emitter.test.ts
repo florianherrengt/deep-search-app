@@ -78,6 +78,25 @@ describe("emitSubAgentEvent", () => {
     emitSubAgentEvent(startEvent("1"));
     expect(handlerA).not.toHaveBeenCalled();
   });
+
+  it("emitSubAgentEvent stamps displayTarget on start events without one", () => {
+    const handler = vi.fn();
+    setDirectEventHandler("chatA", handler);
+    setActiveSubAgentEmitter(vi.fn(), null, "chatA");
+
+    const event = startEvent("1");
+    // startEvent helper does not set displayTarget
+    if (event.type === "start") {
+      expect(event.displayTarget).toBeUndefined();
+    }
+    emitSubAgentEvent(event);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const received = handler.mock.calls[0][0];
+    if (received.type === "start") {
+      expect(received.displayTarget).toEqual({ type: "sidebar" });
+    }
+  });
 });
 
 describe("getParentMessageId", () => {

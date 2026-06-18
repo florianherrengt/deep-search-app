@@ -141,6 +141,7 @@ const meta = {
     selectedModelId: models[0].id,
     onSelectedModelIdChange: () => undefined,
     tokenCount: 12_800,
+    previousSearches: [] as string[],
     initialMessages: conversationMessages,
   },
   render: (args) => <ThreadStory {...args} />,
@@ -207,3 +208,16 @@ export const ErrorMessage: Story = {
     tokenCount: 400,
   },
 };
+
+export const PreviousSearchCycling: Story = {
+  args: {
+    initialMessages: [],
+    tokenCount: 0,
+    previousSearches: [
+      "What is the latest version of React?",
+      "Compare Tauri and Electron for desktop apps",
+      "Explain the Vercel AI SDK streaming protocol",
+    ],
+  },
+};
+

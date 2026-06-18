@@ -529,6 +529,9 @@ export function createExtractPageContentTool(
         name: "Content Extraction",
         toolName: "extract_page_content",
         parentMessageId: "tool",
+        displayTarget: options.toolCallId
+          ? { type: "toolCall", toolCallId: options.toolCallId }
+          : { type: "sidebar" },
       });
 
       try {

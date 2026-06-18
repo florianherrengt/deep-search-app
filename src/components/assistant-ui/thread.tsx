@@ -6,6 +6,7 @@ import {
   ErrorPrimitive,
   AuiIf,
   MessagePartPrimitive,
+  useAui,
   useAuiState,
   type PartState,
 } from "@assistant-ui/react";
@@ -57,6 +58,8 @@ interface ThreadProps {
   onConfigure?: () => void;
   hasEnabledModel?: boolean;
   tokenCount: number;
+  chatId?: string;
+  previousSearches: string[];
 }
 
 export function Thread({
@@ -66,6 +69,8 @@ export function Thread({
   onConfigure,
   hasEnabledModel = true,
   tokenCount,
+  chatId,
+  previousSearches,
 }: ThreadProps) {
   const selectedModel = models.find((model) => model.id === selectedModelId);
 
@@ -86,7 +91,7 @@ export function Thread({
           </div>
         </AuiIf>
         <ThreadPrimitive.Messages>
-          {() => <ThreadMessage />}
+          {() => <ThreadMessage chatId={chatId} />}
         </ThreadPrimitive.Messages>
       </ThreadPrimitive.Viewport>
 
@@ -112,7 +117,7 @@ export function Thread({
           <ArrowDownIcon style={{ width: 16, height: 16 }} />
         </ThreadPrimitive.ScrollToBottom>
         <ComposerPrimitive.Root style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <ComposerInput />
+          <ComposerInput previousSearches={previousSearches} />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={{ display: "flex", minWidth: 0, alignItems: "center", gap: 8 }}>
               {hasEnabledModel ? (
@@ -166,24 +171,51 @@ export function Thread({
   );
 }
 
-function ComposerInput() {
+function ComposerInput({ previousSearches }: { previousSearches: string[] }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const rafScheduledRef = useRef(false);
   const [hasVerticalOverflow, setHasVerticalOverflow] = useState(false);
+  const aui = useAui();
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const programmaticRef = useRef(false);
 
   const refreshOverflow = useCallback(() => {
     if (typeof window === "undefined") return;
     if (rafScheduledRef.current) return;
-
     rafScheduledRef.current = true;
     window.requestAnimationFrame(() => {
       rafScheduledRef.current = false;
       const input = inputRef.current;
       if (!input) return;
-
       setHasVerticalOverflow(input.scrollHeight > input.clientHeight + 1);
     });
   }, []);
+
+  const handleChange = useCallback(() => {
+    if (programmaticRef.current) return;
+    if (historyIndex !== -1) setHistoryIndex(-1);
+    refreshOverflow();
+  }, [historyIndex, refreshOverflow]);
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key !== "Tab" || previousSearches.length === 0) return;
+      event.preventDefault();
+      let newIndex: number;
+      if (historyIndex === -1) {
+        newIndex = previousSearches.length - 1;
+      } else if (event.shiftKey) {
+        newIndex = historyIndex === 0 ? previousSearches.length - 1 : historyIndex - 1;
+      } else {
+        newIndex = historyIndex === previousSearches.length - 1 ? 0 : historyIndex + 1;
+      }
+      setHistoryIndex(newIndex);
+      programmaticRef.current = true;
+      aui.composer().setText(previousSearches[newIndex]);
+      setTimeout(() => { programmaticRef.current = false; }, 0);
+    },
+    [aui, historyIndex, previousSearches],
+  );
 
   const setInputRef = useCallback(
     (node: HTMLTextAreaElement | null) => {
@@ -200,7 +232,8 @@ function ComposerInput() {
       minRows={1}
       maxRows={8}
       autoFocus
-      onChange={refreshOverflow}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
       onHeightChange={refreshOverflow}
       style={{
         width: "100%",
@@ -246,7 +279,7 @@ function MessageActionBar() {
   );
 }
 
-function ThreadMessage() {
+function ThreadMessage({ chatId }: { chatId?: string }) {
   const role = useAuiState((s) => s.message.role);
   const isRunning = useAuiState((s) => s.thread.isRunning);
   return (
@@ -332,6 +365,8 @@ function ThreadMessage() {
                       toolName={toolPart.toolName}
                       args={toolPart.args}
                       result={toolPart.result}
+                      chatId={chatId}
+                      toolCallId={toolPart.toolCallId}
                       status={
                         toolPart.status?.type === "running"
                           ? "running"

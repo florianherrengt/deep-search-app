@@ -417,7 +417,7 @@ function isStubValue(value: string, stub: string): boolean {
   return !value || value === stub;
 }
 
-function applyEvent(
+export function applyEvent(
   runs: SubAgentRun[],
   event: SubAgentEvent,
   parentChatId: string,
@@ -438,6 +438,7 @@ function applyEvent(
             toolName: isStubValue(run.toolName, STUB_TOOL_NAME) ? event.toolName : run.toolName,
             parentMessageId: run.parentMessageId || event.parentMessageId,
             chatId: runChatId,
+            displayTarget: event.displayTarget ?? run.displayTarget,
           }));
         }
         return runs;
@@ -460,6 +461,7 @@ function applyEvent(
           toolCalls: [],
           error: null,
           parentMessageId: event.parentMessageId,
+          displayTarget: event.displayTarget ?? { type: "sidebar" },
         },
       ];
     }
@@ -578,6 +580,7 @@ function ensureRun(
       toolCalls: [],
       error: null,
       parentMessageId: "",
+      displayTarget: { type: "sidebar" },
     },
   ];
 }

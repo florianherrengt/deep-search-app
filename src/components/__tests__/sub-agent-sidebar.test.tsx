@@ -362,4 +362,31 @@ describe("SubAgentSidebar", () => {
     expect(screen.queryByText("Streaming text")).not.toBeInTheDocument();
     expect(screen.getByText("Chat 2 output")).toBeInTheDocument();
   });
+
+  it("hides runs with toolCall displayTarget from sidebar", () => {
+    const toolRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-tool",
+      chatId: "run-tool",
+      displayTarget: { type: "toolCall", toolCallId: "tc-1" },
+    };
+    const sidebarRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-sidebar",
+      chatId: "run-sidebar",
+      displayTarget: { type: "sidebar" },
+    };
+    const noTargetRun: SubAgentRun = {
+      ...baseRun,
+      id: "run-default",
+      chatId: "run-default",
+    };
+
+    renderSidebar({ runs: [toolRun, sidebarRun, noTargetRun] });
+
+    expect(screen.queryByText("run-tool")).not.toBeInTheDocument();
+    // sidebar and default (no displayTarget) should both show
+    const researchItems = screen.getAllByText("Research pricing");
+    expect(researchItems).toHaveLength(2);
+  });
 });

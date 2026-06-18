@@ -338,4 +338,73 @@ describe("sub-agent persistence", () => {
 
     consoleSpy.mockRestore();
   });
+
+  it("normalizes displayTarget: sidebar", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-dt-sidebar",
+          name: "Test",
+          toolName: "retrieval_agent",
+          status: "completed",
+          source: "sub-agent",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          text: "",
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+          displayTarget: { type: "sidebar" },
+        },
+      ]),
+    );
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+    expect(runs[0].displayTarget).toEqual({ type: "sidebar" });
+  });
+
+  it("normalizes displayTarget: toolCall", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-dt-tc",
+          name: "Test",
+          toolName: "retrieval_agent",
+          status: "completed",
+          source: "sub-agent",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          text: "",
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+          displayTarget: { type: "toolCall", toolCallId: "tc-1" },
+        },
+      ]),
+    );
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+    expect(runs[0].displayTarget).toEqual({ type: "toolCall", toolCallId: "tc-1" });
+  });
+
+  it("normalizes invalid displayTarget to undefined", async () => {
+    mockReadAppFile.mockResolvedValue(
+      JSON.stringify([
+        {
+          id: "sa-dt-invalid",
+          name: "Test",
+          toolName: "retrieval_agent",
+          status: "completed",
+          source: "sub-agent",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          text: "",
+          toolCalls: [],
+          error: null,
+          parentMessageId: "transport",
+          displayTarget: { type: "invalid" },
+        },
+      ]),
+    );
+
+    const runs = await readSubAgentRuns("folder-1", "chat-1");
+    expect(runs[0].displayTarget).toBeUndefined();
+  });
 });

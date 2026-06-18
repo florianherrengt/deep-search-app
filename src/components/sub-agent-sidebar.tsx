@@ -1,11 +1,9 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Collapse, ScrollArea, Text, UnstyledButton } from "@mantine/core";
 import { BotIcon, ChevronDownIcon, XIcon } from "lucide-react";
-import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
-import { MarkdownContent } from "@/components/assistant-ui/markdown-text";
+import { SubAgentTranscriptInline } from "@/components/sub-agent-transcript-inline";
 import { useSubAgentActions, useSubAgentReaders } from "@/lib/sub-agent-store";
 import type { SubAgentRun } from "@/lib/sub-agent-types";
-import type { SubAgentReport } from "@/lib/sub-agent-report";
 import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
 
 interface SubAgentSidebarProps {
@@ -34,6 +32,7 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
       let changed = false;
 
       for (const run of runs) {
+        if (run.displayTarget?.type === "toolCall") continue;
         if ((run.status === "running" || run.status === "streaming") && !next.has(run.id) && !userCollapsedRef.current.has(run.id)) {
           next.add(run.id);
           changed = true;
@@ -51,7 +50,10 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   }, [runs, selectedRun]);
 
   const visibleRuns = useMemo(
-    () => [...deferredRuns].sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
+    () => {
+      const filtered = [...deferredRuns].filter(r => r.displayTarget?.type !== "toolCall");
+      return filtered.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    },
     [deferredRuns],
   );
 
@@ -221,191 +223,15 @@ const SubAgentRunCard = memo(function SubAgentRunCard({
 
 function SubAgentTranscript({ run }: { run: SubAgentRun }) {
   useSubAgentRenderCounter("SubAgentTranscript");
-  const deferredText = useDeferredValue(run.text);
-  const hasContent = deferredText.trim().length > 0;
-  const isActive = run.status === "running" || run.status === "streaming";
-  const isCancelled = run.status === "cancelled";
-
   return (
-    <Box style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {hasContent ? (
-        <Box style={{ overflowX: "auto", fontSize: 13, lineHeight: 1.55 }}>
-          {isActive ? (
-            <Box
-              component="pre"
-              style={{
-                margin: 0,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                fontFamily: "inherit",
-              }}
-            >
-              {deferredText}
-            </Box>
-          ) : (
-            <MarkdownContent text={deferredText} />
-          )}
-        </Box>
-      ) : isActive ? (
-        <Text size="sm" c="dimmed">
-          Waiting for sub-agent output...
-        </Text>
-      ) : (
-        <Text size="sm" c="dimmed" fs="italic">
-          No output produced.
-        </Text>
-      )}
-
-      {run.toolCalls.length > 0 && (
-        <SubAgentToolCallsDebug toolCalls={run.toolCalls} />
-      )}
-
-      {run.error && !isCancelled && (
-        <SubAgentErrorDisplay error={run.error} report={run.report} />
-      )}
-      {isCancelled && (
-        <Text size="sm" c="dimmed" fs="italic">
-          Cancelled by user.
-        </Text>
-      )}
-    </Box>
+    <SubAgentTranscriptInline
+      text={run.text}
+      status={run.status}
+      error={run.error}
+      report={run.report}
+      toolCalls={run.toolCalls}
+    />
   );
-}
-
-function SubAgentToolCallsDebug({ toolCalls }: { toolCalls: SubAgentRun["toolCalls"] }) {
-  const [opened, setOpened] = useState(false);
-
-  return (
-    <Box>
-      <UnstyledButton
-        onClick={() => setOpened(!opened)}
-        style={{ display: "flex", alignItems: "center", gap: 4 }}
-      >
-        <ChevronDownIcon
-          size={12}
-          style={{
-            transform: opened ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 0.2s",
-          }}
-        />
-        <Text size="xs" c="dimmed">
-          Tool calls ({toolCalls.length})
-        </Text>
-      </UnstyledButton>
-      <Collapse in={opened}>
-        <Box mt={4} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {toolCalls.map((toolCall, index) => (
-            <ToolFallback
-              key={toolCall.toolCallId ?? `${toolCall.toolName}-${index}`}
-              toolName={toolCall.toolName}
-              args={toolCall.args}
-              result={toolCall.result}
-              status={toToolFallbackStatus(toolCall.status)}
-            />
-          ))}
-        </Box>
-      </Collapse>
-    </Box>
-  );
-}
-
-function SubAgentErrorDisplay({
-  error,
-  report,
-}: {
-  error: string;
-  report?: SubAgentReport | null;
-}) {
-  return (
-    <Box
-      className="md-card-sm"
-      style={{
-        border: "1px solid light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))",
-        backgroundColor: "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))",
-        color: "var(--mantine-color-red-text)",
-      }}
-    >
-      <Text size="xs" fw={600} mb={4}>
-        Error
-      </Text>
-      {report?.safeForUiMessage ? (
-        <Text size="sm">{report.safeForUiMessage}</Text>
-      ) : (
-        <Text size="sm">{error}</Text>
-      )}
-      {report && report.attempts.length > 0 && (
-        <SubAgentDebugDetails report={report} />
-      )}
-    </Box>
-  );
-}
-
-function SubAgentDebugDetails({ report }: { report: SubAgentReport }) {
-  const [opened, setOpened] = useState(false);
-
-  return (
-    <Box mt={8}>
-      <UnstyledButton
-        onClick={() => setOpened(!opened)}
-        style={{ display: "flex", alignItems: "center", gap: 4 }}
-      >
-        <ChevronDownIcon
-          size={12}
-          style={{
-            transform: opened ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 0.2s",
-          }}
-        />
-        <Text size="xs" c="dimmed">
-          Debug details
-        </Text>
-      </UnstyledButton>
-      <Collapse in={opened}>
-        <Box mt={4} style={{ fontSize: 12, lineHeight: 1.5 }}>
-          {report.attempts.map((a) => (
-            <Box key={a.attempt} mb={4}>
-              <Text size="xs" fw={500}>
-                Attempt {a.attempt}: {a.accepted ? "accepted" : a.rejectedReasonCode ?? "error"}
-              </Text>
-              {a.rejectedReasonMessage && (
-                <Text size="xs" c="dimmed">{a.rejectedReasonMessage}</Text>
-              )}
-              {a.errorMessage && (
-                <Text size="xs" c="dimmed">{a.errorMessage}</Text>
-              )}
-              {a.rawOutputPreview && (
-                <Text size="xs" c="dimmed">Output: {a.rawOutputPreview}</Text>
-              )}
-              {a.sanitizedOutputPreview && (
-                <Text size="xs" c="dimmed">Sanitized: {a.sanitizedOutputPreview}</Text>
-              )}
-            </Box>
-          ))}
-          {report.debugSummary && (
-            <Box
-              mt={4}
-              p="xs"
-              style={{
-                backgroundColor: "var(--mantine-color-default-hover)",
-                borderRadius: 4,
-                fontFamily: "monospace",
-                whiteSpace: "pre-wrap",
-                fontSize: 11,
-              }}
-            >
-              {report.debugSummary}
-            </Box>
-          )}
-        </Box>
-      </Collapse>
-    </Box>
-  );
-}
-
-function toToolFallbackStatus(
-  status: SubAgentRun["toolCalls"][number]["status"],
-): "running" | "complete" | "error" {
-  return status;
 }
 
 function getStatusMeta(status: SubAgentRun["status"]): {

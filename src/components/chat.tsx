@@ -288,6 +288,25 @@ export function Chat({
     [chat.messages],
   );
 
+  const previousSearches = useMemo(() => {
+    const seen = new Set<string>();
+    const texts: string[] = [];
+    for (const msg of chat.messages) {
+      if (msg.role !== "user") continue;
+      if (!("parts" in msg) || !Array.isArray(msg.parts)) continue;
+      for (const part of msg.parts) {
+        if (typeof part !== "object" || part === null) continue;
+        if ((part as { type?: string }).type !== "text") continue;
+        const text = (part as { text?: string }).text;
+        if (typeof text === "string" && text.trim() && !seen.has(text)) {
+          seen.add(text);
+          texts.push(text.trim());
+        }
+      }
+    }
+    return texts;
+  }, [chat.messages]);
+
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SubAgentEventBridge
@@ -318,6 +337,8 @@ export function Chat({
             onConfigure={onConfigure}
             hasEnabledModel={enabledModels.length > 0}
             tokenCount={tokenCount}
+            previousSearches={previousSearches}
+            chatId={researchChatId}
           />
         </div>
       </Box>

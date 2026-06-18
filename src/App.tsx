@@ -768,7 +768,10 @@ function SubAgentSidebarAutoOpen({
   useSubAgentRenderCounter("SubAgentSidebarAutoOpen");
   const runsByChat = useSubAgentRunsByChat();
   const selectedRunId = useSubAgentSelectedRunId();
-  const runCount = chatId ? runsByChat[chatId]?.length ?? 0 : 0;
+  const sidebarRuns = chatId
+    ? (runsByChat[chatId] ?? []).filter(r => r.displayTarget?.type !== "toolCall")
+    : [];
+  const runCount = sidebarRuns.length;
   const previousRef = useRef({ chatId: null as string | null, runCount: 0 });
 
   useEffect(() => {

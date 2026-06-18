@@ -1,3 +1,7 @@
+export type SubAgentDisplayTarget =
+  | { type: "sidebar" }
+  | { type: "toolCall"; toolCallId: string };
+
 export interface SubAgentRun {
   id: string;
   chatId: string;
@@ -13,6 +17,7 @@ export interface SubAgentRun {
   toolCalls: SubAgentToolCall[];
   error: string | null;
   parentMessageId: string;
+  displayTarget?: SubAgentDisplayTarget;
   report?: import("./sub-agent-report").SubAgentReport | null;
 }
 
@@ -29,7 +34,7 @@ export interface SubAgentToolCall {
 type SequencedSubAgentEvent = { sequence?: number };
 
 export type SubAgentEvent = SequencedSubAgentEvent & (
-  | { type: "start"; id: string; chatId?: string; source?: "sub-agent"; name: string; toolName: string; parentMessageId: string }
+  | { type: "start"; id: string; chatId?: string; source?: "sub-agent"; name: string; toolName: string; parentMessageId: string; displayTarget?: SubAgentDisplayTarget }
   | { type: "text-delta"; id: string; delta: string }
   | { type: "tool-call"; id: string; toolCall: SubAgentToolCall }
   | { type: "tool-result"; id: string; toolCallIndex?: number; toolCallId?: string; result: unknown; status?: "complete" | "error" }

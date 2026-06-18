@@ -3,6 +3,7 @@ import { render, renderHook, act } from "@testing-library/react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SubAgentProvider,
+  applyEvent,
   useSubAgentActions,
   useSubAgentState,
   useSubAgentStore,
@@ -771,6 +772,29 @@ describe("SubAgentStore processEvent", () => {
     const run0 = result.current.getRuns(chatId).find((r) => r.id === "sa-prune-0");
     expect(run0).toBeDefined();
     expect(run0!.text).toBe("recent-delta");
+  });
+});
+
+describe("applyEvent displayTarget", () => {
+  it("stamps displayTarget from start event on new run", () => {
+    const event = { type: "start" as const, id: "sa-1", source: "sub-agent" as const, name: "Test", toolName: "test_agent", parentMessageId: "msg-1", displayTarget: { type: "toolCall" as const, toolCallId: "tc-1" } };
+    const result = applyEvent([], event, "chat-1");
+    expect(result[0].displayTarget).toEqual({ type: "toolCall", toolCallId: "tc-1" });
+  });
+
+  it("stamps sidebar default on new run when event lacks displayTarget", () => {
+    const event = { type: "start" as const, id: "sa-1", source: "sub-agent" as const, name: "Test", toolName: "test_agent", parentMessageId: "msg-1" };
+    const result = applyEvent([], event, "chat-1");
+    expect(result[0].displayTarget).toEqual({ type: "sidebar" });
+  });
+
+  it("patches displayTarget on existing stub run when start arrives", () => {
+    // First create stub via text-delta
+    const stub = applyEvent([], { type: "text-delta", id: "sa-1", delta: "hi" }, "chat-1");
+    expect(stub[0].displayTarget).toEqual({ type: "sidebar" }); // stub default
+    // Then start
+    const result = applyEvent(stub, { type: "start", id: "sa-1", source: "sub-agent" as const, name: "Test", toolName: "test_agent", parentMessageId: "msg-1", displayTarget: { type: "toolCall" as const, toolCallId: "tc-1" } }, "chat-1");
+    expect(result[0].displayTarget).toEqual({ type: "toolCall", toolCallId: "tc-1" });
   });
 });
 

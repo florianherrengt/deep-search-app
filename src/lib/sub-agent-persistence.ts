@@ -1,4 +1,4 @@
-import { isSubAgentRunToolName, type SubAgentRun } from "./sub-agent-types";
+import { isSubAgentRunToolName, type SubAgentRun, type SubAgentDisplayTarget } from "./sub-agent-types";
 import type { SubAgentReport, FailureCategory } from "./sub-agent-report";
 import { readAppFile, writeAppFile, SafePathSegmentSchema } from "./app-file-storage";
 import { SEARCH_RESULTS_SUBFOLDER } from "./research-history";
@@ -103,6 +103,7 @@ function normalizeSubAgentRun(
     error: getString(value.error),
     parentMessageId: getString(value.parentMessageId) ?? "unknown",
     report: normalizeReport(value.report),
+    displayTarget: readDisplayTarget(value.displayTarget),
   };
 }
 
@@ -185,6 +186,17 @@ function normalizeReport(value: unknown): SubAgentReport | null {
     safeForUiMessage: getString(value.safeForUiMessage) ?? undefined,
     debugSummary: getString(value.debugSummary) ?? undefined,
   };
+}
+
+function readDisplayTarget(value: unknown): SubAgentDisplayTarget | undefined {
+  if (!isRecord(value)) return undefined;
+  const type = getString(value.type);
+  if (type === "sidebar") return { type: "sidebar" };
+  if (type === "toolCall") {
+    const toolCallId = getString(value.toolCallId);
+    if (toolCallId) return { type: "toolCall", toolCallId };
+  }
+  return undefined;
 }
 
 export async function writeSubAgentRuns(

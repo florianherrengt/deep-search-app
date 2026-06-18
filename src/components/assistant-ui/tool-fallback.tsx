@@ -1,6 +1,8 @@
 import { ChevronDownIcon, WrenchIcon } from "lucide-react";
 import { Collapse, Box, Text, UnstyledButton } from "@mantine/core";
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
+import { useSubAgentReaders } from "@/lib/sub-agent-store";
+import { SubAgentTranscriptInline } from "@/components/sub-agent-transcript-inline";
 
 function formatValue(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -13,13 +15,31 @@ export function ToolFallback({
   args,
   result,
   status,
+  chatId,
+  toolCallId,
 }: {
   toolName: string;
   args?: unknown;
   result?: unknown;
   status: "running" | "complete" | "error";
+  chatId?: string;
+  toolCallId?: string;
 }) {
   const [opened, setOpened] = useState(false);
+  const { getRuns } = useSubAgentReaders();
+
+  const allRuns = getRuns(chatId ?? "");
+  const deferredRuns = useDeferredValue(allRuns);
+  const matchingRuns = useMemo(
+    () => {
+      if (!chatId || !toolCallId) return [];
+      return deferredRuns.filter(
+        r => r.displayTarget?.type === "toolCall" && r.displayTarget.toolCallId === toolCallId
+      );
+    },
+    [deferredRuns, chatId, toolCallId],
+  );
+
   const formattedDetails = useMemo(() => {
     if (!opened) {
       return { args: undefined, result: undefined };
@@ -86,6 +106,17 @@ export function ToolFallback({
                 </pre>
               </Box>
             )}
+            {opened && matchingRuns.length > 0 && matchingRuns.map((run) => (
+              <Box key={run.id} mt="md" className="md-divider-top" p="8px 12px">
+                <SubAgentTranscriptInline
+                  text={run.text}
+                  status={run.status}
+                  error={run.error}
+                  report={run.report}
+                  toolCalls={run.toolCalls}
+                />
+              </Box>
+            ))}
           </Box>
         )}
       </Collapse>

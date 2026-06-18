@@ -96,6 +96,7 @@ function QuestionsToolHarness({
             selectedModelId=""
             onSelectedModelIdChange={() => undefined}
             tokenCount={0}
+            previousSearches={[]}
           />
         </Box>
       </PromptTemplatesProvider>

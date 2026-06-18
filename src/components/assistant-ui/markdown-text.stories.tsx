@@ -36,6 +36,7 @@ function MarkdownHarness() {
             selectedModelId=""
             onSelectedModelIdChange={() => undefined}
             tokenCount={860}
+            previousSearches={[]}
           />
         </Box>
       </PromptTemplatesProvider>

@@ -653,10 +653,12 @@ describe("createGuardedStream", () => {
         expect(options.toolChoice).toEqual({ type: "auto" });
         return {
           stream: simulateReadableStream({
-              chunks: toolCallChunks("currency_conversion", "call-cc-1", [{
-                amount: 50,
-                from_currency: "USD",
-              }]),
+              chunks: toolCallChunks("currency_conversion", "call-cc-1", {
+                conversions: [{
+                  amount: 50,
+                  from_currency: "USD",
+                }],
+              }),
           }),
         };
       },

@@ -1,4 +1,4 @@
-import type { SubAgentEvent } from "./sub-agent-types";
+import type { SubAgentDisplayTarget, SubAgentEvent } from "./sub-agent-types";
 import {
   recordSubAgentEvent,
   recordSubAgentHandlerDuration,
@@ -13,6 +13,11 @@ let currentMessageId: string | null = null;
 let currentChatId: string | null = null;
 let nextEventSequence = 0;
 const directHandlers = new Map<string, SubAgentEmitter>();
+
+function resolveDisplayTarget(event: SubAgentEvent): SubAgentDisplayTarget {
+  if (event.type === "start" && event.displayTarget) return event.displayTarget;
+  return { type: "sidebar" };
+}
 
 export function setActiveSubAgentEmitter(
   emitter: SubAgentEmitter | null,
@@ -42,17 +47,20 @@ export function setDirectEventHandler(
 
 export function emitSubAgentEvent(event: SubAgentEvent): void {
   const sequencedEvent = addEventSequence(event);
-  recordSubAgentEvent(currentChatId, sequencedEvent);
+  const resolved = event.type === "start"
+    ? ({ ...sequencedEvent, displayTarget: resolveDisplayTarget(event) } as SubAgentEvent)
+    : sequencedEvent;
+  recordSubAgentEvent(currentChatId, resolved);
   if (currentEmitter) {
     const startedAt = startSubAgentProfileMeasure();
-    currentEmitter(sequencedEvent);
+    currentEmitter(resolved);
     recordSubAgentHandlerDuration("emitter.controller", startedAt);
   }
   if (currentChatId) {
     const handler = directHandlers.get(currentChatId);
     if (handler) {
       const startedAt = startSubAgentProfileMeasure();
-      handler(sequencedEvent);
+      handler(resolved);
       recordSubAgentHandlerDuration("emitter.direct", startedAt);
     }
   }
@@ -63,13 +71,16 @@ export function emitSubAgentEventToChat(
   event: SubAgentEvent,
 ): void {
   const sequencedEvent = addEventSequence(event);
-  recordSubAgentEvent(chatId, sequencedEvent);
+  const resolved = event.type === "start"
+    ? ({ ...sequencedEvent, displayTarget: resolveDisplayTarget(event) } as SubAgentEvent)
+    : sequencedEvent;
+  recordSubAgentEvent(chatId, resolved);
 
   const handler = directHandlers.get(chatId);
   if (!handler) return;
 
   const startedAt = startSubAgentProfileMeasure();
-  handler(sequencedEvent);
+  handler(resolved);
   recordSubAgentHandlerDuration("emitter.direct", startedAt);
 }
 
