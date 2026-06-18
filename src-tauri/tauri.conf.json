@@ -23,8 +23,8 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": [],
-      "pubkey": ""
+      "endpoints": ["https://github.com/florianherrengt/deep-search-app/releases/latest/download/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDNEZEQkMyOUNENjlFQjUKUldTMW50YWN3dHRQM0hVOU13T2RBNU9IUUhCcndRSjF0eHl2U1J3L09LMjZjSGlHVm1FRkV2NWwK"
     }
   },
   "bundle": {
