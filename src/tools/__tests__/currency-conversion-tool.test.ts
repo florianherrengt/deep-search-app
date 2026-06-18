@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { zodSchema } from "ai";
 
 const bridgeMocks = vi.hoisted(() => ({
