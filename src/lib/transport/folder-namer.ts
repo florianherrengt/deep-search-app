@@ -13,22 +13,8 @@ import {
   REASON_CODES,
   truncatePreview,
 } from "../sub-agent-report";
-
-const NAMER_SYSTEM = `You name research folders. Given the user's research question, generate a short, descriptive research folder title that captures the core topic.
-
-Rules:
-- Focus on the actual research topic, not conversational prefixes.
-- Remove generic lead-in phrases like "I'm looking for", "find me", "can you", "I need", "show me", "tell me about".
-- Do not produce vague titles like "research" or "untitled".
-- Preserve specific meaningful details (e.g., "espresso", "vegan", "manual").
-- Max 5 words.
-- Return ONLY a kebab-case slug, nothing else. No explanation, no quotes, no punctuation.
-
-Examples:
-- "I'm looking for the best coffee beans for espresso" → "best-coffee-beans-espresso"
-- "Find me a good tent for backpacking" → "backpacking-tents"
-- "Best vegan restaurants in Berlin" → "vegan-restaurants-berlin"
-- "What are the latest AI trends?" → "ai-trends"`;
+import TITLE_SLUG_SYSTEM from "./title-slug-prompt.md?raw";
+import CHAT_TITLE_SYSTEM from "./chat-title-prompt.md?raw";
 
 const MAX_ATTEMPTS = 3;
 const STARTUP_NAME_ERROR_PREFIX =
@@ -99,34 +85,10 @@ export function extractCandidate(raw: string): string {
   return candidate.trim();
 }
 
-const CONVERSATIONAL_PREFIX_WORDS = new Set([
-  "i", "im", "i-m", "i-ve", "id", "i-d", "i-ll", "ill",
-  "me", "my", "we", "our",
-  "looking", "for", "the", "a", "an",
-  "find", "search", "show", "get", "tell", "about",
-  "need", "want", "can", "could", "would", "should",
-  "please", "help", "what", "which", "who", "how", "where", "when",
-  "is", "are", "do", "does", "best", "good", "top",
-  "some", "any", "all",
-]);
-
-export function deterministicFallback(query: string, subAgentId: string): string {
-  if (query && query.trim()) {
-    const slug = slugifyFolderName(query);
-    if (slug.length >= 2) {
-      const words = slug.split("-");
-      const meaningful = words.filter((w) => !CONVERSATIONAL_PREFIX_WORDS.has(w));
-      if (meaningful.length >= 2) {
-        const result = meaningful.slice(0, 5).join("-");
-        if (result.length >= 2) return result;
-      }
-      const fallback = words.slice(0, 5).join("-");
-      if (fallback.length >= 2) return fallback;
-    }
-  }
-
-  const idPart = subAgentId.replace(/^sa-/, "").replace(/-\d+$/, "");
-  return `research-${idPart}`;
+export function titleSlugFallback(title: string): string {
+  const slug = slugifyFolderName(title);
+  const words = slug.split("-").slice(0, 5);
+  return words.join("-");
 }
 
 export interface FolderNamingResult {
@@ -134,18 +96,18 @@ export interface FolderNamingResult {
   report: SubAgentReport;
 }
 
-export async function nameFolderFromMessage(
+export async function generateFolderSlug(
   model: LanguageModel,
-  userMessage: string,
+  title: string,
   options?: { abortSignal?: AbortSignal },
 ): Promise<string> {
-  const result = await nameFolderFromMessageWithReport(model, userMessage, options);
+  const result = await generateFolderSlugWithReport(model, title, options);
   return result.folderName;
 }
 
-export async function nameFolderFromMessageWithReport(
+export async function generateFolderSlugWithReport(
   model: LanguageModel,
-  userMessage: string,
+  title: string,
   options?: { abortSignal?: AbortSignal },
 ): Promise<FolderNamingResult> {
   const saId = createSubAgentId();
@@ -162,9 +124,8 @@ export async function nameFolderFromMessageWithReport(
 
   logDebug("starting", {
     subAgentId: saId,
-    hasQuery: !!userMessage,
-    queryLength: userMessage?.length ?? 0,
-    queryPreview: truncatePreview(userMessage),
+    titleLength: title.length,
+    titlePreview: truncatePreview(title),
   });
 
   const attempts: SubAgentAttemptReport[] = [];
@@ -180,14 +141,14 @@ export async function nameFolderFromMessageWithReport(
 
     const prompt =
       attempt === 1
-        ? userMessage
-        : `Your previous answer "${lastRawForRetry ?? ""}" was rejected: ${lastRejectionForRetry ?? "unknown"}. Try again. Return ONLY a valid kebab-case folder name.`;
+        ? title
+        : `Your previous slug "${lastRawForRetry ?? ""}" was rejected: ${lastRejectionForRetry ?? "unknown"}. Convert the title "${title}" to a valid kebab-case slug. Return ONLY the slug.`;
 
     let raw: string;
     try {
       const result = streamText({
         model,
-        system: NAMER_SYSTEM,
+        system: TITLE_SLUG_SYSTEM,
         prompt,
         maxOutputTokens: 30,
         abortSignal: options?.abortSignal,
@@ -272,50 +233,16 @@ export async function nameFolderFromMessageWithReport(
 
     const validationReason = validateResearchFolderName(slug);
 
-    if (!validationReason) {
-      let resolved: string;
-      try {
-        resolved = await resolveUniqueFolderName(slug);
-      } catch (error) {
-        const errMsg = errorMessage(error);
-        logError("unique name resolution failed", { error: errMsg });
-
-        const attemptReport: SubAgentAttemptReport = {
-          attempt,
-          startedAt: attemptStartedAt,
-          finishedAt: new Date().toISOString(),
-          durationMs: Date.now() - new Date(attemptStartedAt).getTime(),
-          rawOutputPreview: truncatePreview(trimmedRaw),
-          rawOutputLength: trimmedRaw.length,
-          parsedOutputPreview: truncatePreview(extracted),
-          sanitizedOutputPreview: truncatePreview(slug),
-          accepted: false,
-          rejectedReasonCode: REASON_CODES.FOLDER_ALREADY_EXISTS,
-          rejectedReasonMessage: errMsg,
-          errorMessage: errMsg,
-        };
-        attempts.push(attemptReport);
-
-        const report = buildReport(
-          reportStartedAt,
-          attempts,
-          undefined,
-          "failed",
-          "filesystem_error",
-          `${STARTUP_NAME_ERROR_PREFIX} The generated folder name could not be resolved. ${errMsg}`,
-          `Folder naming failed because the name could not be resolved: ${errMsg}`,
-          formatDebugSummary(attempts),
-        );
-
-        emitSubAgentEvent({ type: "report", id: saId, report });
-        const finalError = `${STARTUP_NAME_ERROR_PREFIX} The generated folder name could not be resolved. ${errMsg}`;
-        emitSubAgentEvent({ type: "error", id: saId, error: finalError });
-        throw new Error(finalError);
-      }
-
-      logDebug("folder naming succeeded", {
-        folderName: resolved,
-        source: "model",
+    if (validationReason) {
+      lastRawForRetry = trimmedRaw;
+      lastRejectionForRetry = validationReason;
+      const reasonCode = classifyRejection(validationReason);
+      logWarn(`attempt ${attempt} rejected`, {
+        reasonCode,
+        reason: validationReason,
+        rawPreview: truncatePreview(trimmedRaw),
+        slugPreview: truncatePreview(slug),
+        remainingAttempts: MAX_ATTEMPTS - attempt,
       });
 
       const attemptReport: SubAgentAttemptReport = {
@@ -327,33 +254,57 @@ export async function nameFolderFromMessageWithReport(
         rawOutputLength: trimmedRaw.length,
         parsedOutputPreview: truncatePreview(extracted),
         sanitizedOutputPreview: truncatePreview(slug),
-        accepted: true,
+        accepted: false,
+        rejectedReasonCode: reasonCode,
+        rejectedReasonMessage: validationReason,
+      };
+      attempts.push(attemptReport);
+      continue;
+    }
+
+    let resolved: string;
+    try {
+      resolved = await resolveUniqueFolderName(slug);
+    } catch (error) {
+      const errMsg = errorMessage(error);
+      logError("unique name resolution failed", { error: errMsg });
+
+      const attemptReport: SubAgentAttemptReport = {
+        attempt,
+        startedAt: attemptStartedAt,
+        finishedAt: new Date().toISOString(),
+        durationMs: Date.now() - new Date(attemptStartedAt).getTime(),
+        rawOutputPreview: truncatePreview(trimmedRaw),
+        rawOutputLength: trimmedRaw.length,
+        parsedOutputPreview: truncatePreview(extracted),
+        sanitizedOutputPreview: truncatePreview(slug),
+        accepted: false,
+        rejectedReasonCode: REASON_CODES.FOLDER_ALREADY_EXISTS,
+        rejectedReasonMessage: errMsg,
+        errorMessage: errMsg,
       };
       attempts.push(attemptReport);
 
       const report = buildReport(
         reportStartedAt,
         attempts,
-        resolved,
-        "success",
         undefined,
-        undefined,
+        "failed",
+        "filesystem_error",
+        `${STARTUP_NAME_ERROR_PREFIX} The generated folder name could not be resolved. ${errMsg}`,
+        `Folder naming failed because the name could not be resolved: ${errMsg}`,
         formatDebugSummary(attempts),
       );
 
       emitSubAgentEvent({ type: "report", id: saId, report });
-      emitSubAgentEvent({ type: "complete", id: saId });
-
-      return { folderName: resolved, report };
+      const finalError = `${STARTUP_NAME_ERROR_PREFIX} The generated folder name could not be resolved. ${errMsg}`;
+      emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+      throw new Error(finalError);
     }
 
-    const reasonCode = classifyRejection(validationReason);
-    logWarn(`attempt ${attempt} rejected`, {
-      reasonCode,
-      reason: validationReason,
-      rawPreview: truncatePreview(trimmedRaw),
-      slugPreview: truncatePreview(slug),
-      remainingAttempts: MAX_ATTEMPTS - attempt,
+    logDebug("folder naming succeeded", {
+      folderName: resolved,
+      source: "model",
     });
 
     const attemptReport: SubAgentAttemptReport = {
@@ -365,60 +316,9 @@ export async function nameFolderFromMessageWithReport(
       rawOutputLength: trimmedRaw.length,
       parsedOutputPreview: truncatePreview(extracted),
       sanitizedOutputPreview: truncatePreview(slug),
-      accepted: false,
-      rejectedReasonCode: reasonCode,
-      rejectedReasonMessage: validationReason,
-    };
-    attempts.push(attemptReport);
-
-    lastRawForRetry = trimmedRaw;
-    lastRejectionForRetry = validationReason;
-  }
-
-  logWarn("all model attempts exhausted, trying deterministic fallback");
-
-  const fallbackCandidate = deterministicFallback(userMessage, saId);
-  const fallbackSlug = slugifyFolderName(fallbackCandidate);
-  const fallbackValidation = validateResearchFolderName(fallbackSlug);
-
-  if (!fallbackValidation) {
-    let resolved: string;
-    try {
-      resolved = await resolveUniqueFolderName(fallbackSlug);
-    } catch (error) {
-      const errMsg = errorMessage(error);
-      logError("fallback unique name resolution failed", { error: errMsg });
-      const report = buildReport(
-        reportStartedAt,
-        attempts,
-        undefined,
-        "failed",
-        "filesystem_error",
-        `${STARTUP_NAME_ERROR_PREFIX} ${errMsg}`,
-        `Folder naming failed after fallback: ${errMsg}`,
-        formatDebugSummary(attempts),
-      );
-      emitSubAgentEvent({ type: "report", id: saId, report });
-      const finalError = `${STARTUP_NAME_ERROR_PREFIX} ${errMsg}`;
-      emitSubAgentEvent({ type: "error", id: saId, error: finalError });
-      throw new Error(finalError);
-    }
-
-    logDebug("folder naming succeeded via fallback", {
-      folderName: resolved,
-      source: "fallback",
-    });
-
-    const fallbackAttempt: SubAgentAttemptReport = {
-      attempt: MAX_ATTEMPTS + 1,
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      durationMs: 0,
-      parsedOutputPreview: truncatePreview(fallbackCandidate),
-      sanitizedOutputPreview: truncatePreview(fallbackSlug),
       accepted: true,
     };
-    attempts.push(fallbackAttempt);
+    attempts.push(attemptReport);
 
     const report = buildReport(
       reportStartedAt,
@@ -436,33 +336,86 @@ export async function nameFolderFromMessageWithReport(
     return { folderName: resolved, report };
   }
 
-  lastRejectionForRetry = fallbackValidation;
+  logWarn("all model attempts exhausted, using fallback slug");
 
-  const finalError = `${STARTUP_NAME_ERROR_PREFIX} Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts. Last issue: ${lastRejectionForRetry ?? "unknown"}`;
-  logError("folder naming failed definitively", {
-    attempts: attempts.length,
-    lastRejection: lastRejectionForRetry,
-    fallbackAlsoFailed: true,
+  const fallbackSlug = titleSlugFallback(title);
+  const fallbackValidation = validateResearchFolderName(fallbackSlug);
+
+  if (fallbackValidation) {
+    const finalError = `${STARTUP_NAME_ERROR_PREFIX} Failed to generate a valid folder name. Fallback slug "${fallbackSlug}" was rejected: ${fallbackValidation}`;
+    logError("fallback also failed", {
+      fallbackSlug,
+      rejection: fallbackValidation,
+    });
+
+    const report = buildReport(
+      reportStartedAt,
+      attempts,
+      undefined,
+      "rejected",
+      "validation_error",
+      finalError,
+      `Folder naming failed: ${fallbackValidation}`,
+      formatDebugSummary(attempts),
+    );
+
+    emitSubAgentEvent({ type: "report", id: saId, report });
+    emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+    throw new Error(finalError);
+  }
+
+  let resolved: string;
+  try {
+    resolved = await resolveUniqueFolderName(fallbackSlug);
+  } catch (error) {
+    const errMsg = errorMessage(error);
+    logError("fallback unique name resolution failed", { error: errMsg });
+    const report = buildReport(
+      reportStartedAt,
+      attempts,
+      undefined,
+      "failed",
+      "filesystem_error",
+      `${STARTUP_NAME_ERROR_PREFIX} ${errMsg}`,
+      `Folder naming failed after fallback: ${errMsg}`,
+      formatDebugSummary(attempts),
+    );
+    emitSubAgentEvent({ type: "report", id: saId, report });
+    const finalError = `${STARTUP_NAME_ERROR_PREFIX} ${errMsg}`;
+    emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+    throw new Error(finalError);
+  }
+
+  logDebug("folder naming succeeded via fallback", {
+    folderName: resolved,
+    source: "fallback",
   });
 
-  const lastAttempt = attempts[attempts.length - 1];
+  const fallbackAttempt: SubAgentAttemptReport = {
+    attempt: MAX_ATTEMPTS + 1,
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    durationMs: 0,
+    parsedOutputPreview: truncatePreview(fallbackSlug),
+    sanitizedOutputPreview: truncatePreview(fallbackSlug),
+    accepted: true,
+  };
+  attempts.push(fallbackAttempt);
+
   const report = buildReport(
     reportStartedAt,
     attempts,
+    resolved,
+    "success",
     undefined,
-    "rejected",
-    "validation_error",
-    finalError,
-    lastAttempt?.rejectedReasonCode === REASON_CODES.EMPTY_AFTER_SANITIZE ||
-    lastAttempt?.rejectedReasonCode === REASON_CODES.EMPTY_PARSED_CANDIDATE
-      ? "Folder naming failed because the generated name was empty after sanitisation."
-      : `Folder naming failed: ${lastRejectionForRetry ?? "unknown validation error"}`,
+    undefined,
     formatDebugSummary(attempts),
   );
 
   emitSubAgentEvent({ type: "report", id: saId, report });
-  emitSubAgentEvent({ type: "error", id: saId, error: finalError });
-  throw new Error(finalError);
+  emitSubAgentEvent({ type: "complete", id: saId });
+
+  return { folderName: resolved, report };
 }
 
 function buildReport(
@@ -500,6 +453,45 @@ function formatDebugSummary(attempts: SubAgentAttemptReport[]): string {
       return `Attempt ${a.attempt}: rejected (${reason})`;
     })
     .join("\n");
+}
+
+export function generateChatTitle(
+  model: LanguageModel,
+  userMessage: string,
+  options?: { abortSignal?: AbortSignal },
+): Promise<string> {
+  return _generateChatTitle(model, userMessage, options);
+}
+
+async function _generateChatTitle(
+  model: LanguageModel,
+  userMessage: string,
+  options?: { abortSignal?: AbortSignal },
+): Promise<string> {
+  const result = streamText({
+    model,
+    system: CHAT_TITLE_SYSTEM,
+    prompt: userMessage,
+    maxOutputTokens: 60,
+    abortSignal: options?.abortSignal,
+  });
+
+  for await (const _ of result.textStream) {
+    // consume the stream
+  }
+
+  const raw = (await result.text).trim();
+
+  const cleaned = raw
+    .replace(/^["'`]/, "")
+    .replace(/["'`.]$/, "")
+    .trim();
+
+  if (!cleaned) {
+    throw new Error("Chat title generation returned empty text");
+  }
+
+  return cleaned;
 }
 
 function errorMessage(error: unknown): string {

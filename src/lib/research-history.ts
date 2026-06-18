@@ -304,6 +304,7 @@ export async function saveResearchChatMessages(
   folderName: string,
   chatId: string,
   messages: UIMessage[],
+  options?: { title?: string },
 ): Promise<void> {
   const parsedFolderName = SafePathSegmentSchema.parse(folderName);
 
@@ -315,7 +316,7 @@ export async function saveResearchChatMessages(
     });
     await upsertResearchChatSummary(parsedFolderName, {
       id: LEGACY_CHAT_TRANSCRIPT_ID,
-      title: createChatTitle(messages),
+      title: options?.title ?? createChatTitle(messages),
       createdAt: null,
       updatedAt: null,
       messageCount: messages.length,
@@ -328,7 +329,6 @@ export async function saveResearchChatMessages(
   const now = new Date().toISOString();
   const subfolder = researchChatsSubfolder(parsedFolderName);
   const filename = researchChatFilename(parsedChatId);
-  const title = createChatTitle(messages);
 
   const existingContent = await readAppFile({ subfolder, filename });
   const parsed = existingContent ? parseChatFileContent(existingContent) : null;
@@ -337,6 +337,9 @@ export async function saveResearchChatMessages(
   const prefix = commonPrefixLength(onDiskIds, newIds);
   const createdAt =
     parsed?.meta.createdAt ?? dateFromResearchChatId(parsedChatId) ?? now;
+
+  const title =
+    options?.title ?? parsed?.meta.title ?? createChatTitle(messages);
 
   const meta = {
     _meta: 1 as const,

@@ -18,10 +18,10 @@ vi.mock("@/lib/sub-agent-emitter", () => ({
 }));
 
 import {
-  nameFolderFromMessage,
-  nameFolderFromMessageWithReport,
+  generateFolderSlug,
+  generateFolderSlugWithReport,
   extractCandidate,
-  deterministicFallback,
+  titleSlugFallback,
 } from "@/lib/transport/folder-namer";
 import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
 
@@ -154,99 +154,47 @@ describe("extractCandidate", () => {
   });
 });
 
-describe("deterministicFallback", () => {
-  it("derives a slug from the query", () => {
-    const result = deterministicFallback("Find best compact vans under 2m", "sa-123-0");
-    expect(result).toBeTruthy();
-    expect(result.length).toBeGreaterThanOrEqual(2);
+describe("titleSlugFallback", () => {
+  it("slugifies a title", () => {
+    const result = titleSlugFallback("Best Compact Vans Under 2m");
+    expect(result).toBe("best-compact-vans-under-2m");
   });
 
-  it("limits to 5 words from the query", () => {
-    const result = deterministicFallback(
-      "one two three four five six seven eight",
-      "sa-123-0",
-    );
+  it("limits to 5 words", () => {
+    const result = titleSlugFallback("One Two Three Four Five Six Seven Eight");
     const words = result.split("-");
     expect(words.length).toBeLessThanOrEqual(5);
   });
 
-  it("falls back to research-{id} for empty query", () => {
-    const result = deterministicFallback("", "sa-1781222522375-0");
-    expect(result).toMatch(/^research-/);
+  it("handles empty title", () => {
+    const result = titleSlugFallback("");
+    expect(result).toBe("");
   });
 
-  it("falls back to research-{id} for whitespace-only query", () => {
-    const result = deterministicFallback("   ", "sa-1781222522375-0");
-    expect(result).toMatch(/^research-/);
+  it("handles whitespace-only title", () => {
+    const result = titleSlugFallback("   ");
+    expect(result).toBe("");
   });
 
-  it("strips sa- prefix and counter from id for fallback", () => {
-    const result = deterministicFallback("", "sa-1781222522375-0");
-    expect(result).toContain("1781222522375");
-    expect(result).not.toContain("-0");
-  });
-
-  it("derives from non-latin query that slugifies to empty", () => {
-    const result = deterministicFallback("北京", "sa-123-0");
-    expect(result).toMatch(/^research-/);
-  });
-
-  it("strips conversational prefixes and keeps topic words", () => {
-    const result = deterministicFallback(
-      "I'm looking for the best coffee beans for espresso",
-      "sa-123-0",
-    );
-    expect(result).toBeTruthy();
-    expect(result.length).toBeGreaterThanOrEqual(2);
-    const words = result.split("-");
-    expect(words).not.toContain("im");
-    expect(words).not.toContain("looking");
-    expect(words).not.toContain("the");
-    expect(result).toContain("coffee");
+  it("preserves meaningful title words", () => {
+    const result = titleSlugFallback("Espresso Coffee Beans");
     expect(result).toContain("espresso");
+    expect(result).toContain("coffee");
+    expect(result).toContain("beans");
   });
 
-  it("produces coffee-beans-espresso from coffee query", () => {
-    const result = deterministicFallback(
-      "Im looking for the best coffee beans for espresso",
-      "sa-123-0",
-    );
-    expect(result).toBe("coffee-beans-espresso");
-  });
-
-  it("strips find-me prefix from queries", () => {
-    const result = deterministicFallback(
-      "Find me a good tent for backpacking",
-      "sa-123-0",
-    );
-    expect(result).toBeTruthy();
-    expect(result).toContain("tent");
-    expect(result).toContain("backpacking");
-  });
-
-  it("preserves meaningful words from short queries", () => {
-    const result = deterministicFallback(
-      "Best vegan restaurants in Berlin",
-      "sa-123-0",
-    );
-    expect(result).toContain("vegan");
-    expect(result).toContain("restaurants");
-    expect(result).toContain("berlin");
-  });
-
-  it("falls back to all words when all are stop words", () => {
-    const result = deterministicFallback("I am the best", "sa-123-0");
-    expect(result).toBeTruthy();
-    expect(result.length).toBeGreaterThanOrEqual(2);
+  it("slugifies title with special characters", () => {
+    const result = titleSlugFallback("Programming Laptops Under $1000");
+    expect(result).toBe("programming-laptops-under-1000");
   });
 });
 
-describe("nameFolderFromMessage", () => {
+describe("generateFolderSlug", () => {
   it("returns a slugified folder name from the model response", async () => {
     slugifyName.mockReturnValue("acme-earnings-calls");
     resolveUnique.mockResolvedValueOnce("acme-earnings-calls");
     const model = modelReturning("acme earnings calls");
-    const name = await nameFolderFromMessage(model, "Find earnings calls for ACME?");
+    const name = await generateFolderSlug(model, "Find earnings calls for ACME?");
     expect(name).toBe("acme-earnings-calls");
   });
 
@@ -254,7 +202,7 @@ describe("nameFolderFromMessage", () => {
     slugifyName.mockReturnValue("acme-earnings");
     resolveUnique.mockResolvedValueOnce("acme-earnings-2026-06-09");
     const model = modelReturning("acme-earnings");
-    const name = await nameFolderFromMessage(model, "Find earnings calls for ACME?");
+    const name = await generateFolderSlug(model, "Find earnings calls for ACME?");
     expect(name).toBe("acme-earnings-2026-06-09");
   });
 
@@ -265,11 +213,11 @@ describe("nameFolderFromMessage", () => {
       "The folder should be named acme-earnings",
       "acme-earnings",
     );
-    const name = await nameFolderFromMessage(model, "Find earnings calls for ACME?");
+    const name = await generateFolderSlug(model, "Find earnings calls for ACME?");
     expect(name).toBe("acme-earnings");
   });
 
-  it("uses deterministic fallback when all model attempts fail validation", async () => {
+  it("uses fallback slug when all model attempts fail validation", async () => {
     slugifyName.mockImplementation((t: string) =>
       t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     );
@@ -284,13 +232,13 @@ describe("nameFolderFromMessage", () => {
       "The folder should be named acme-earnings-research because it is about ACME",
     );
 
-    const name = await nameFolderFromMessage(model, "Find best compact vans under 2m");
+    const name = await generateFolderSlug(model, "Find best compact vans under 2m");
     expect(resolveUnique).toHaveBeenCalled();
     expect(name).toBeTruthy();
     expect(name.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("uses fallback derived from query text", async () => {
+  it("uses fallback derived from title text", async () => {
     slugifyName.mockImplementation((t: string) =>
       t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     );
@@ -302,7 +250,7 @@ describe("nameFolderFromMessage", () => {
     });
     resolveUnique.mockImplementation(async (c: string) => c);
 
-    const name = await nameFolderFromMessage(
+    const name = await generateFolderSlug(
       modelReturning("bad output"),
       "Find best compact vans",
     );
@@ -310,7 +258,7 @@ describe("nameFolderFromMessage", () => {
     expect(name.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("uses timestamp-based fallback when query slugifies to empty", async () => {
+  it("throws when title slugifies to empty and model fails", async () => {
     slugifyName.mockImplementation((t: string) => {
       if (t === "北京" || t === "") return "";
       return t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -318,20 +266,18 @@ describe("nameFolderFromMessage", () => {
     validateName.mockImplementation(defaultValidateName);
     resolveUnique.mockImplementation(async (c: string) => c);
 
-    const name = await nameFolderFromMessage(
-      modelReturning(""),
-      "北京",
-    );
-    expect(name).toMatch(/^research-/);
+    await expect(
+      generateFolderSlug(modelReturning(""), "北京"),
+    ).rejects.toThrow("Research could not start");
   });
 });
 
-describe("nameFolderFromMessage validation", () => {
+describe("generateFolderSlug validation", () => {
   it("rejects a single-character slug (too short) and retries", async () => {
     slugifyName.mockReturnValueOnce("c").mockReturnValueOnce("my-research");
     resolveUnique.mockResolvedValueOnce("my-research");
     const model = modelReturning("c++", "my-research");
-    const name = await nameFolderFromMessage(model, "Tell me about C++");
+    const name = await generateFolderSlug(model, "Tell me about C++");
     expect(name).toBe("my-research");
   });
 
@@ -344,7 +290,7 @@ describe("nameFolderFromMessage validation", () => {
       "acme-market-map-2026-q1-earnings-report",
       "acme-market",
     );
-    const name = await nameFolderFromMessage(model, "ACME market map");
+    const name = await generateFolderSlug(model, "ACME market map");
     expect(name).toBe("acme-market");
   });
 
@@ -352,7 +298,7 @@ describe("nameFolderFromMessage validation", () => {
     slugifyName.mockReturnValue("acme-market-map-q1-report");
     resolveUnique.mockResolvedValueOnce("acme-market-map-q1-report");
     const model = modelReturning("acme-market-map-q1-report");
-    const name = await nameFolderFromMessage(model, "ACME Q1 report");
+    const name = await generateFolderSlug(model, "ACME Q1 report");
     expect(name).toBe("acme-market-map-q1-report");
   });
 
@@ -360,7 +306,7 @@ describe("nameFolderFromMessage validation", () => {
     slugifyName.mockReturnValue("ai");
     resolveUnique.mockResolvedValueOnce("ai");
     const model = modelReturning("ai");
-    const name = await nameFolderFromMessage(model, "Tell me about AI");
+    const name = await generateFolderSlug(model, "Tell me about AI");
     expect(name).toBe("ai");
   });
 
@@ -368,7 +314,7 @@ describe("nameFolderFromMessage validation", () => {
     slugifyName.mockReturnValue("2026");
     resolveUnique.mockResolvedValueOnce("2026");
     const model = modelReturning("2026");
-    const name = await nameFolderFromMessage(model, "Year 2026 outlook");
+    const name = await generateFolderSlug(model, "Year 2026 outlook");
     expect(name).toBe("2026");
   });
 
@@ -385,7 +331,7 @@ describe("nameFolderFromMessage validation", () => {
     resolveUnique.mockImplementation(async (c: string) => c);
 
     const model = modelReturning("2026-06-11");
-    const name = await nameFolderFromMessage(model, "Research ACME");
+    const name = await generateFolderSlug(model, "Research ACME");
     expect(name).toBeTruthy();
     expect(name.length).toBeGreaterThanOrEqual(2);
   });
@@ -401,18 +347,18 @@ describe("nameFolderFromMessage validation", () => {
       "this-is-way-too-many-words-in-one-slug-name",
       "valid-name",
     );
-    const name = await nameFolderFromMessage(model, "research");
+    const name = await generateFolderSlug(model, "research");
     expect(name).toBe("valid-name");
   });
 });
 
-describe("nameFolderFromMessage sub-agent events", () => {
+describe("generateFolderSlug sub-agent events", () => {
   it("emits start, text-delta, and complete on success", async () => {
     slugifyName.mockReturnValue("acme-research");
     resolveUnique.mockResolvedValueOnce("acme-research");
     const model = modelReturning("acme-research");
 
-    await nameFolderFromMessage(model, "Research ACME");
+    await generateFolderSlug(model, "Research ACME");
 
     const calls = mockedEmit.mock.calls.map((c) => c[0]);
     const startEvent = calls.find((e) => e.type === "start");
@@ -439,7 +385,7 @@ describe("nameFolderFromMessage sub-agent events", () => {
     resolveUnique.mockResolvedValueOnce("acme-research");
     const model = modelReturning("acme-research");
 
-    await nameFolderFromMessage(model, "Research ACME");
+    await generateFolderSlug(model, "Research ACME");
 
     const calls = mockedEmit.mock.calls.map((c) => c[0]);
     const reportEvent = calls.find((e) => e.type === "report");
@@ -460,7 +406,7 @@ describe("nameFolderFromMessage sub-agent events", () => {
     resolveUnique.mockResolvedValueOnce("acme-research");
     const model = modelReturning("Acme Research");
 
-    await nameFolderFromMessage(model, "Research ACME");
+    await generateFolderSlug(model, "Research ACME");
 
     const deltaEvents = mockedEmit.mock.calls
       .map((c) => c[0])
@@ -476,7 +422,7 @@ describe("nameFolderFromMessage sub-agent events", () => {
       "acme-research",
     );
 
-    await nameFolderFromMessage(model, "Research ACME");
+    await generateFolderSlug(model, "Research ACME");
 
     const deltaEvents = mockedEmit.mock.calls
       .map((c) => c[0])
@@ -492,7 +438,7 @@ describe("nameFolderFromMessage sub-agent events", () => {
     const model = modelReturning("");
 
     await expect(
-      nameFolderFromMessage(model, ""),
+      generateFolderSlug(model, ""),
     ).rejects.toThrow();
 
     const calls = mockedEmit.mock.calls.map((c) => c[0]);
@@ -518,13 +464,15 @@ describe("nameFolderFromMessage sub-agent events", () => {
     });
     resolveUnique.mockImplementation(async (c: string) => c);
 
-    await nameFolderFromMessage(modelReturning("", "", ""), "北京");
+    await expect(
+      generateFolderSlug(modelReturning("", "", ""), "北京"),
+    ).rejects.toThrow();
 
     const calls = mockedEmit.mock.calls.map((c) => c[0]);
     const reportEvent = calls.find((e) => e.type === "report");
     expect(reportEvent).toBeTruthy();
-    expect(reportEvent?.report.status).toBe("success");
-    expect(reportEvent?.report.attempts.length).toBe(MAX_ATTEMPTS + 1);
+    expect(reportEvent?.report.status).toBe("rejected");
+    expect(reportEvent?.report.attempts.length).toBe(MAX_ATTEMPTS);
   });
 
   it("uses the same sub-agent id across all events", async () => {
@@ -532,7 +480,7 @@ describe("nameFolderFromMessage sub-agent events", () => {
     resolveUnique.mockResolvedValueOnce("test-folder");
     const model = modelReturning("test-folder");
 
-    await nameFolderFromMessage(model, "Test");
+    await generateFolderSlug(model, "Test");
 
     const calls = mockedEmit.mock.calls.map((c) => c[0]);
     const ids = calls.map((e) => e.id);
@@ -541,8 +489,8 @@ describe("nameFolderFromMessage sub-agent events", () => {
   });
 });
 
-describe("nameFolderFromMessage retry prompts", () => {
-  it("sends the user message as prompt on first attempt", async () => {
+describe("generateFolderSlug retry prompts", () => {
+  it("sends the title as prompt on first attempt", async () => {
     slugifyName.mockReturnValue("test");
     resolveUnique.mockResolvedValueOnce("test");
     let capturedPrompt: unknown;
@@ -564,7 +512,7 @@ describe("nameFolderFromMessage retry prompts", () => {
       },
     });
 
-    await nameFolderFromMessage(model, "What is quantum computing?");
+    await generateFolderSlug(model, "What is quantum computing?");
 
     expect(JSON.stringify(capturedPrompt)).toContain("What is quantum computing?");
   });
@@ -607,7 +555,7 @@ describe("nameFolderFromMessage retry prompts", () => {
       },
     });
 
-    await nameFolderFromMessage(model, "What is quantum computing?");
+    await generateFolderSlug(model, "What is quantum computing?");
 
     expect(prompts).toHaveLength(2);
     expect(prompts[0]).toContain("What is quantum computing?");
@@ -616,7 +564,7 @@ describe("nameFolderFromMessage retry prompts", () => {
   });
 });
 
-describe("nameFolderFromMessage abort", () => {
+describe("generateFolderSlug abort", () => {
   it("passes abort signal to the LLM call", async () => {
     slugifyName.mockReturnValue("test");
     resolveUnique.mockResolvedValueOnce("test");
@@ -640,7 +588,7 @@ describe("nameFolderFromMessage abort", () => {
     });
 
     const controller = new AbortController();
-    await nameFolderFromMessage(model, "test", { abortSignal: controller.signal });
+    await generateFolderSlug(model, "test", { abortSignal: controller.signal });
 
     expect(capturedSignal).toBe(controller.signal);
   });
@@ -659,7 +607,7 @@ describe("nameFolderFromMessage abort", () => {
     });
 
     await expect(
-      nameFolderFromMessage(model, "test", { abortSignal: controller.signal }),
+      generateFolderSlug(model, "test", { abortSignal: controller.signal }),
     ).rejects.toThrow();
 
     const calls = mockedEmit.mock.calls.map((c) => c[0]);
@@ -694,7 +642,7 @@ describe("nameFolderFromMessage abort", () => {
     });
 
     await expect(
-      nameFolderFromMessage(model, "test", { abortSignal: controller.signal }),
+      generateFolderSlug(model, "test", { abortSignal: controller.signal }),
     ).rejects.toThrow();
 
     const calls = mockedEmit.mock.calls.map((c) => c[0]);
@@ -717,7 +665,7 @@ describe("nameFolderFromMessage abort", () => {
     });
 
     await expect(
-      nameFolderFromMessage(model, "Research ACME"),
+      generateFolderSlug(model, "Research ACME"),
     ).rejects.toThrow("Research could not start because the research folder name could not be generated");
 
     expect(resolveUnique).not.toHaveBeenCalled();
@@ -730,13 +678,13 @@ describe("nameFolderFromMessage abort", () => {
   });
 });
 
-describe("nameFolderFromMessageWithReport", () => {
+describe("generateFolderSlugWithReport", () => {
   it("returns both folder name and report on success", async () => {
     slugifyName.mockReturnValue("acme-research");
     resolveUnique.mockResolvedValueOnce("acme-research");
     const model = modelReturning("acme-research");
 
-    const result = await nameFolderFromMessageWithReport(model, "Research ACME");
+    const result = await generateFolderSlugWithReport(model, "Research ACME");
 
     expect(result.folderName).toBe("acme-research");
     expect(result.report).toEqual(
@@ -759,7 +707,7 @@ describe("nameFolderFromMessageWithReport", () => {
       "acme-research",
     );
 
-    const result = await nameFolderFromMessageWithReport(model, "Research ACME");
+    const result = await generateFolderSlugWithReport(model, "Research ACME");
 
     expect(result.report.attempts).toHaveLength(2);
     expect(result.report.attempts[0].accepted).toBe(false);
@@ -780,7 +728,7 @@ describe("nameFolderFromMessageWithReport", () => {
     });
     resolveUnique.mockImplementation(async (c: string) => c);
 
-    const result = await nameFolderFromMessageWithReport(
+    const result = await generateFolderSlugWithReport(
       modelReturning("invalid output here"),
       "Best compact vans",
     );
@@ -804,7 +752,7 @@ describe("nameFolderFromMessageWithReport", () => {
     resolveUnique.mockImplementation(async (c: string) => c);
 
     await expect(
-      nameFolderFromMessageWithReport(
+      generateFolderSlugWithReport(
         modelReturning("a"),
         "Best compact vans in the whole entire world today",
       ),
