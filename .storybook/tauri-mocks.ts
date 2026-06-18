@@ -38,6 +38,10 @@ export class Command<T = string> {
     return new Command(program, args);
   }
 
+  static create(program: string, args: string[] = []) {
+    return new Command(program, args);
+  }
+
   constructor(
     readonly program: string,
     readonly args: string[] = [],

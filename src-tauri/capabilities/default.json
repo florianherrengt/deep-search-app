@@ -33,24 +33,29 @@
     "fs:allow-write-text-file",
     "fs:scope-appdata-recursive",
     {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "system-node",
+          "cmd": "node",
+          "args": [
+            {
+              "validator": "^--version$"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "identifier": "shell:allow-spawn",
       "allow": [
         {
-          "name": "binaries/node",
-          "sidecar": true,
+          "name": "system-node",
+          "cmd": "node",
           "args": [
             {
               "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
             },
-            {
-              "validator": "^(--auto-connect|--browser-url=https?://.+)$"
-            }
-          ]
-        },
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": [
             {
               "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
@@ -62,21 +67,12 @@
       "identifier": "shell:allow-stdin-write",
       "allow": [
         {
-          "name": "binaries/node",
-          "sidecar": true,
+          "name": "system-node",
+          "cmd": "node",
           "args": [
             {
               "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
             },
-            {
-              "validator": "^(--auto-connect|--browser-url=https?://.+)$"
-            }
-          ]
-        },
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": [
             {
               "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
@@ -88,21 +84,12 @@
       "identifier": "shell:allow-kill",
       "allow": [
         {
-          "name": "binaries/node",
-          "sidecar": true,
+          "name": "system-node",
+          "cmd": "node",
           "args": [
             {
               "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
             },
-            {
-              "validator": "^(--auto-connect|--browser-url=https?://.+)$"
-            }
-          ]
-        },
-        {
-          "name": "binaries/node",
-          "sidecar": true,
-          "args": [
             {
               "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }

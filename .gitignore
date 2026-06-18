@@ -13,8 +13,6 @@ dist-ssr
 storybook-static
 storybook-screenshots
 visual-snapshots/__diff_output__
-src-tauri/binaries/node-*
-!src-tauri/binaries/README.md
 *.local
 .env
 

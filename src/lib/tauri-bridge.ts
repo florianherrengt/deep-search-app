@@ -287,6 +287,7 @@ export interface SidecarCommand {
   on(event: "error", cb: (error: string) => void): void;
   on(event: "close", cb: (data: { code: number | null; signal: number | null }) => void): void;
   spawn(): Promise<SidecarChild>;
+  execute(): Promise<{ code: number | null; signal: number | null; stdout: string; stderr: string }>;
 }
 
 export interface SidecarChild {
@@ -302,6 +303,15 @@ export async function createSidecarCommand(
   requireTauri();
   const { Command } = await import("@tauri-apps/plugin-shell");
   return Command.sidecar(program, args) as unknown as SidecarCommand;
+}
+
+export async function createSystemCommand(
+  alias: string,
+  args: string | string[],
+): Promise<SidecarCommand> {
+  requireTauri();
+  const { Command } = await import("@tauri-apps/plugin-shell");
+  return Command.create(alias, args) as unknown as SidecarCommand;
 }
 
 export async function registerSidecarPid(pid: number): Promise<void> {

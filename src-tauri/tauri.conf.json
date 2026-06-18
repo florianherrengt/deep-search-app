@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.deep-search-app.app.dev",
   "build": {
-    "beforeDevCommand": "npm run prepare:sidecars && npm run dev",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run prepare:sidecars && npm run build",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -39,7 +39,6 @@
     ],
     "resources": {
       "../node_modules/chrome-devtools-mcp": "mcp/chrome-devtools-mcp"
-    },
-    "externalBin": ["binaries/node"]
+    }
   }
 }
