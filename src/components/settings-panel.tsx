@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Modal, Button, Text, Group, Box, ScrollArea, Stack } from "@mantine/core";
-import { SettingsFields } from "@/components/settings-fields";
+import { SettingsFields, SettingsUpdateSection } from "@/components/settings-fields";
 import { useSettings } from "@/hooks/use-settings";
 
 export function SettingsPanel() {
@@ -25,13 +25,16 @@ export function SettingsPanel() {
         </Stack>
 
         <Box mt="md" className="md-divider-top" pt={16}>
-          <Button
-            color="red"
-            size="sm"
-            onClick={() => setConfirmOpen(true)}
-          >
-            Reset All Settings
-          </Button>
+          <Stack gap="md">
+            <SettingsUpdateSection />
+            <Button
+              color="red"
+              size="sm"
+              onClick={() => setConfirmOpen(true)}
+            >
+              Reset All Settings
+            </Button>
+          </Stack>
         </Box>
 
         <Modal

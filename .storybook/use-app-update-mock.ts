@@ -10,6 +10,7 @@ interface AppUpdateInfo {
 export type AppUpdateState =
   | { status: "hidden" }
   | { status: "checking" }
+  | { status: "check-error"; error: string }
   | { status: "available"; update: AppUpdateInfo }
   | { status: "downloading"; update: AppUpdateInfo; progress: number | null }
   | { status: "installing"; update: AppUpdateInfo; progress: number | null }
@@ -22,10 +23,14 @@ declare global {
   }
 }
 
-export function useAppUpdate() {
+export function useAppUpdate(_options?: { manual?: boolean }) {
   const [state, setState] = useState<AppUpdateState>(
     () => window.__storybookAppUpdateState ?? { status: "hidden" },
   );
+
+  const checkForUpdates = useCallback(() => {
+    setState({ status: "checking" });
+  }, []);
 
   const installUpdate = useCallback(async () => {
     setState((current) => {
@@ -34,9 +39,13 @@ export function useAppUpdate() {
     });
   }, []);
 
+  const retryUpdate = useCallback(() => {
+    setState({ status: "checking" });
+  }, []);
+
   const dismissUpdate = useCallback(() => {
     setState({ status: "hidden" });
   }, []);
 
-  return { state, installUpdate, dismissUpdate };
+  return { state, checkForUpdates, installUpdate, retryUpdate, dismissUpdate };
 }

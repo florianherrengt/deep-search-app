@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
-import { CheckIcon } from "lucide-react";
-import { Button, TextInput, Select, SegmentedControl, Box, Stack, Text, Group, Checkbox, Paper } from "@mantine/core";
+import { CheckIcon, Loader2, RefreshCw } from "lucide-react";
+import { Button, TextInput, Select, SegmentedControl, Box, Stack, Text, Group, Checkbox, Paper, Progress } from "@mantine/core";
 import { generateText } from "ai";
 import {
   CHAT_PROVIDER_SETTINGS,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/settings-store";
 import { backfillIndex } from "@/lib/research-search";
 import type { Settings } from "@/hooks/use-settings";
+import { useAppUpdate } from "@/hooks/use-app-update";
 
 const RESEARCH_INDEX_FIELDS: readonly SettingsFieldDefinition[] = [
   {
@@ -337,6 +338,126 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
         )}
       </Paper>
     </Stack>
+  );
+}
+
+export function SettingsUpdateSection() {
+  const { state, checkForUpdates, installUpdate, retryUpdate, dismissUpdate } = useAppUpdate({ manual: true });
+  const [hasChecked, setHasChecked] = useState(false);
+
+  function handleCheck() {
+    setHasChecked(true);
+    checkForUpdates();
+  }
+
+  const isBusy = state.status === "checking"
+    || state.status === "downloading"
+    || state.status === "installing"
+    || state.status === "restarting";
+
+  const showRetry = state.status === "check-error" || state.status === "error";
+  const showInstall = state.status === "available";
+
+  let statusText: React.ReactNode = null;
+  let detailText: React.ReactNode = null;
+  let buttonLabel = "Check for Updates";
+  let buttonAction = handleCheck;
+  let buttonVariant: "filled" | "outline" | "light" = "light";
+  let buttonColor: string | undefined;
+
+  if (state.status === "checking") {
+    statusText = "Checking for updates...";
+    buttonLabel = "Checking";
+  } else if (state.status === "check-error") {
+    statusText = <Text component="span" size="xs" c="red">Update check failed: {state.error}</Text>;
+    buttonLabel = "Retry";
+    buttonVariant = "outline";
+    buttonColor = "red";
+  } else if (showInstall) {
+    statusText = (
+      <Text size="xs">
+        Version <Text component="span" fw={600}>{state.update.version}</Text> available
+        (current: {state.update.currentVersion})
+      </Text>
+    );
+    if (state.update.body) {
+      detailText = (
+        <Text size="xs" c="dimmed" lineClamp={2}>{state.update.body}</Text>
+      );
+    }
+    buttonLabel = "Install Update";
+    buttonVariant = "filled";
+  } else if (state.status === "downloading") {
+    statusText = state.progress !== null
+      ? `Downloading update (${state.progress}%)`
+      : "Downloading update...";
+    buttonLabel = "Downloading";
+  } else if (state.status === "installing") {
+    statusText = "Installing update...";
+    buttonLabel = "Installing";
+  } else if (state.status === "restarting") {
+    statusText = "Restarting to complete update...";
+    buttonLabel = "Restarting";
+  } else if (state.status === "error") {
+    statusText = <Text component="span" size="xs" c="red">{state.error}</Text>;
+    buttonLabel = "Retry";
+    buttonAction = () => { retryUpdate(); };
+    buttonVariant = "outline";
+    buttonColor = "red";
+  } else if (state.status === "hidden" && hasChecked) {
+    statusText = "Up to date";
+    buttonLabel = "Check Again";
+  }
+
+  if (showRetry) {
+    buttonAction = () => { retryUpdate(); };
+  }
+
+  if (showInstall) {
+    buttonAction = () => { void installUpdate(); };
+  }
+
+  const progressValue = (state.status === "downloading" || state.status === "installing") && state.progress !== null
+    ? state.progress
+    : undefined;
+
+  return (
+    <Paper withBorder p="sm">
+      <Group justify="space-between" align="flex-start" wrap="nowrap">
+        <Box style={{ flex: 1, minWidth: 0 }}>
+          <Text size="sm" fw={500}>App Updates</Text>
+          {statusText && (
+            <Text size="xs" c="dimmed" mt={2}>{statusText}</Text>
+          )}
+          {detailText}
+          {progressValue !== undefined && (
+            <Progress value={progressValue} size="xs" mt="xs" />
+          )}
+        </Box>
+        <Group gap="xs" wrap="nowrap">
+          <Button
+            size="xs"
+            variant={buttonVariant}
+            color={buttonColor}
+            loading={isBusy}
+            onClick={buttonAction}
+            leftSection={isBusy ? <Loader2 size={12} /> : showRetry ? <RefreshCw size={12} /> : undefined}
+          >
+            {buttonLabel}
+          </Button>
+          {(state.status === "available" || state.status === "error" || state.status === "check-error") && (
+            <Button
+              size="xs"
+              variant="subtle"
+              color="gray"
+              onClick={dismissUpdate}
+            >
+              Dismiss
+            </Button>
+          )}
+        </Group>
+      </Group>
+    </Paper>
   );
 }
 

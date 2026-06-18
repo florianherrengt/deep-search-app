@@ -72,7 +72,8 @@ export function appUpdateReducer(
   }
 }
 
-export function useAppUpdate() {
+export function useAppUpdate(options?: { manual?: boolean }) {
+  const manual = options?.manual ?? false;
   const updateRef = useRef<AppUpdate | null>(null);
   const [state, dispatch] = useReducer(appUpdateReducer, {
     status: "hidden",
@@ -113,6 +114,7 @@ export function useAppUpdate() {
   }, []);
 
   useEffect(() => {
+    if (manual) return;
     checkForUpdates();
     return () => {
       cancelledRef.current = true;
@@ -120,7 +122,7 @@ export function useAppUpdate() {
       updateRef.current = null;
       void update?.close().catch(() => undefined);
     };
-  }, [checkForUpdates]);
+  }, [checkForUpdates, manual]);
 
   const retry = useCallback(() => {
     const update = updateRef.current;
@@ -191,6 +193,7 @@ export function useAppUpdate() {
 
   return {
     state,
+    checkForUpdates,
     installUpdate,
     retryUpdate: retry,
     dismissUpdate,
