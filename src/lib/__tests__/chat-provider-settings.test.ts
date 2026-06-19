@@ -305,31 +305,3 @@ describe("chat provider settings", () => {
     ).resolves.toBeUndefined();
   });
 });
-
-import { settingsSchema } from "@/lib/settings-store";
-
-describe("embedding_dimensions schema", () => {
-  it("rejects zero", () => {
-    expect(() => settingsSchema.shape.embedding_dimensions.parse(0)).toThrow();
-  });
-
-  it("rejects negative values", () => {
-    expect(() => settingsSchema.shape.embedding_dimensions.parse(-1)).toThrow();
-  });
-
-  it("rejects NaN", () => {
-    expect(() => settingsSchema.shape.embedding_dimensions.parse(NaN)).toThrow();
-  });
-
-  it("rejects Infinity", () => {
-    expect(() => settingsSchema.shape.embedding_dimensions.parse(Infinity)).toThrow();
-  });
-
-  it("rejects non-integer floats", () => {
-    expect(() => settingsSchema.shape.embedding_dimensions.parse(1.5)).toThrow();
-  });
-
-  it("accepts valid positive integers", () => {
-    expect(settingsSchema.shape.embedding_dimensions.parse(1024)).toBe(1024);
-  });
-});

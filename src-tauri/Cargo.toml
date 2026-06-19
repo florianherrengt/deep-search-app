@@ -21,10 +21,6 @@ e2e-testing = ["tauri-plugin-playwright"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-[[bin]]
-name = "research-search-benchmark"
-path = "src/bin/research-search-benchmark.rs"
-
 [dependencies]
 tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-opener = "2"
@@ -37,15 +33,10 @@ tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
 tauri-plugin-shell = "2"
 tokio = { version = "1", features = ["time"] }
 url = "2"
-rusqlite = { version = "0.31", features = ["bundled"] }
-sqlite-vec = "0.1"
-sha2 = "0.10"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
-base64 = "0.22"
 tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-pulldown-cmark = { version = "0.13", default-features = false }
 ipnet = "2.10"
 dotenvy = "0.15"
 tauri-plugin-playwright = { version = "0.4", optional = true }

@@ -7,24 +7,10 @@ import type { UIMessage } from "ai";
 import type {
   LanguageModelV3StreamResult,
 } from "@ai-sdk/provider";
-import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import {
   isEligibleForMemoryExtraction,
   collectMemoryCandidates,
 } from "@/lib/transport";
-
-const mockEmbeddingConfig: EmbeddingConfig = {
-  api_key: "test-key",
-  base_url: "https://openrouter.ai/api/v1",
-  model: "qwen/qwen3-embedding-4b",
-  dimensions: 1024,
-  query_prefix: "Represent this sentence for searching relevant passages: ",
-};
-const mockRerankerConfig: RerankerConfig = {
-  api_key: "test-key",
-  base_url: "https://openrouter.ai/api/v1",
-  model: "cohere/rerank-4-pro",
-};
 
 const fsMocks = vi.hoisted(() => ({
   mkdir: vi.fn(),
@@ -754,8 +740,6 @@ describe("DirectTransport memory extraction guard", () => {
   it("does not trigger when reopening a persisted conversation (no sendMessages call)", () => {
     const transport = new DirectTransport(
       () => ({ provider: "openrouter", apiKey: "key", model: "m" }) as never,
-      () => mockEmbeddingConfig,
-      () => mockRerankerConfig,
       () => ({}),
       "chat-id",
       "existing-folder",
@@ -1073,8 +1057,6 @@ describe("DirectTransport memory extraction guard", () => {
 function transportWithExistingFolder(): DirectTransport {
   return new DirectTransport(
     () => ({ provider: "openrouter", apiKey: "chat-key", model: "test-model" }) as never,
-    () => mockEmbeddingConfig,
-    () => mockRerankerConfig,
     () => ({}),
     "2026-05-22T10-11-12.123Z",
     "test-folder",

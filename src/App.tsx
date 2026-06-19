@@ -17,7 +17,7 @@ import {
   getChatModelOptions,
   getDefaultChatModelId,
 } from "@/lib/chat-provider-settings";
-import { type ChatModelConfig, type ChatProvider } from "@/lib/chat-providers";
+import { type ChatModelConfig, type ChatProvider, createChatLanguageModel } from "@/lib/chat-providers";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ToolsPanel } from "@/components/tools-panel";
 import { PromptTemplatesSection } from "@/components/prompt-templates-section";
@@ -42,8 +42,7 @@ import {
   type ResearchChatSummary,
   type ResearchFolder,
 } from "@/lib/research-history";
-import { resolveEmbeddingConfig, resolveRerankerConfig } from "@/lib/settings-store";
-import { reindexFolder } from "@/lib/research-search";
+import { searchFoldersWithLLMSafe } from "@/lib/folder-search";
 
 const LazyChat = lazy(() =>
   import("@/components/chat").then((m) => ({ default: m.Chat })),
@@ -441,21 +440,6 @@ function AppInner() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [researchFolders, activeResearchFolder]);
 
-  if (loading) return null;
-
-  if (settingsError) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem", gap: "0.5rem" }}>
-        <p style={{ fontSize: "1.125rem", fontWeight: 500 }}>Failed to load settings</p>
-        <p style={{ fontSize: "0.875rem", opacity: 0.6 }}>{settingsError.message}</p>
-        <button onClick={() => window.location.reload()} style={{ marginTop: "1rem", padding: "0.5rem 1rem" }}>Retry</button>
-      </div>
-    );
-  }
-
-  const embeddingConfig = resolveEmbeddingConfig(settings);
-  const rerankerConfig = resolveRerankerConfig(settings);
-
   const searchKeys = {
     braveApiKey: settings.brave_api_key || null,
     exaApiKey: settings.exa_api_key || null,
@@ -496,6 +480,32 @@ function AppInner() {
     updateDefaultChatProvider(selected.provider);
   };
 
+  const handleSearchFolders = useCallback(
+    async (query: string, abortSignal?: AbortSignal): Promise<string[]> => {
+      const modelConfig = getSelectedToolChatModel();
+      if (!modelConfig) return [];
+      const model = createChatLanguageModel(modelConfig);
+      return searchFoldersWithLLMSafe(
+        query,
+        researchFolders.map((f) => f.name),
+        model,
+        abortSignal,
+      );
+    },
+    [researchFolders, effectiveSelectedModelId, chatModelOptions],
+  );
+
+  if (loading) return null;
+
+  if (settingsError) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem", gap: "0.5rem" }}>
+        <p style={{ fontSize: "1.125rem", fontWeight: 500 }}>Failed to load settings</p>
+        <p style={{ fontSize: "0.875rem", opacity: 0.6 }}>{settingsError.message}</p>
+        <button onClick={() => window.location.reload()} style={{ marginTop: "1rem", padding: "0.5rem 1rem" }}>Retry</button>
+      </div>
+    );
+  }
 
   const handleSelectResearchFolder = async (folderName: string) => {
     setResearchChatsStatus("loading");
@@ -681,11 +691,6 @@ function AppInner() {
     void refreshResearchFolders();
   };
 
-  const handleReindexResearchFolder = async (folderName: string) => {
-    await reindexFolder(embeddingConfig, folderName);
-    void refreshResearchFolders();
-  };
-
   const runningFolderNames = getRunningResearchFolders(chatSessions);
   const runningChatIds = getRunningResearchChatIds(chatSessions);
   const attentionFolderNames = getAttentionRequiredResearchFolders(chatSessions);
@@ -706,8 +711,7 @@ function AppInner() {
             activeFolderName={activeResearchFolder}
             chats={researchChats}
             activeChatId={activeResearchChatId}
-            embeddingConfig={embeddingConfig}
-            rerankerConfig={rerankerConfig}
+            searchFolders={handleSearchFolders}
             status={researchFoldersStatus}
             chatsStatus={researchChatsStatus}
             runningFolderNames={runningFolderNames}
@@ -724,7 +728,6 @@ function AppInner() {
             }}
             onRenameFolder={handleRenameResearchFolder}
             onDeleteFolder={handleDeleteResearchFolder}
-            onReindexFolder={handleReindexResearchFolder}
           />
           <div className="md-flex-fill" style={{ display: "flex" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -752,8 +755,6 @@ function AppInner() {
                       onConfigure={() => switchToTab("settings")}
                       searchKeys={searchKeys}
                       currency={settings.currency}
-                      embeddingConfig={embeddingConfig}
-                      rerankerConfig={rerankerConfig}
                       onResearchChatSaved={(folderName) => {
                         if (folderName === activeResearchFolderRef.current) {
                           void refreshResearchChats(folderName);
@@ -780,8 +781,6 @@ function AppInner() {
         <ToolsPanel
           config={{
             researchFolder: activeResearchFolder,
-            embeddingConfig,
-            rerankerConfig,
             getChatModel: getSelectedToolChatModel,
             ...searchKeys,
           }}

@@ -1,5 +1,6 @@
 import {
   useState,
+  useRef,
   useCallback,
   type CSSProperties,
   type FormEvent,
@@ -13,7 +14,6 @@ import {
   MessageSquareIcon,
   PencilIcon,
   PlusIcon,
-  RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
   XIcon,
@@ -39,20 +39,17 @@ import type {
   ResearchChatSummary,
   ResearchFolder,
 } from "@/lib/research-history";
-import {
-  searchResearch,
-  type SearchResult,
-  type EmbeddingConfig,
-  type RerankerConfig,
-} from "@/lib/research-search";
+
+export interface SearchFoldersFn {
+  (query: string, abortSignal?: AbortSignal): Promise<string[]>;
+}
 
 interface ResearchSidebarProps {
   folders: ResearchFolder[];
   activeFolderName: string | null;
   chats: ResearchChatSummary[];
   activeChatId: string | null;
-  embeddingConfig: EmbeddingConfig;
-  rerankerConfig: RerankerConfig;
+  searchFolders: SearchFoldersFn;
   status: "loading" | "ready" | "error";
   chatsStatus: "idle" | "loading" | "ready" | "error";
   runningFolderNames?: string[];
@@ -65,7 +62,6 @@ interface ResearchSidebarProps {
   onSelectChat: (folderName: string, chatId: string) => void;
   onRenameFolder: (oldFolderName: string, newFolderName: string) => Promise<void>;
   onDeleteFolder: (folderName: string) => Promise<void>;
-  onReindexFolder: (folderName: string) => Promise<void>;
 }
 
 export function ResearchSidebar({
@@ -73,8 +69,7 @@ export function ResearchSidebar({
   activeFolderName,
   chats,
   activeChatId,
-  embeddingConfig,
-  rerankerConfig,
+  searchFolders,
   status,
   chatsStatus,
   runningFolderNames = [],
@@ -87,7 +82,6 @@ export function ResearchSidebar({
   onSelectChat,
   onRenameFolder,
   onDeleteFolder,
-  onReindexFolder,
 }: ResearchSidebarProps) {
   useSubAgentRenderCounter("ResearchSidebar");
 
@@ -96,12 +90,12 @@ export function ResearchSidebar({
   const [deleteTarget, setDeleteTarget] = useState<ResearchFolder | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState(false);
-  const [reindexingFolder, setReindexingFolder] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searchResults, setSearchResults] = useState<string[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   function openRenameDialog(folder: ResearchFolder) {
     if (runningFolderNames.includes(folder.name)) return;
@@ -177,21 +171,31 @@ export function ResearchSidebar({
         setSearchResults(null);
         return;
       }
+      searchAbortRef.current?.abort();
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
       setSearchLoading(true);
       setSearchResults(null);
       try {
-        const results = await searchResearch(embeddingConfig, rerankerConfig, q, { limit: 10 });
-        setSearchResults(results);
+        const results = await searchFolders(q, controller.signal);
+        if (!controller.signal.aborted) {
+          setSearchResults(results);
+        }
       } catch {
-        setSearchResults([]);
+        if (!controller.signal.aborted) {
+          setSearchResults([]);
+        }
       } finally {
-        setSearchLoading(false);
+        if (!controller.signal.aborted) {
+          setSearchLoading(false);
+        }
       }
     },
-    [embeddingConfig, rerankerConfig, searchQuery],
+    [searchFolders, searchQuery],
   );
 
   function clearSearch() {
+    searchAbortRef.current?.abort();
     setSearchQuery("");
     setSearchResults(null);
     setSearchLoading(false);
@@ -211,10 +215,7 @@ export function ResearchSidebar({
     await openPath(folderPath);
   }
 
-  const matchedFolders =
-    searchResults !== null
-      ? Array.from(new Set(searchResults.map((r) => r.folder_name)))
-      : [];
+  const matchedFolders = searchResults ?? [];
   const runningFolderSet = new Set(runningFolderNames);
   const runningChatIdSet = new Set(runningChatIds);
   const attentionFolderSet = new Set(attentionFolderNames);
@@ -464,15 +465,6 @@ export function ResearchSidebar({
             setDeleteTarget(contextMenu.folder);
           }}
           onRevealInFinder={() => void handleRevealInFinder(contextMenu.folder.name)}
-          reindexing={reindexingFolder === contextMenu.folder.name}
-          onReindex={() => {
-            const folder = contextMenu.folder.name;
-            setReindexingFolder(folder);
-            setContextMenu(null);
-            onReindexFolder(folder)
-              .catch((err) => setActionError(err instanceof Error ? err.message : String(err)))
-              .finally(() => setReindexingFolder(null));
-          }}
         />
       )}
     </>
@@ -666,20 +658,16 @@ function FolderContextMenu({
   state,
   onClose,
   folderRunning,
-  reindexing,
   onRename,
   onDelete,
   onRevealInFinder,
-  onReindex,
 }: {
   state: NonNullable<ContextMenuState>;
   onClose: () => void;
   folderRunning: boolean;
-  reindexing: boolean;
   onRename: () => void;
   onDelete: () => void;
   onRevealInFinder: () => void;
-  onReindex: () => void;
 }) {
   return (
     <Menu
@@ -717,13 +705,6 @@ function FolderContextMenu({
           Delete
         </Menu.Item>
         <Menu.Divider />
-        <Menu.Item
-          disabled={reindexing}
-          leftSection={reindexing ? <LoaderIcon size={16} className="animate-spin" /> : <RefreshCwIcon size={16} />}
-          onClick={() => { onReindex(); }}
-        >
-          {reindexing ? "Re-indexing…" : "Re-index"}
-        </Menu.Item>
         <Menu.Item
           leftSection={<FolderOpenIcon size={16} />}
           onClick={() => { onRevealInFinder(); onClose(); }}

@@ -5,7 +5,6 @@ import { describe, expect, it, vi, afterEach, beforeAll } from "vitest";
 import { cleanup, render, fireEvent, waitFor } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
 import { ResearchSidebar } from "@/components/research-sidebar";
-import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -37,9 +36,6 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
 });
-
-const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
-const mockRerankerConfig: RerankerConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "cohere/rerank-4-pro" };
 
 describe("ResearchSidebar", () => {
   it("renders new chat and previous search folders", () => {
@@ -331,8 +327,7 @@ function renderSidebar(props: Partial<ResearchSidebarProps> = {}) {
         activeFolderName={null}
         chats={[]}
         activeChatId={null}
-        embeddingConfig={mockEmbeddingConfig}
-        rerankerConfig={mockRerankerConfig}
+        searchFolders={vi.fn().mockResolvedValue([])}
         status="ready"
         chatsStatus="idle"
         onNewChat={vi.fn()}
@@ -341,7 +336,6 @@ function renderSidebar(props: Partial<ResearchSidebarProps> = {}) {
         onSelectChat={vi.fn()}
         onRenameFolder={vi.fn()}
         onDeleteFolder={vi.fn()}
-        onReindexFolder={vi.fn()}
         {...props}
       />
     </MantineProvider>,
@@ -395,8 +389,7 @@ function CyclingWrapper({ folders, activeFolderName, onSelectFolder }: CyclingWr
         activeFolderName={activeFolderName}
         chats={[]}
         activeChatId={null}
-        embeddingConfig={mockEmbeddingConfig}
-        rerankerConfig={mockRerankerConfig}
+        searchFolders={vi.fn().mockResolvedValue([])}
         status="ready"
         chatsStatus="idle"
         onNewChat={vi.fn()}
@@ -405,7 +398,6 @@ function CyclingWrapper({ folders, activeFolderName, onSelectFolder }: CyclingWr
         onSelectChat={vi.fn()}
         onRenameFolder={vi.fn()}
         onDeleteFolder={vi.fn()}
-        onReindexFolder={vi.fn()}
       />
     </MantineProvider>
   );

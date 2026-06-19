@@ -44,6 +44,10 @@ export async function invoke<T = unknown>(
   const mock = getBridgeMock("invoke");
   if (mock) return (mock(cmd, args) ?? undefined) as T;
 
+  if (!isTauri() && hasBrowserStorage()) {
+    return invokeBrowserFallback<T>(cmd, args);
+  }
+
   requireTauri();
 
   const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
@@ -57,6 +61,10 @@ export async function writeTextFile(
 ): Promise<void> {
   const mock = getBridgeMock("writeTextFile");
   if (mock) return mock(path, content, opts);
+  if (!isTauri() && hasBrowserStorage()) {
+    browserWriteTextFile(path, content, Boolean(opts?.append));
+    return;
+  }
   requireTauri();
   const { writeTextFile: fn, BaseDirectory } = await import(
     "@tauri-apps/plugin-fs"
@@ -73,6 +81,9 @@ export async function readTextFile(
 ): Promise<string> {
   const mock = getBridgeMock("readTextFile");
   if (mock) return mock(path, opts);
+  if (!isTauri() && hasBrowserStorage()) {
+    return browserReadTextFile(path);
+  }
   requireTauri();
   const { readTextFile: fn, BaseDirectory } = await import(
     "@tauri-apps/plugin-fs"
@@ -86,6 +97,9 @@ export async function exists(
 ): Promise<boolean> {
   const mock = getBridgeMock("exists");
   if (mock) return mock(path, opts);
+  if (!isTauri() && hasBrowserStorage()) {
+    return browserExists(path);
+  }
   requireTauri();
   const { exists: fn, BaseDirectory } = await import("@tauri-apps/plugin-fs");
   return fn(path, { baseDir: opts?.baseDir ?? BaseDirectory.AppData });
@@ -97,6 +111,9 @@ export async function readDir(
 ): Promise<DirEntry[]> {
   const mock = getBridgeMock("readDir");
   if (mock) return mock(path, opts);
+  if (!isTauri() && hasBrowserStorage()) {
+    return browserReadDir(path);
+  }
   requireTauri();
   const { readDir: fn, BaseDirectory } = await import("@tauri-apps/plugin-fs");
   return fn(path, { baseDir: opts?.baseDir ?? BaseDirectory.AppData });
@@ -108,6 +125,10 @@ export async function remove(
 ): Promise<void> {
   const mock = getBridgeMock("remove");
   if (mock) return mock(path, opts);
+  if (!isTauri() && hasBrowserStorage()) {
+    browserRemove(path, Boolean(opts?.recursive));
+    return;
+  }
   requireTauri();
   const { remove: fn, BaseDirectory } = await import("@tauri-apps/plugin-fs");
   return fn(path, {
@@ -123,6 +144,10 @@ export async function rename(
 ): Promise<void> {
   const mock = getBridgeMock("rename");
   if (mock) return mock(oldPath, newPath, opts);
+  if (!isTauri() && hasBrowserStorage()) {
+    browserRename(oldPath, newPath);
+    return;
+  }
   requireTauri();
   const { rename: fn, BaseDirectory } = await import("@tauri-apps/plugin-fs");
   return fn(oldPath, newPath, {
@@ -137,6 +162,10 @@ export async function mkdir(
 ): Promise<void> {
   const mock = getBridgeMock("mkdir");
   if (mock) return mock(path, opts);
+  if (!isTauri() && hasBrowserStorage()) {
+    browserMkdir(path);
+    return;
+  }
   requireTauri();
   const { mkdir: fn, BaseDirectory } = await import("@tauri-apps/plugin-fs");
   return fn(path, {
@@ -162,6 +191,10 @@ export async function loadStore(
   const mock = getBridgeMock("loadStore");
   if (mock) return mock(filename, options);
 
+  if (!isTauri() && hasBrowserStorage()) {
+    return loadBrowserStore(filename, options);
+  }
+
   requireTauri();
   const { load } = await import("@tauri-apps/plugin-store");
   const store = await load(filename, options as any);
@@ -176,6 +209,10 @@ export async function appDataDir(): Promise<string> {
   const mock = getBridgeMock("appDataDir");
   if (mock) return mock();
 
+  if (!isTauri() && hasBrowserStorage()) {
+    return "browser-local-storage";
+  }
+
   requireTauri();
   const { appDataDir: fn } = await import("@tauri-apps/api/path");
   return fn();
@@ -184,6 +221,10 @@ export async function appDataDir(): Promise<string> {
 export async function join(...paths: string[]): Promise<string> {
   const mock = getBridgeMock("join");
   if (mock) return mock(...paths);
+
+  if (!isTauri() && hasBrowserStorage()) {
+    return normalizeBrowserPath(paths.join("/"));
+  }
 
   requireTauri();
   const { join: fn } = await import("@tauri-apps/api/path");
@@ -200,6 +241,11 @@ export async function openUrl(url: string): Promise<void> {
   const mock = getBridgeMock("openUrl");
   if (mock) return mock(url);
 
+  if (!isTauri() && typeof window !== "undefined") {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
   requireTauri();
   const { openUrl: fn } = await import("@tauri-apps/plugin-opener");
   return fn(url);
@@ -208,6 +254,11 @@ export async function openUrl(url: string): Promise<void> {
 export async function openPath(path: string): Promise<void> {
   const mock = getBridgeMock("openPath");
   if (mock) return mock(path);
+
+  if (!isTauri()) {
+    console.info(`[Deep Search] Cannot reveal local path outside Tauri: ${path}`);
+    return;
+  }
 
   requireTauri();
   const { openPath: fn } = await import("@tauri-apps/plugin-opener");
@@ -221,12 +272,20 @@ export async function setupMenu(
   const mock = getBridgeMock("setupMenu");
   if (mock) return mock(onPreferences, onNewChat);
 
+  if (!isTauri()) {
+    return;
+  }
+
   requireTauri();
   const { setupMenu: fn } = await import("@/lib/setup-menu-impl");
   return fn(onPreferences, onNewChat);
 }
 
 export async function isNotificationPermissionGranted(): Promise<boolean> {
+  if (!isTauri() && typeof window !== "undefined" && "Notification" in window) {
+    return window.Notification.permission === "granted";
+  }
+
   const { isPermissionGranted } = await import(
     "@tauri-apps/plugin-notification"
   );
@@ -234,6 +293,10 @@ export async function isNotificationPermissionGranted(): Promise<boolean> {
 }
 
 export async function requestNotificationPermission(): Promise<string> {
+  if (!isTauri() && typeof window !== "undefined" && "Notification" in window) {
+    return window.Notification.requestPermission();
+  }
+
   const { requestPermission } = await import(
     "@tauri-apps/plugin-notification"
   );
@@ -396,6 +459,8 @@ export async function checkForUpdate(opts?: {
   const mock = getBridgeMock("checkForUpdate");
   if (mock) return mock(opts);
 
+  if (!isTauri()) return null;
+
   requireTauri();
   const { check } = await import("@tauri-apps/plugin-updater");
   return check(opts) as Promise<AppUpdate | null>;
@@ -405,9 +470,232 @@ export async function relaunchApp(): Promise<void> {
   const mock = getBridgeMock("relaunchApp");
   if (mock) return mock();
 
+  if (!isTauri()) return;
+
   requireTauri();
   const { relaunch } = await import("@tauri-apps/plugin-process");
   return relaunch();
+}
+
+const BROWSER_STORE_PREFIX = "deep-search:store:";
+const BROWSER_FS_KEY = "deep-search:browser-fs";
+
+interface BrowserFsSnapshot {
+  files: Record<string, string>;
+  dirs: string[];
+}
+
+function hasBrowserStorage(): boolean {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+async function invokeBrowserFallback<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  if (cmd === "fetch_html") {
+    const url = typeof args?.url === "string" ? args.url : "";
+    if (!url) return null as T;
+    try {
+      const response = await globalThis.fetch(url);
+      return (response.ok ? await response.text() : null) as T;
+    } catch {
+      return null as T;
+    }
+  }
+
+  return undefined as T;
+}
+
+async function loadBrowserStore(
+  filename: string,
+  options: StoreOptions,
+): Promise<{
+  get: <V>(key: string) => Promise<V | null>;
+  set: (key: string, value: unknown) => Promise<void>;
+  save: () => Promise<void>;
+}> {
+  const storageKey = `${BROWSER_STORE_PREFIX}${filename}`;
+  let state = readBrowserJson<Record<string, unknown>>(storageKey, {
+    ...(options.defaults ?? {}),
+  });
+
+  return {
+    get: async <V>(key: string) => (key in state ? (state[key] as V) : null),
+    set: async (key: string, value: unknown) => {
+      state = { ...state, [key]: value };
+      if (options.autoSave) writeBrowserJson(storageKey, state);
+    },
+    save: async () => {
+      writeBrowserJson(storageKey, state);
+    },
+  };
+}
+
+function browserWriteTextFile(
+  path: string,
+  content: string,
+  append: boolean,
+): void {
+  const normalized = normalizeBrowserPath(path);
+  const fs = readBrowserFs();
+  ensureBrowserDir(fs, parentBrowserPath(normalized));
+  fs.files[normalized] = append ? `${fs.files[normalized] ?? ""}${content}` : content;
+  writeBrowserFs(fs);
+}
+
+function browserReadTextFile(path: string): string {
+  const normalized = normalizeBrowserPath(path);
+  const fs = readBrowserFs();
+  const content = fs.files[normalized];
+  if (content === undefined) {
+    throw new Error(`File not found: ${path}`);
+  }
+  return content;
+}
+
+function browserExists(path: string): boolean {
+  const normalized = normalizeBrowserPath(path);
+  const fs = readBrowserFs();
+  return normalized in fs.files || fs.dirs.includes(normalized);
+}
+
+function browserReadDir(path: string): DirEntry[] {
+  const normalized = normalizeBrowserPath(path);
+  const fs = readBrowserFs();
+  const children = new Map<string, DirEntry>();
+  const prefix = normalized ? `${normalized}/` : "";
+
+  for (const dir of fs.dirs) {
+    if (!dir.startsWith(prefix) || dir === normalized) continue;
+    const childName = dir.slice(prefix.length).split("/")[0];
+    if (childName) {
+      children.set(childName, {
+        name: childName,
+        isDirectory: true,
+        isFile: false,
+      });
+    }
+  }
+
+  for (const filePath of Object.keys(fs.files)) {
+    if (!filePath.startsWith(prefix)) continue;
+    const childName = filePath.slice(prefix.length).split("/")[0];
+    if (!childName || children.has(childName)) continue;
+    const isNestedFile = filePath.slice(prefix.length).includes("/");
+    children.set(childName, {
+      name: childName,
+      isDirectory: isNestedFile,
+      isFile: !isNestedFile,
+    });
+  }
+
+  return [...children.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function browserRemove(path: string, recursive: boolean): void {
+  const normalized = normalizeBrowserPath(path);
+  const fs = readBrowserFs();
+  const prefix = `${normalized}/`;
+
+  delete fs.files[normalized];
+  fs.dirs = fs.dirs.filter((dir) =>
+    recursive ? dir !== normalized && !dir.startsWith(prefix) : dir !== normalized,
+  );
+
+  if (recursive) {
+    for (const filePath of Object.keys(fs.files)) {
+      if (filePath.startsWith(prefix)) delete fs.files[filePath];
+    }
+  }
+
+  writeBrowserFs(fs);
+}
+
+function browserRename(oldPath: string, newPath: string): void {
+  const oldNormalized = normalizeBrowserPath(oldPath);
+  const newNormalized = normalizeBrowserPath(newPath);
+  const fs = readBrowserFs();
+  const oldPrefix = `${oldNormalized}/`;
+  const nextFiles: Record<string, string> = {};
+
+  for (const [filePath, content] of Object.entries(fs.files)) {
+    if (filePath === oldNormalized) {
+      nextFiles[newNormalized] = content;
+    } else if (filePath.startsWith(oldPrefix)) {
+      nextFiles[`${newNormalized}/${filePath.slice(oldPrefix.length)}`] = content;
+    } else {
+      nextFiles[filePath] = content;
+    }
+  }
+
+  fs.files = nextFiles;
+  fs.dirs = fs.dirs.map((dir) => {
+    if (dir === oldNormalized) return newNormalized;
+    if (dir.startsWith(oldPrefix)) return `${newNormalized}/${dir.slice(oldPrefix.length)}`;
+    return dir;
+  });
+  ensureBrowserDir(fs, parentBrowserPath(newNormalized));
+  writeBrowserFs(fs);
+}
+
+function browserMkdir(path: string): void {
+  const fs = readBrowserFs();
+  ensureBrowserDir(fs, normalizeBrowserPath(path));
+  writeBrowserFs(fs);
+}
+
+function readBrowserFs(): BrowserFsSnapshot {
+  const fallback: BrowserFsSnapshot = { files: {}, dirs: [] };
+  const raw = readBrowserJson<BrowserFsSnapshot>(BROWSER_FS_KEY, fallback);
+  return {
+    files: raw.files && typeof raw.files === "object" ? raw.files : {},
+    dirs: Array.isArray(raw.dirs) ? raw.dirs : [],
+  };
+}
+
+function writeBrowserFs(fs: BrowserFsSnapshot): void {
+  fs.dirs = [...new Set(fs.dirs.map(normalizeBrowserPath).filter(Boolean))].sort();
+  writeBrowserJson(BROWSER_FS_KEY, fs);
+}
+
+function ensureBrowserDir(fs: BrowserFsSnapshot, path: string): void {
+  const normalized = normalizeBrowserPath(path);
+  if (!normalized) return;
+
+  const parts = normalized.split("/");
+  for (let i = 1; i <= parts.length; i += 1) {
+    const dir = parts.slice(0, i).join("/");
+    if (!fs.dirs.includes(dir)) fs.dirs.push(dir);
+  }
+}
+
+function parentBrowserPath(path: string): string {
+  const normalized = normalizeBrowserPath(path);
+  const index = normalized.lastIndexOf("/");
+  return index === -1 ? "" : normalized.slice(0, index);
+}
+
+function normalizeBrowserPath(path: string): string {
+  return path
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && part !== ".")
+    .join("/");
+}
+
+function readBrowserJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeBrowserJson(key: string, value: unknown): void {
+  window.localStorage.setItem(key, JSON.stringify(value));
 }
 
 export type TauriBridgeMock = {

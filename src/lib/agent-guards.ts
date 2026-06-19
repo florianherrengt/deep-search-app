@@ -18,9 +18,9 @@ import {
   researchCheckpointResultSchema as pkgResearchCheckpointResultSchema,
   type ResearchCheckpointInput,
   type ResearchCheckpointResult,
-} from "research-orchestrator";
+} from "deep-search-core/research-orchestrator";
 
-// ─── Re-exports from research-orchestrator (backward compatibility) ───
+// ─── Re-exports from deep-search-core/research-orchestrator (backward compatibility) ───
 
 export { pkgAsksUserForInput as asksUserForInput };
 export { pkgIsResearchLikeRequest as isResearchLikeRequest };
@@ -276,9 +276,13 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
     }
   }
 
-  return pkgEvaluateAssistantStep<TOOLS>({
-    messages,
-    responseMessage,
-    isHiddenText: isSubAgentOutputTextPart,
-  });
+  return pkgEvaluateAssistantStep({
+    messages: messages as unknown as Parameters<typeof pkgEvaluateAssistantStep>[0]["messages"],
+    responseMessage: responseMessage as unknown as Parameters<
+      typeof pkgEvaluateAssistantStep
+    >[0]["responseMessage"],
+    isHiddenText: isSubAgentOutputTextPart as unknown as Parameters<
+      typeof pkgEvaluateAssistantStep
+    >[0]["isHiddenText"],
+  }) as unknown as GuardDecision<TOOLS>;
 }

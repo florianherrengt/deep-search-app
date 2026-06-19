@@ -1,19 +1,15 @@
-import { createGuardedStream as runGuardedLoop } from "research-orchestrator";
-import type { ProviderOptionsCallback } from "research-orchestrator";
+import { createGuardedStream as runGuardedLoop } from "deep-search-core/research-orchestrator";
 import { type LanguageModel, type UIMessage, type UIMessageChunk } from "ai";
 import { SafePathSegmentSchema } from "@/lib/app-file-storage";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import { evaluateAssistantStep } from "@/lib/agent-guards";
 import { createTools, type SearchToolKeys } from "./tool-registry";
-import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { skillsStore } from "@/lib/skills-store";
 import systemPrompt from "../system-prompt.md?raw";
 
 export function createGuardedStream({
   model,
   researchFolder,
-  embeddingConfig,
-  rerankerConfig,
   messages,
   abortSignal,
   onResearchFolderChange,
@@ -22,8 +18,6 @@ export function createGuardedStream({
 }: {
   model: LanguageModel;
   researchFolder: string | null;
-  embeddingConfig: EmbeddingConfig;
-  rerankerConfig: RerankerConfig;
   messages: UIMessage[];
   abortSignal: AbortSignal | undefined;
   onResearchFolderChange?: (folderName: string) => void | Promise<void>;
@@ -44,17 +38,18 @@ export function createGuardedStream({
           activeResearchFolder = SafePathSegmentSchema.parse(folderName);
           await onResearchFolderChange?.(activeResearchFolder);
         },
-        embeddingConfig,
-        rerankerConfig,
         searchKeys,
       });
 
       const skillsData = await skillsStore.get();
       const effectiveSystemPrompt = buildSystemPrompt(skillsData.skills);
 
-      const getProviderOptions: ProviderOptionsCallback = ({
+      const getProviderOptions = ({
         model: streamModel,
         toolChoice,
+      }: {
+        model: unknown;
+        toolChoice?: unknown;
       }) => {
         if (!toolChoice || toolChoice === "auto") return undefined;
 
@@ -98,8 +93,10 @@ export function createGuardedStream({
         maxGuardRetries: {
           currency_conversion: 1,
         },
+        onError: (error: unknown) =>
+          error instanceof Error ? error.message : String(error),
         controller,
-      });
+      } as unknown as Parameters<typeof runGuardedLoop>[0]);
     } catch (error) {
       if (abortSignal?.aborted) {
         return;

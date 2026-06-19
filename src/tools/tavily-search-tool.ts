@@ -3,7 +3,7 @@ import {
   createSearchExtractEngine,
   createAiSdkSearchTool,
   searchQueryInputSchema,
-} from "@deep-search/search-extract";
+} from "deep-search-core/search-extract";
 
 export const tavilySearchInputSchema = searchQueryInputSchema;
 

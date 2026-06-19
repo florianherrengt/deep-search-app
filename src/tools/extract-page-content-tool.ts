@@ -27,15 +27,15 @@ import {
   isRedditChallengeHtml,
   isAmazonChallengePage,
   MIN_CONTENT_LENGTH,
+  fetchScrapeDoHtml,
   type SearchExtractEngine,
   type PageLoader,
-} from "@deep-search/search-extract";
+} from "deep-search-core/search-extract";
 import { createAppPageLoader, createChromeMcpPageLoader } from "./extraction-page-loader";
 import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 
 const DEFAULT_WEBVIEW_RETRY_INTERVAL_MS = 5_000;
 const DEFAULT_WEBVIEW_MAX_WAIT_MS = 5 * 60_000;
-const SCRAPE_DO_API_URL = "https://api.scrape.do/";
 
 type ExtractionMethod = "auto" | "fetch" | "webview" | "chrome" | "scrape.do";
 
@@ -134,7 +134,11 @@ function withScrapeDoFallback(
   return {
     ...pageLoader,
     renderHtml: async (url, options) => {
-      const remoteHtml = await fetchScrapeDoHtml(url, apiKey, options?.signal);
+      const remoteHtml = await fetchScrapeDoHtml(
+        url,
+        { apiKey, fetch: bridgeFetch },
+        options,
+      );
       if (hasUsefulContent(remoteHtml)) return remoteHtml;
       return pageLoader.renderHtml?.(url, options) ?? null;
     },
@@ -255,42 +259,6 @@ export async function fetchHtml(
     );
   } catch (error) {
     if (isAbortError(error)) throw error;
-    return null;
-  }
-}
-
-async function fetchScrapeDoHtml(
-  url: string,
-  apiKey: string,
-  abortSignal?: AbortSignal,
-): Promise<string | null> {
-  try {
-    validateUrl(url);
-    throwIfAborted(abortSignal);
-
-    const endpoint = new URL(SCRAPE_DO_API_URL);
-    endpoint.searchParams.set("token", apiKey);
-    endpoint.searchParams.set("url", url);
-
-    const response = await abortablePromise(
-      bridgeFetch(endpoint.toString(), {
-        method: "GET",
-        headers: { Accept: "text/html,application/xhtml+xml,text/plain,*/*" },
-        signal: abortSignal,
-      }),
-      abortSignal,
-    );
-
-    if (!response.ok) return null;
-
-    const html = await abortablePromise(response.text(), abortSignal);
-    return html.trim() ? html : null;
-  } catch (error) {
-    if (isAbortError(error)) throw error;
-    console.warn(
-      `[extract] Scrape.do extraction failed for ${url}:`,
-      error instanceof Error ? error.message : error,
-    );
     return null;
   }
 }

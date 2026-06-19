@@ -1,4 +1,4 @@
-import { createTauriPageLoader } from "@deep-search/search-extract";
+import { createTauriPageLoader } from "deep-search-core/search-extract";
 import { createChromeMcpPageLoader } from "./chrome-mcp-page-loader";
 
 export { createChromeMcpPageLoader };

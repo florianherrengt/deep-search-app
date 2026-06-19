@@ -1,7 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { EmbeddingConfig } from "@/lib/research-search";
-
-const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
 
 const fsMocks = vi.hoisted(() => ({
   mkdir: vi.fn(),
@@ -18,16 +15,6 @@ vi.mock("@/lib/tauri-bridge", () => ({
   BaseDirectory: {
     AppData: "AppData",
   },
-}));
-
-const researchSearchMocks = vi.hoisted(() => ({
-  indexResearchFile: vi.fn(),
-  deleteResearchFileIndex: vi.fn(),
-}));
-
-vi.mock("@/lib/research-search", () => ({
-  indexResearchFile: researchSearchMocks.indexResearchFile,
-  deleteResearchFileIndex: researchSearchMocks.deleteResearchFileIndex,
 }));
 
 const researchLibraryMocks = vi.hoisted(() => ({
@@ -51,18 +38,15 @@ import { SafePathSegmentSchema } from "@/lib/app-file-storage";
 const getFolder = async () => "test-folder";
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   fsMocks.mkdir.mockResolvedValue(undefined);
   fsMocks.writeTextFile.mockResolvedValue(undefined);
   fsMocks.remove.mockResolvedValue(undefined);
   fsMocks.rename.mockResolvedValue(undefined);
-  researchSearchMocks.indexResearchFile.mockResolvedValue(undefined);
-  researchSearchMocks.deleteResearchFileIndex.mockResolvedValue(undefined);
 });
-
 describe("create_file", () => {
-  it("creates a new file and indexes it", async () => {
-    const tool = createCreateFileTool(getFolder, mockEmbeddingConfig) as unknown as {
+  it("creates a new file", async () => {
+    const tool = createCreateFileTool(getFolder) as unknown as {
       execute: (i: { filename: string; content: string }) => Promise<string>;
     };
 
@@ -74,12 +58,6 @@ describe("create_file", () => {
 
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/test-folder/notes.md",
-      "hello",
-    );
-    expect(researchSearchMocks.indexResearchFile).toHaveBeenCalledWith(
-      mockEmbeddingConfig,
-      "test-folder",
-      "notes.md",
       "hello",
     );
   });
@@ -98,22 +76,7 @@ describe("create_file", () => {
 
     expect(fsMocks.writeTextFile).not.toHaveBeenCalled();
   });
-
-  it("skips indexing when no api key is provided", async () => {
-    const tool = createCreateFileTool(getFolder) as unknown as {
-      execute: (i: { filename: string; content: string }) => Promise<string>;
-    };
-
-    fsMocks.exists.mockResolvedValueOnce(false);
-
-    await expect(
-      tool.execute({ filename: "notes.md", content: "hello" }),
-    ).resolves.toBe("OK");
-
-    expect(researchSearchMocks.indexResearchFile).not.toHaveBeenCalled();
-  });
 });
-
 describe("read_file", () => {
   it("returns file contents", async () => {
     const tool = createReadFileTool(getFolder) as unknown as {
@@ -143,7 +106,7 @@ describe("read_file", () => {
 
 describe("update_file", () => {
   it("replaces a unique string in the file", async () => {
-    const tool = createUpdateFileTool(getFolder, mockEmbeddingConfig) as unknown as {
+    const tool = createUpdateFileTool(getFolder) as unknown as {
       execute: (i: {
         filename: string;
         old_string: string;
@@ -165,12 +128,6 @@ describe("update_file", () => {
 
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
       "search-results/test-folder/notes.md",
-      "hello universe",
-    );
-    expect(researchSearchMocks.indexResearchFile).toHaveBeenCalledWith(
-      mockEmbeddingConfig,
-      "test-folder",
-      "notes.md",
       "hello universe",
     );
   });
@@ -268,8 +225,8 @@ describe("update_file", () => {
 });
 
 describe("move_file", () => {
-  it("renames a file, deletes old index, and re-indexes under new name", async () => {
-    const tool = createMoveFileTool(getFolder, mockEmbeddingConfig) as unknown as {
+  it("renames a file", async () => {
+    const tool = createMoveFileTool(getFolder) as unknown as {
       execute: (i: { source: string; destination: string }) => Promise<string>;
     };
 
@@ -281,38 +238,10 @@ describe("move_file", () => {
       tool.execute({ source: "old.md", destination: "new.md" }),
     ).resolves.toBe("OK");
 
-    expect(researchSearchMocks.deleteResearchFileIndex).toHaveBeenCalledWith(
-      "test-folder",
-      "old.md",
-    );
     expect(fsMocks.rename).toHaveBeenCalledWith(
       "search-results/test-folder/old.md",
       "search-results/test-folder/new.md",
     );
-    expect(researchSearchMocks.indexResearchFile).toHaveBeenCalledWith(
-      mockEmbeddingConfig,
-      "test-folder",
-      "new.md",
-      "file content",
-    );
-  });
-
-  it("deletes old index even without api key", async () => {
-    const tool = createMoveFileTool(getFolder) as unknown as {
-      execute: (i: { source: string; destination: string }) => Promise<string>;
-    };
-
-    fsMocks.exists.mockResolvedValueOnce(false);
-
-    await expect(
-      tool.execute({ source: "old.md", destination: "new.md" }),
-    ).resolves.toBe("OK");
-
-    expect(researchSearchMocks.deleteResearchFileIndex).toHaveBeenCalledWith(
-      "test-folder",
-      "old.md",
-    );
-    expect(researchSearchMocks.indexResearchFile).not.toHaveBeenCalled();
   });
 
   it("throws when destination already exists", async () => {
@@ -337,12 +266,11 @@ describe("move_file", () => {
     ).resolves.toBe("OK");
 
     expect(fsMocks.rename).not.toHaveBeenCalled();
-    expect(researchSearchMocks.deleteResearchFileIndex).not.toHaveBeenCalled();
   });
 });
 
 describe("delete_file", () => {
-  it("deletes an existing file and removes its index", async () => {
+  it("deletes an existing file", async () => {
     const tool = createDeleteFileTool(getFolder) as unknown as {
       execute: (i: { filename: string }) => Promise<string>;
     };
@@ -353,16 +281,12 @@ describe("delete_file", () => {
       tool.execute({ filename: "notes.md" }),
     ).resolves.toBe("OK");
 
-    expect(researchSearchMocks.deleteResearchFileIndex).toHaveBeenCalledWith(
-      "test-folder",
-      "notes.md",
-    );
     expect(fsMocks.remove).toHaveBeenCalledWith(
       "search-results/test-folder/notes.md",
     );
   });
 
-  it("removes index even when file does not exist on disk", async () => {
+  it("skips delete when file does not exist on disk", async () => {
     const tool = createDeleteFileTool(getFolder) as unknown as {
       execute: (i: { filename: string }) => Promise<string>;
     };
@@ -373,10 +297,6 @@ describe("delete_file", () => {
       tool.execute({ filename: "ghost.md" }),
     ).resolves.toBe("OK");
 
-    expect(researchSearchMocks.deleteResearchFileIndex).toHaveBeenCalledWith(
-      "test-folder",
-      "ghost.md",
-    );
     expect(fsMocks.remove).not.toHaveBeenCalled();
   });
 });
@@ -484,48 +404,5 @@ describe("file tool edge cases", () => {
         new_string: "replaced",
       }),
     ).rejects.toThrow("multiple times");
-  });
-});
-
-describe("indexing failure diagnostics", () => {
-  it("logs error when indexResearchFile fails during create_file", async () => {
-    const tool = createCreateFileTool(getFolder, mockEmbeddingConfig) as unknown as {
-      execute: (i: { filename: string; content: string }) => Promise<string>;
-    };
-
-    fsMocks.exists.mockResolvedValueOnce(false);
-    researchSearchMocks.indexResearchFile.mockRejectedValueOnce(new Error("embedding API down"));
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    await expect(
-      tool.execute({ filename: "doc.md", content: "content" }),
-    ).resolves.toBe("OK");
-
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Failed to index created file"),
-      expect.objectContaining({ folder: "test-folder", filename: "doc.md" }),
-    );
-
-    consoleSpy.mockRestore();
-  });
-
-  it("logs error when deleteResearchFileIndex fails during delete_file", async () => {
-    const tool = createDeleteFileTool(getFolder) as unknown as {
-      execute: (i: { filename: string }, o: { abortSignal?: AbortSignal }) => Promise<string>;
-    };
-
-    researchSearchMocks.deleteResearchFileIndex.mockRejectedValueOnce(new Error("DB locked"));
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    await expect(
-      tool.execute({ filename: "old.md" }, { abortSignal: undefined }),
-    ).resolves.toBe("OK");
-
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Failed to delete search index"),
-      expect.objectContaining({ folder: "test-folder", filename: "old.md" }),
-    );
-
-    consoleSpy.mockRestore();
   });
 });

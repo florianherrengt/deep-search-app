@@ -13,102 +13,11 @@ import {
 import { createChatLanguageModel, getChatProviderLabel, type ChatProvider } from "@/lib/chat-providers";
 import {
   CURRENCIES,
-  EMBEDDING_DEFAULTS,
-  RERANKER_DEFAULTS,
   WEB_EXTRACTION_BACKENDS,
-  resolveEmbeddingConfig,
 } from "@/lib/settings-store";
-import { backfillIndex } from "@/lib/research-search";
 import { resolveNodePath, isTauri } from "@/lib/tauri-bridge";
 import type { Settings } from "@/hooks/use-settings";
 import { useAppUpdate } from "@/hooks/use-app-update";
-
-const RESEARCH_INDEX_FIELDS: readonly SettingsFieldDefinition[] = [
-  {
-    key: "embedding_base_url",
-    label: "Embedding Base URL",
-    type: "text",
-    placeholder: EMBEDDING_DEFAULTS.base_url,
-  },
-  {
-    key: "embedding_api_key",
-    label: "Embedding API Key",
-    type: "password",
-    placeholder: "Falls back to OpenRouter key",
-  },
-  {
-    key: "embedding_model",
-    label: "Embedding Model",
-    type: "text",
-    placeholder: EMBEDDING_DEFAULTS.model,
-  },
-  {
-    key: "embedding_dimensions",
-    label: "Dimensions",
-    type: "text",
-    placeholder: String(EMBEDDING_DEFAULTS.dimensions),
-  },
-  {
-    key: "embedding_query_prefix",
-    label: "Query Prefix",
-    type: "text",
-    placeholder: EMBEDDING_DEFAULTS.query_prefix,
-  },
-];
-
-const RERANKER_FIELDS: readonly SettingsFieldDefinition[] = [
-  {
-    key: "reranker_base_url",
-    label: "Reranker Base URL",
-    type: "text",
-    placeholder: RERANKER_DEFAULTS.base_url,
-  },
-  {
-    key: "reranker_api_key",
-    label: "Reranker API Key",
-    type: "password",
-    placeholder: "Falls back to embedding key",
-  },
-  {
-    key: "reranker_model",
-    label: "Reranker Model",
-    type: "text",
-    placeholder: RERANKER_DEFAULTS.model,
-  },
-];
-
-function ReindexButton({ settings }: { settings: Settings }) {
-  const [reindexing, setReindexing] = useState(false);
-
-  async function handleReindex() {
-    setReindexing(true);
-    try {
-      const embeddingConfig = resolveEmbeddingConfig(settings);
-      const dimensions = settings.embedding_dimensions || EMBEDDING_DEFAULTS.dimensions;
-      await backfillIndex(embeddingConfig, dimensions);
-    } catch (err) {
-      console.error("[settings] Re-index failed:", err);
-    } finally {
-      setReindexing(false);
-    }
-  }
-
-  return (
-    <Group gap="xs">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={reindexing || !resolveEmbeddingConfig(settings).api_key}
-        onClick={() => { void handleReindex(); }}
-      >
-        {reindexing ? "Re-indexing..." : "Re-index All"}
-      </Button>
-      <Text size="xs" c="dimmed">
-        Drop and recreate the vector index with current settings.
-      </Text>
-    </Group>
-  );
-}
 
 interface SettingsFieldsProps {
   settings: Settings;
@@ -205,16 +114,6 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
 
   async function handleCommit(key: keyof Settings, value: string) {
     const currentValue = settings[key];
-    if (typeof currentValue === "number") {
-      const trimmed = value.trim();
-      if (trimmed === "") return;
-      const parsed = Number(trimmed);
-      if (Number.isNaN(parsed)) return;
-      if (!Number.isInteger(parsed) || parsed < 1) return;
-      if (parsed === currentValue) return;
-      await updateSetting(key, parsed as Settings[typeof key]);
-      return;
-    }
     if (value !== currentValue) {
       await updateSetting(key, value as Settings[typeof key]);
     }
@@ -276,38 +175,6 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             onCommit={handleCommit}
           />
         ))}
-      </Stack>
-
-      <Stack gap="sm">
-        <Text size="sm" fw={500}>Research Index</Text>
-        <Paper withBorder p="sm">
-          <Text size="xs" c="dimmed">
-            Configure the embedding and reranker endpoints for research search.
-            Any OpenAI-compatible <code>/v1/embeddings</code> endpoint works.
-          </Text>
-          {RESEARCH_INDEX_FIELDS.map((field) => (
-            <SettingInput
-              key={field.key}
-              field={field}
-              inputId={`${fieldIdPrefix}-${field.key}`}
-              value={String(settings[field.key] ?? "")}
-              onCommit={handleCommit}
-            />
-          ))}
-        </Paper>
-        <Paper withBorder p="sm">
-          <Text size="xs" fw={500} c="dimmed">Reranker</Text>
-          {RERANKER_FIELDS.map((field) => (
-            <SettingInput
-              key={field.key}
-              field={field}
-              inputId={`${fieldIdPrefix}-${field.key}`}
-              value={String(settings[field.key] ?? "")}
-              onCommit={handleCommit}
-            />
-          ))}
-        </Paper>
-        <ReindexButton settings={settings} />
       </Stack>
 
       <Select

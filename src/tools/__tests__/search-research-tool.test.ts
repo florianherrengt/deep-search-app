@@ -1,26 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 
-const mockEmbeddingConfig: EmbeddingConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "qwen/qwen3-embedding-4b", dimensions: 1024, query_prefix: "Represent this sentence for searching relevant passages: " };
-const mockRerankerConfig: RerankerConfig = { api_key: "test-key", base_url: "https://openrouter.ai/api/v1", model: "cohere/rerank-4-pro" };
-
-const tauriMocks = vi.hoisted(() => ({
-  invoke: vi.fn(),
+const storageMocks = vi.hoisted(() => ({
+  listAppSubfolders: vi.fn(),
 }));
 
-const retrievalMocks = vi.hoisted(() => ({
-  runRetrievalAgent: vi.fn(),
+const folderSearchMocks = vi.hoisted(() => ({
+  searchFoldersWithLLMSafe: vi.fn(),
 }));
 
-vi.mock("@/lib/tauri-bridge", () => ({ invoke: tauriMocks.invoke }));
-vi.mock("@/lib/retrieval-agent", () => retrievalMocks);
+vi.mock("@/lib/app-file-storage", () => ({
+  listAppSubfolders: storageMocks.listAppSubfolders,
+  SafePathSegmentSchema: { parse: (v: string) => v },
+}));
+vi.mock("@/lib/folder-search", () => folderSearchMocks);
 
 import { createSearchResearchTool } from "@/tools/search-research-tool";
 
 type ExecutableSearchTool = {
   execute: (input: {
     query: string | string[];
-    folder?: string;
     limit?: number;
   }) => Promise<Array<{ folder_name: string; relevant_memories: string[] }>>;
 };
@@ -34,183 +32,66 @@ beforeEach(() => {
 });
 
 describe("createSearchResearchTool", () => {
-  it("returns relevant folders with memories from the retrieval agent", async () => {
-    const tool = createSearchResearchTool(
-      mockEmbeddingConfig,
-      mockRerankerConfig,
-      mockModel(),
-    ) as unknown as ExecutableSearchTool;
-    tauriMocks.invoke.mockResolvedValueOnce([
-      {
-        folder_name: "market-map",
-        filename: "notes.md",
-        content: "large chunk that should not be returned",
-        score: 0.9,
-      },
-      {
-        folder_name: "market-map",
-        filename: "findings.md",
-        content: "another chunk",
-        score: 0.8,
-      },
-      {
-        folder_name: "competitors",
-        filename: "notes.md",
-        content: "third chunk",
-        score: 0.7,
-      },
+  it("returns folders selected by the LLM with empty memories", async () => {
+    const tool = createSearchResearchTool(mockModel()) as unknown as ExecutableSearchTool;
+    storageMocks.listAppSubfolders.mockResolvedValueOnce([
+      "market-map",
+      "competitors",
+      "hiking-spots",
     ]);
-    retrievalMocks.runRetrievalAgent.mockResolvedValueOnce({
-      relevant_folders: ["market-map", "competitors"],
-      relevant_memories: ["User prefers EUR"],
-    });
+    folderSearchMocks.searchFoldersWithLLMSafe.mockResolvedValueOnce([
+      "market-map",
+      "competitors",
+    ]);
 
     await expect(tool.execute({ query: "market size" })).resolves.toEqual([
-      { folder_name: "market-map", relevant_memories: ["User prefers EUR"] },
-      { folder_name: "competitors", relevant_memories: ["User prefers EUR"] },
+      { folder_name: "market-map", relevant_memories: [] },
+      { folder_name: "competitors", relevant_memories: [] },
     ]);
-  });
 
-  it("returns memories even when no folders are relevant", async () => {
-    const tool = createSearchResearchTool(
-      mockEmbeddingConfig,
-      mockRerankerConfig,
-      mockModel(),
-    ) as unknown as ExecutableSearchTool;
-    tauriMocks.invoke.mockResolvedValueOnce([
-      {
-        folder_name: "old-folder",
-        filename: "memories.md",
-        content: "User has a dog",
-        score: 0.3,
-      },
-    ]);
-    retrievalMocks.runRetrievalAgent.mockResolvedValueOnce({
-      relevant_folders: [],
-      relevant_memories: ["User has a dog"],
-    });
-
-    await expect(tool.execute({ query: "dog parks" })).resolves.toEqual([
-      { folder_name: "", relevant_memories: ["User has a dog"] },
-    ]);
-  });
-
-  it("passes queries array and search options to the backend command", async () => {
-    const tool = createSearchResearchTool(
-      mockEmbeddingConfig,
-      mockRerankerConfig,
-      mockModel(),
-    ) as unknown as ExecutableSearchTool;
-    tauriMocks.invoke.mockResolvedValueOnce([]);
-
-    await tool.execute({
-      query: "market size",
-      folder: "market-map",
-      limit: 3,
-    });
-
-    expect(tauriMocks.invoke).toHaveBeenCalledWith("search_research", {
-      embeddingConfig: mockEmbeddingConfig,
-      rerankerConfig: mockRerankerConfig,
-      queries: ["market size"],
-      folder: "market-map",
-      limit: 3,
-      filenames: null,
-    });
-  });
-
-  it("accepts multiple queries and joins them for the retrieval agent", async () => {
-    const tool = createSearchResearchTool(
-      mockEmbeddingConfig,
-      mockRerankerConfig,
-      mockModel(),
-    ) as unknown as ExecutableSearchTool;
-    tauriMocks.invoke.mockResolvedValueOnce([
-      {
-        folder_name: "stocks",
-        filename: "notes.md",
-        content: "market trends",
-        score: 0.9,
-      },
-    ]);
-    retrievalMocks.runRetrievalAgent.mockResolvedValueOnce({
-      relevant_folders: ["stocks"],
-      relevant_memories: [],
-    });
-
-    await tool.execute({
-      query: ["market size", "competitor analysis"],
-      limit: 5,
-    });
-
-    expect(tauriMocks.invoke).toHaveBeenCalledWith("search_research", {
-      embeddingConfig: mockEmbeddingConfig,
-      rerankerConfig: mockRerankerConfig,
-      queries: ["market size", "competitor analysis"],
-      folder: null,
-      limit: 5,
-      filenames: null,
-    });
-    expect(retrievalMocks.runRetrievalAgent).toHaveBeenCalledWith(
-      "market size competitor analysis",
-      expect.any(Array),
-      expect.any(Object),
+    expect(folderSearchMocks.searchFoldersWithLLMSafe).toHaveBeenCalledWith(
+      "market size",
+      ["market-map", "competitors", "hiking-spots"],
+      expect.anything(),
       undefined,
     );
   });
 
-  it("returns empty and logs when the backend search command fails", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const tool = createSearchResearchTool(
-      mockEmbeddingConfig,
-      mockRerankerConfig,
-      mockModel(),
-    ) as unknown as ExecutableSearchTool;
-    tauriMocks.invoke.mockRejectedValueOnce(
-      new Error("Failed to parse embedding response: error decoding response body"),
+  it("returns empty when there are no research folders", async () => {
+    const tool = createSearchResearchTool(mockModel()) as unknown as ExecutableSearchTool;
+    storageMocks.listAppSubfolders.mockResolvedValueOnce([]);
+
+    await expect(tool.execute({ query: "anything" })).resolves.toEqual([]);
+    expect(folderSearchMocks.searchFoldersWithLLMSafe).not.toHaveBeenCalled();
+  });
+
+  it("joins multiple queries into a single string for the LLM", async () => {
+    const tool = createSearchResearchTool(mockModel()) as unknown as ExecutableSearchTool;
+    storageMocks.listAppSubfolders.mockResolvedValueOnce(["stocks"]);
+    folderSearchMocks.searchFoldersWithLLMSafe.mockResolvedValueOnce(["stocks"]);
+
+    await tool.execute({ query: ["market size", "competitor analysis"] });
+
+    expect(folderSearchMocks.searchFoldersWithLLMSafe).toHaveBeenCalledWith(
+      "market size competitor analysis",
+      ["stocks"],
+      expect.anything(),
+      undefined,
     );
+  });
+
+  it("returns empty when listing folders fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tool = createSearchResearchTool(mockModel()) as unknown as ExecutableSearchTool;
+    storageMocks.listAppSubfolders.mockRejectedValueOnce(new Error("disk error"));
 
     await expect(tool.execute({ query: "best places to hike" })).resolves.toEqual(
       [],
     );
     expect(errorSpy).toHaveBeenCalledWith(
-      "[search-research-tool] invoke failed:",
+      "[search-research-tool] failed to list folders:",
       expect.any(Error),
     );
     errorSpy.mockRestore();
-  });
-
-  it("re-throws AbortError from search invoke", async () => {
-    const abortError = new DOMException("The operation was aborted.", "AbortError");
-    const tool = createSearchResearchTool(
-      mockEmbeddingConfig,
-      mockRerankerConfig,
-      mockModel(),
-    ) as unknown as ExecutableSearchTool;
-    tauriMocks.invoke.mockRejectedValueOnce(abortError);
-
-    await expect(tool.execute({ query: "market size" })).rejects.toBe(
-      abortError,
-    );
-  });
-
-  it("passes empty query string through to the backend invoke", async () => {
-    const tool = createSearchResearchTool(
-      mockEmbeddingConfig,
-      mockRerankerConfig,
-      mockModel(),
-    ) as unknown as ExecutableSearchTool;
-    tauriMocks.invoke.mockResolvedValueOnce([]);
-
-    await tool.execute({ query: "" });
-
-    expect(tauriMocks.invoke).toHaveBeenCalledWith("search_research", {
-      embeddingConfig: mockEmbeddingConfig,
-      rerankerConfig: mockRerankerConfig,
-      queries: [""],
-      folder: null,
-      limit: 8,
-      filenames: null,
-    });
   });
 });

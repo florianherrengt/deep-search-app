@@ -2,7 +2,7 @@
 
 ## Summary
 
-Add Chrome MCP as an optional backend for web content extraction, replacing the Tauri webview `renderHtml` path when enabled. The `PageLoader` interface in `@deep-search/search-extract` is the injection point — Chrome MCP becomes a drop-in `renderHtml` implementation.
+Add Chrome MCP as an optional backend for web content extraction, replacing the Tauri webview `renderHtml` path when enabled. The `PageLoader` interface in `deep-search-core/search-extract` is the injection point — Chrome MCP becomes a drop-in `renderHtml` implementation.
 
 ## Settings
 
@@ -72,7 +72,7 @@ In Chrome DevTools MCP settings section:
 
 ## Non-goals
 
-- Do not change the `@deep-search/search-extract` package
+- Do not change the shared `deep-search-core/search-extract` package surface
 - Do not change the `fetchHtml` (HTTP fetch) path
 - Do not change the extraction result format
 - Do not add a fallback toggle

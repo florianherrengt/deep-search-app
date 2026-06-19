@@ -77,8 +77,6 @@ type ToolInputSchema = z.ZodObject<Record<string, z.ZodTypeAny>>;
 
 export interface ToolExecuteConfig {
   researchFolder: string | null;
-  embeddingConfig?: import("@/lib/research-search").EmbeddingConfig;
-  rerankerConfig?: import("@/lib/research-search").RerankerConfig;
   getChatModel?: () => ChatModelConfig | null;
   braveApiKey?: string | null;
   exaApiKey?: string | null;
@@ -105,8 +103,6 @@ export function getAvailableTools(
   config?: ToolExecuteConfig,
 ): ToolDescriptor[] {
   const researchFolder = config?.researchFolder;
-  const embeddingConfig = config?.embeddingConfig;
-  const rerankerConfig = config?.rerankerConfig;
   const getChatModel = config?.getChatModel;
   const braveApiKey = config?.braveApiKey;
   const exaApiKey = config?.exaApiKey;
@@ -141,18 +137,18 @@ export function getAvailableTools(
   const extractTool = model && getResearchFolder
     ? createExtractPageContentTool(model, getResearchFolder, chromeMcpConfig, scrapeDoApiKey)
     : undefined;
-  const searchResearchTool = embeddingConfig && rerankerConfig && model ? createSearchResearchTool(embeddingConfig, rerankerConfig, model) : undefined;
+  const searchResearchTool = model ? createSearchResearchTool(model) : undefined;
   const createTool = getResearchFolder
-    ? createCreateFileTool(getResearchFolder, embeddingConfig)
+    ? createCreateFileTool(getResearchFolder)
     : undefined;
   const readTool = getResearchFolder
     ? createReadFileTool(getResearchFolder)
     : undefined;
   const updateTool = getResearchFolder
-    ? createUpdateFileTool(getResearchFolder, embeddingConfig)
+    ? createUpdateFileTool(getResearchFolder)
     : undefined;
   const moveTool = getResearchFolder
-    ? createMoveFileTool(getResearchFolder, embeddingConfig)
+    ? createMoveFileTool(getResearchFolder)
     : undefined;
   const deleteTool = getResearchFolder
     ? createDeleteFileTool(getResearchFolder)

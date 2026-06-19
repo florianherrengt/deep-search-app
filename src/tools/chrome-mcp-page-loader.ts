@@ -1,7 +1,7 @@
 import { isTauri } from "@/lib/tauri-bridge";
 import { getChromeDevToolsMcpClient } from "@/lib/mcp/chrome-devtools-tools";
 import type { ChromeMcpConnectionMode } from "@/lib/settings-store";
-import type { PageLoader } from "@deep-search/search-extract";
+import type { PageLoader } from "deep-search-core/search-extract";
 
 const MCP_CALL_TIMEOUT_MS = 30_000;
 const NAVIGATE_TIMEOUT_MS = 30_000;

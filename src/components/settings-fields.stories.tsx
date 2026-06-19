@@ -19,8 +19,6 @@ const configuredSettings: Settings = {
   serper_api_key: "serper-storybook",
   tavily_api_key: "tvly-storybook",
   scrape_do_api_key: "scrapedo-storybook",
-  embedding_api_key: "embedding-storybook",
-  reranker_api_key: "reranker-storybook",
   currency: "EUR",
   chrome_devtools_mcp_enabled: true,
 };

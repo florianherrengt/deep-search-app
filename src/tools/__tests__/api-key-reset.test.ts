@@ -119,42 +119,18 @@ describe("search tool availability from config", () => {
     }
   });
 
-  it("search_research available when embeddingConfig, rerankerConfig, and model are all provided", () => {
+  it("search_research available when model is provided", () => {
     const tools = getAvailableTools({
       researchFolder: null,
-      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
-      rerankerConfig: { api_key: "rk", base_url: "https://example.com", model: "rr" },
       getChatModel: () => TEST_CHAT_MODEL,
     });
     const sr = tools.find((t) => t.name === "search_research");
     expect(sr?.available).toBe(true);
   });
 
-  it("search_research unavailable when embeddingConfig is missing", () => {
+  it("search_research unavailable when no model is provided", () => {
     const tools = getAvailableTools({
       researchFolder: null,
-      rerankerConfig: { api_key: "rk", base_url: "https://example.com", model: "rr" },
-      getChatModel: () => TEST_CHAT_MODEL,
-    });
-    const sr = tools.find((t) => t.name === "search_research");
-    expect(sr?.available).toBe(false);
-  });
-
-  it("search_research unavailable when rerankerConfig is missing", () => {
-    const tools = getAvailableTools({
-      researchFolder: null,
-      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
-      getChatModel: () => TEST_CHAT_MODEL,
-    });
-    const sr = tools.find((t) => t.name === "search_research");
-    expect(sr?.available).toBe(false);
-  });
-
-  it("search_research unavailable when model (getChatModel) is missing", () => {
-    const tools = getAvailableTools({
-      researchFolder: null,
-      embeddingConfig: { api_key: "ek", base_url: "https://example.com", model: "m", dimensions: 1024, query_prefix: "p" },
-      rerankerConfig: { api_key: "rk", base_url: "https://example.com", model: "rr" },
     });
     const sr = tools.find((t) => t.name === "search_research");
     expect(sr?.available).toBe(false);

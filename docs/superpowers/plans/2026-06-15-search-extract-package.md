@@ -1,8 +1,10 @@
 # Search And Content Extraction Package Implementation Plan
 
+> Superseded: search/extraction now lives in the shared sibling package `deep-search-core/search-extract`, alongside `deep-search-core/research-orchestrator`.
+
 **Design:** `docs/superpowers/specs/2026-06-15-search-extract-package-design.md`
 
-**Goal:** Extract external search providers and page content extraction into `packages/search-extract` while preserving the current app's AI tool behavior.
+**Goal:** Extract external search providers and page content extraction into shared core package code while preserving the current app's AI tool behavior.
 
 **Architecture:** Runtime-agnostic core package with host-injected `fetchHtml`, `renderHtml`, and `summarizer` capabilities. App-specific Tauri WebView orchestration, storage, sub-agent events, and guardrails stay in `src/`.
 
@@ -22,8 +24,7 @@
 - Update: `tsconfig.json`
 - Update: `vitest.config.ts`
 
-- [ ] Add npm workspaces with `packages/*` in the root `package.json`.
-- [ ] Add package metadata for `@deep-search/search-extract`, initially private while it lives in-repo.
+- [ ] Add package metadata in `deep-search-core`, exposed through `deep-search-core/search-extract`.
 - [ ] Export TypeScript source from the package for in-repo use.
 - [ ] Add package `tsconfig.json` with strict TypeScript settings and no app path aliases.
 - [ ] Update root `tsconfig.json` to include `packages/search-extract/src` or ensure imported package sources are typechecked.

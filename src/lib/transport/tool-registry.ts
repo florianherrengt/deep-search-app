@@ -7,7 +7,7 @@ import {
   createResearchPlanTool,
   createResearchCheckpointTool,
   type SearchKeys as PkgSearchKeys,
-} from "research-orchestrator";
+} from "deep-search-core/research-orchestrator";
 import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
 import { createExtractPageContentTool } from "@/tools/extract-page-content-tool";
 import { createCreateFileTool, createReadFileTool, createUpdateFileTool, createMoveFileTool, createDeleteFileTool, createListFilesTool } from "@/tools/file-tools";
@@ -18,8 +18,9 @@ import { createCurrencyConversionTool } from "@/tools/currency-conversion-tool";
 import { createFactsCheckTool } from "@/tools/facts-check-tool";
 import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
 import type { Currency, ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
-import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import { createChromeDevToolsMcpTools } from "@/lib/mcp/chrome-devtools-tools";
+
+type CoreLanguageModel = Parameters<typeof createResearchPlanTool>[0];
 
 export interface SearchToolKeys {
   braveApiKey?: string | null;
@@ -36,19 +37,23 @@ export interface SearchToolKeys {
   webExtractionBackend?: WebExtractionBackend;
 }
 
+function asAppTool(tool: unknown): ToolSet[string] {
+  return tool as ToolSet[string];
+}
+
+function asAppToolSet(tools: unknown): ToolSet {
+  return tools as ToolSet;
+}
+
 export async function createTools({
   model,
   getResearchFolder,
   switchResearchFolder,
-  embeddingConfig,
-  rerankerConfig,
   searchKeys,
 }: {
   model: LanguageModel;
   getResearchFolder: () => Promise<string>;
   switchResearchFolder: (folderName: string) => void | Promise<void>;
-  embeddingConfig: EmbeddingConfig;
-  rerankerConfig: RerankerConfig;
   searchKeys?: SearchToolKeys;
 }) {
   const chromeDevToolsToolsRaw = await createChromeDevToolsMcpTools({
@@ -69,18 +74,19 @@ export async function createTools({
         serperApiKey: searchKeys.serperApiKey ?? undefined,
         tavilyApiKey: searchKeys.tavilyApiKey ?? undefined,
         searxngBaseUrl: searchKeys.searxngBaseUrl ?? undefined,
-      }
+    }
     : undefined;
 
-  const searchTools = createSearchTools(pkgSearchKeys, bridgeFetch);
+  const searchTools = asAppToolSet(createSearchTools(pkgSearchKeys, bridgeFetch));
+  const coreModel = model as unknown as CoreLanguageModel;
 
   const tools = {
-    ask_questions: questionsTool,
-    disambiguate: createDisambiguateTool(bridgeFetch),
+    ask_questions: asAppTool(questionsTool),
+    disambiguate: asAppTool(createDisambiguateTool(bridgeFetch)),
     ...searchTools,
-    sequential_thinking: createSequentialThinkingTool(),
-    create_research_plan: createResearchPlanTool(model),
-    research_checkpoint: createResearchCheckpointTool(model),
+    sequential_thinking: asAppTool(createSequentialThinkingTool()),
+    create_research_plan: asAppTool(createResearchPlanTool(coreModel)),
+    research_checkpoint: asAppTool(createResearchCheckpointTool(coreModel)),
 
     extract_page_content: createExtractPageContentTool(
       model,
@@ -97,14 +103,14 @@ export async function createTools({
       searchKeys?.scrapeDoApiKey ?? undefined,
     ),
     facts_check: createFactsCheckTool(model, searchKeys?.scrapeDoApiKey ?? undefined),
-    create_file: createCreateFileTool(getResearchFolder, embeddingConfig),
+    create_file: createCreateFileTool(getResearchFolder),
     read_file: createReadFileTool(getResearchFolder),
-    update_file: createUpdateFileTool(getResearchFolder, embeddingConfig),
-    move_file: createMoveFileTool(getResearchFolder, embeddingConfig),
+    update_file: createUpdateFileTool(getResearchFolder),
+    move_file: createMoveFileTool(getResearchFolder),
     delete_file: createDeleteFileTool(getResearchFolder),
     list_files: createListFilesTool(getResearchFolder),
     load_skill: createLoadSkillTool(),
-    search_research: createSearchResearchTool(embeddingConfig, rerankerConfig, model),
+    search_research: createSearchResearchTool(model),
     switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
     currency_conversion: createCurrencyConversionTool(searchKeys?.currency ?? "USD"),
     ...chromeDevToolsTools,

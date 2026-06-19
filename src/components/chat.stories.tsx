@@ -61,18 +61,6 @@ function ChatStory() {
             chromeDevToolsMcpEnabled: false,
           }}
           currency="USD"
-          embeddingConfig={{
-            api_key: "storybook-key",
-            base_url: "https://openrouter.ai/api/v1",
-            model: "qwen/qwen3-embedding-4b",
-            dimensions: 1024,
-            query_prefix: "Represent this sentence for searching relevant passages: ",
-          }}
-          rerankerConfig={{
-            api_key: "storybook-key",
-            base_url: "https://openrouter.ai/api/v1",
-            model: "cohere/rerank-4-pro",
-          }}
         />
       </div>
     </PromptTemplatesProvider>
@@ -164,18 +152,6 @@ function HeavyChatStory() {
             chromeDevToolsMcpEnabled: false,
           }}
           currency="USD"
-          embeddingConfig={{
-            api_key: "storybook-key",
-            base_url: "https://openrouter.ai/api/v1",
-            model: "qwen/qwen3-embedding-4b",
-            dimensions: 1024,
-            query_prefix: "Represent this sentence for searching relevant passages: ",
-          }}
-          rerankerConfig={{
-            api_key: "storybook-key",
-            base_url: "https://openrouter.ai/api/v1",
-            model: "cohere/rerank-4-pro",
-          }}
         />
       </div>
     </PromptTemplatesProvider>
@@ -263,18 +239,6 @@ function RestoredQuestionToolStory() {
             chromeDevToolsMcpEnabled: false,
           }}
           currency="USD"
-          embeddingConfig={{
-            api_key: "storybook-key",
-            base_url: "https://openrouter.ai/api/v1",
-            model: "qwen/qwen3-embedding-4b",
-            dimensions: 1024,
-            query_prefix: "Represent this sentence for searching relevant passages: ",
-          }}
-          rerankerConfig={{
-            api_key: "storybook-key",
-            base_url: "https://openrouter.ai/api/v1",
-            model: "cohere/rerank-4-pro",
-          }}
         />
       </div>
     </PromptTemplatesProvider>

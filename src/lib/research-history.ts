@@ -13,10 +13,6 @@ import {
   writeAppFile,
 } from "@/lib/app-file-storage";
 import { tryParseJson } from "@/lib/json";
-import {
-  deleteResearchFolderIndex,
-  renameResearchFolderIndex,
-} from "@/lib/research-search";
 
 export const SEARCH_RESULTS_SUBFOLDER = "search-results";
 const CHATS_SUBFOLDER = "chats";
@@ -517,29 +513,6 @@ export async function renameResearchFolder(
     oldSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedOldFolderName}`,
     newSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedNewFolderName}`,
   });
-  try {
-    await renameResearchFolderIndex(parsedOldFolderName, parsedNewFolderName);
-  } catch (indexError) {
-    console.error(
-      `[research-history] Failed to rename search index after folder rename from "${parsedOldFolderName}" to "${parsedNewFolderName}". Folder renamed on disk but search index is stale.`,
-      indexError instanceof Error ? indexError.message : "unknown",
-    );
-    try {
-      await renameAppSubfolder({
-        oldSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedNewFolderName}`,
-        newSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedOldFolderName}`,
-      });
-    } catch (rollbackError) {
-      console.error(
-        `[research-history] Failed to rollback folder rename after index rename failure. Folder "${parsedNewFolderName}" has a stale search index.`,
-        rollbackError instanceof Error ? rollbackError.message : "unknown",
-      );
-    }
-    throw errorWithCause(
-      `Failed to rename search index for folder "${parsedOldFolderName}" → "${parsedNewFolderName}"`,
-      indexError,
-    );
-  }
 
   return { name: parsedNewFolderName };
 }
@@ -550,18 +523,6 @@ export async function deleteResearchFolder(folderName: string): Promise<void> {
   await deleteAppSubfolder({
     subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
   });
-  try {
-    await deleteResearchFolderIndex(parsedFolderName);
-  } catch (indexError) {
-    console.error(
-      `[research-history] Failed to delete search index for folder "${parsedFolderName}". Folder deleted from disk but search index entries may be orphaned.`,
-      indexError instanceof Error ? indexError.message : "unknown",
-    );
-    throw errorWithCause(
-      `Failed to delete search index for folder "${parsedFolderName}"`,
-      indexError,
-    );
-  }
 }
 
 export function compareResearchFolders(

@@ -320,13 +320,6 @@ describe("research history", () => {
       "search-results/market-map",
       "search-results/pricing-review",
     );
-    expect(tauriMocks.invoke).toHaveBeenCalledWith(
-      "rename_research_folder_index",
-      {
-        oldName: "market-map",
-        newName: "pricing-review",
-      },
-    );
   });
 
   it("deletes research folders", async () => {
@@ -337,12 +330,6 @@ describe("research history", () => {
     expect(fsMocks.remove).toHaveBeenCalledWith("search-results/market-map", {
       recursive: true,
     });
-    expect(tauriMocks.invoke).toHaveBeenCalledWith(
-      "delete_research_folder_index",
-      {
-        name: "market-map",
-      },
-    );
   });
 
   it("sets title to Untitled chat for empty messages", async () => {
@@ -543,40 +530,6 @@ describe("research history", () => {
     expect(fsMocks.remove).toHaveBeenCalledWith(
       `search-results/dest-folder/chats/${chatId}.json`,
     );
-  });
-
-  it("rolls back folder rename when index rename fails", async () => {
-    fsMocks.exists.mockResolvedValueOnce(false);
-    tauriMocks.invoke.mockRejectedValueOnce(new Error("index error"));
-
-    await expect(
-      renameResearchFolder("market-map", "pricing-review"),
-    ).rejects.toThrow("Failed to rename search index");
-
-    expect(fsMocks.rename).toHaveBeenCalledTimes(2);
-    expect(fsMocks.rename).toHaveBeenNthCalledWith(
-      1,
-      "search-results/market-map",
-      "search-results/pricing-review",
-    );
-    expect(fsMocks.rename).toHaveBeenNthCalledWith(
-      2,
-      "search-results/pricing-review",
-      "search-results/market-map",
-    );
-  });
-
-  it("throws when index deletion fails after folder deletion", async () => {
-    fsMocks.exists.mockResolvedValueOnce(true);
-    tauriMocks.invoke.mockRejectedValueOnce(new Error("index delete error"));
-
-    await expect(deleteResearchFolder("market-map")).rejects.toThrow(
-      "Failed to delete search index",
-    );
-
-    expect(fsMocks.remove).toHaveBeenCalledWith("search-results/market-map", {
-      recursive: true,
-    });
   });
 });
 

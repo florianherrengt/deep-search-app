@@ -13,7 +13,6 @@ import {
 import type { SubAgentEvent } from "@/lib/sub-agent-types";
 import { createGuardedStream } from "./guarded-stream";
 import type { SearchToolKeys } from "./tool-registry";
-import type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 import {
   initializeResearchFolder,
   moveResearchChatToFolder,
@@ -26,7 +25,6 @@ import { slugifyFolderName } from "./research-folder";
 
 export { createGuardedStream } from "./guarded-stream";
 export type { SearchToolKeys } from "./tool-registry";
-export type { EmbeddingConfig, RerankerConfig } from "@/lib/research-search";
 
 export type MemoryExtractionCandidate = {
   id: string;
@@ -154,8 +152,6 @@ export class DirectTransport implements ChatTransport<UIMessage> {
 
   constructor(
     private getChatModel: () => ChatModelConfig | null,
-    private getEmbeddingConfig: () => EmbeddingConfig,
-    private getRerankerConfig: () => RerankerConfig,
     private getSearchKeys: () => SearchToolKeys,
     private researchChatId: string,
     researchFolder?: string | null,
@@ -197,8 +193,6 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     }
 
     const model = createChatLanguageModel(chatModel);
-    const embeddingConfig = this.getEmbeddingConfig();
-    const rerankerConfig = this.getRerankerConfig();
     const firstMessage = getFirstUserMessage(messages);
     const transport = this;
 
@@ -296,8 +290,6 @@ export class DirectTransport implements ChatTransport<UIMessage> {
           await createGuardedStream({
             model,
             researchFolder: transport.researchFolder,
-            embeddingConfig,
-            rerankerConfig,
             messages,
             abortSignal,
             searchKeys: transport.getSearchKeys(),

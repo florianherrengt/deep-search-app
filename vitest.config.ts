@@ -20,7 +20,7 @@ export default defineConfig({
   test: {
     server: {
       deps: {
-        inline: [/@deep-search\/search-extract/, /research-orchestrator/],
+        inline: [/deep-search-core/],
       },
     },
     projects: [

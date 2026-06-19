@@ -2,24 +2,8 @@ import type { ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import { ResearchSidebar } from "./research-sidebar";
-import type { SearchResult } from "@/lib/research-search";
-import { setBridgeMock } from "@/lib/tauri-bridge";
 
 const noop = () => undefined;
-
-const embeddingConfig = {
-  api_key: "storybook-key",
-  base_url: "https://openrouter.ai/api/v1",
-  model: "qwen/qwen3-embedding-4b",
-  dimensions: 1024,
-  query_prefix: "Represent this sentence for searching relevant passages: ",
-};
-
-const rerankerConfig = {
-  api_key: "storybook-key",
-  base_url: "https://openrouter.ai/api/v1",
-  model: "cohere/rerank-4-pro",
-};
 
 const folders = [
   { name: "2026-06-06_storybook-integration", updatedAt: "2026-06-06T12:00:00Z" },
@@ -44,27 +28,6 @@ const chats = [
   },
 ];
 
-const searchResults: SearchResult[] = [
-  {
-    chunk_id: 1,
-    content: "Storybook uses the React Vite framework package for browser-based component development.",
-    filename: "storybook.md",
-    folder_name: "2026-06-06_storybook-integration",
-    header_path: "Setup",
-    score: 0.92,
-    adjacent_chunks: null,
-  },
-  {
-    chunk_id: 2,
-    content: "Accessibility checks are useful for visual review workflows.",
-    filename: "addons.md",
-    folder_name: "vendor-pricing-comparison-with-a-long-folder-name",
-    header_path: null,
-    score: 0.84,
-    adjacent_chunks: null,
-  },
-];
-
 const meta = {
   title: "Navigation/ResearchSidebar",
   component: ResearchSidebar,
@@ -73,8 +36,7 @@ const meta = {
     activeFolderName: folders[0].name,
     chats,
     activeChatId: chats[0].id,
-    embeddingConfig,
-    rerankerConfig,
+    searchFolders: (() => Promise.resolve([])) as (query: string, abortSignal?: AbortSignal) => Promise<string[]>,
     status: "ready",
     chatsStatus: "ready",
     runningFolderNames: [],
@@ -87,7 +49,6 @@ const meta = {
     onSelectChat: noop,
     onRenameFolder: async () => undefined,
     onDeleteFolder: async () => undefined,
-    onReindexFolder: async () => undefined,
   },
   parameters: {
     layout: "fullscreen",
@@ -188,16 +149,12 @@ export const WaitingForAnswerDark: Story = {
 };
 
 export const SearchResults: Story = {
-  decorators: [
-    (Story) => {
-      if (typeof window !== "undefined") {
-        setBridgeMock({
-          invoke: async () => searchResults,
-        });
-      }
-      return <Story />;
-    },
-  ],
+  args: {
+    searchFolders: async () => [
+      "2026-06-06_storybook-integration",
+      "vendor-pricing-comparison-with-a-long-folder-name",
+    ],
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.type(canvas.getByPlaceholderText(/search research/i), "storybook");
