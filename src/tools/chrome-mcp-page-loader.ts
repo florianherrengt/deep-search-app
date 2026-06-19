@@ -17,9 +17,11 @@ function extractTextFromToolResult(
 export function createChromeMcpPageLoader({
   connectionMode,
   browserUrl,
+  nodePath,
 }: {
   connectionMode?: ChromeMcpConnectionMode;
   browserUrl?: string;
+  nodePath?: string;
 }): PageLoader {
   return {
     fetchHtml: undefined,
@@ -30,6 +32,7 @@ export function createChromeMcpPageLoader({
       const client = await getChromeDevToolsMcpClient({
         connectionMode,
         browserUrl,
+        nodePath,
       });
 
       await client.callTool(

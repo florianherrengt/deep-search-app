@@ -1,6 +1,6 @@
 import { tool, zodSchema, streamText, type LanguageModel } from "ai";
 import { z } from "zod";
-import { invoke } from "@/lib/tauri-bridge";
+import { fetch as bridgeFetch, invoke } from "@/lib/tauri-bridge";
 import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
 import { createSubAgentId } from "@/lib/sub-agent-types";
 import {
@@ -26,15 +26,18 @@ import {
   ShopifyExtractor,
   isRedditChallengeHtml,
   isAmazonChallengePage,
+  MIN_CONTENT_LENGTH,
   type SearchExtractEngine,
+  type PageLoader,
 } from "@deep-search/search-extract";
 import { createAppPageLoader, createChromeMcpPageLoader } from "./extraction-page-loader";
 import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 
 const DEFAULT_WEBVIEW_RETRY_INTERVAL_MS = 5_000;
 const DEFAULT_WEBVIEW_MAX_WAIT_MS = 5 * 60_000;
+const SCRAPE_DO_API_URL = "https://api.scrape.do/";
 
-type ExtractionMethod = "auto" | "fetch" | "webview";
+type ExtractionMethod = "auto" | "fetch" | "webview" | "chrome" | "scrape.do";
 
 interface ExtractPageContentOptions {
   query?: string;
@@ -47,8 +50,10 @@ interface ExtractPageContentOptions {
     enabled: boolean;
     connectionMode?: ChromeMcpConnectionMode;
     browserUrl?: string;
+    nodePath?: string;
     backend: WebExtractionBackend;
   };
+  scrapeDoApiKey?: string | null;
 }
 
 type RawContentLocation = {
@@ -67,28 +72,73 @@ function getEngine(
     enabled: boolean;
     connectionMode?: ChromeMcpConnectionMode;
     browserUrl?: string;
+    nodePath?: string;
     backend: WebExtractionBackend;
   },
+  scrapeDoApiKey?: string | null,
+  method: ExtractionMethod = "auto",
 ): SearchExtractEngine {
   const backend = chromeMcp?.backend ?? "tauri-webview";
-  const shouldUseChromeMcp = backend === "chrome-mcp" && chromeMcp?.enabled;
-  const engineKey = shouldUseChromeMcp ? `chrome-mcp:${chromeMcp?.connectionMode ?? ""}` : "tauri-webview";
+  // The "chrome" method forces the Chrome MCP loader when MCP is enabled,
+  // regardless of the configured backend. Falls back to the configured loader
+  // when MCP is unavailable, so it never hard-errors.
+  const forceChrome = method === "chrome";
+  const shouldUseChromeMcp = Boolean(chromeMcp?.enabled) && (backend === "chrome-mcp" || forceChrome);
+  const scrapeDoToken = scrapeDoApiKey?.trim() ?? "";
+  // scrape.do participates in "auto", or is preferred when "scrape.do" is chosen.
+  const useScrapeDo = (method === "auto" || method === "scrape.do") && scrapeDoToken.length > 0;
+  const engineKey = shouldUseChromeMcp
+    ? `chrome-mcp:${chromeMcp?.connectionMode ?? ""}:${chromeMcp?.nodePath?.trim() ?? ""}`
+    : "tauri-webview";
+  const remoteKey = useScrapeDo ? `:scrape-do:${hashSecret(scrapeDoToken)}` : "";
+  const fullEngineKey = `${engineKey}${remoteKey}`;
 
-  if (_engine && _engineKey === engineKey) return _engine;
+  if (_engine && _engineKey === fullEngineKey) return _engine;
 
-  const pageLoader = shouldUseChromeMcp
+  const basePageLoader = shouldUseChromeMcp
     ? createChromeMcpPageLoader({
         connectionMode: chromeMcp!.connectionMode,
         browserUrl: chromeMcp!.browserUrl,
+        nodePath: chromeMcp!.nodePath,
       })
     : createAppPageLoader({ fetchHtml, extractViaWebview });
+  const pageLoader = useScrapeDo
+    ? withScrapeDoFallback(basePageLoader, scrapeDoToken)
+    : basePageLoader;
 
   _engine = createSearchExtractEngine({
     pageLoader,
     extractors: [new RedditExtractor(), new AmazonExtractor(), new ShopifyExtractor()],
   });
-  _engineKey = engineKey;
+  _engineKey = fullEngineKey;
   return _engine;
+}
+
+function hashSecret(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function hasUsefulContent(html: string | null): html is string {
+  if (!html) return false;
+  return sanitizeHtml(html).length >= MIN_CONTENT_LENGTH;
+}
+
+function withScrapeDoFallback(
+  pageLoader: PageLoader,
+  apiKey: string,
+): PageLoader {
+  return {
+    ...pageLoader,
+    renderHtml: async (url, options) => {
+      const remoteHtml = await fetchScrapeDoHtml(url, apiKey, options?.signal);
+      if (hasUsefulContent(remoteHtml)) return remoteHtml;
+      return pageLoader.renderHtml?.(url, options) ?? null;
+    },
+  };
 }
 
 function createWebviewTabId(): string {
@@ -205,6 +255,42 @@ export async function fetchHtml(
     );
   } catch (error) {
     if (isAbortError(error)) throw error;
+    return null;
+  }
+}
+
+async function fetchScrapeDoHtml(
+  url: string,
+  apiKey: string,
+  abortSignal?: AbortSignal,
+): Promise<string | null> {
+  try {
+    validateUrl(url);
+    throwIfAborted(abortSignal);
+
+    const endpoint = new URL(SCRAPE_DO_API_URL);
+    endpoint.searchParams.set("token", apiKey);
+    endpoint.searchParams.set("url", url);
+
+    const response = await abortablePromise(
+      bridgeFetch(endpoint.toString(), {
+        method: "GET",
+        headers: { Accept: "text/html,application/xhtml+xml,text/plain,*/*" },
+        signal: abortSignal,
+      }),
+      abortSignal,
+    );
+
+    if (!response.ok) return null;
+
+    const html = await abortablePromise(response.text(), abortSignal);
+    return html.trim() ? html : null;
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    console.warn(
+      `[extract] Scrape.do extraction failed for ${url}:`,
+      error instanceof Error ? error.message : error,
+    );
     return null;
   }
 }
@@ -394,7 +480,7 @@ async function trySummarizeContent(
 }
 
 function mapAppMethod(method: ExtractionMethod): "auto" | "fetch" | "render" {
-  if (method === "webview") return "render";
+  if (method === "webview" || method === "chrome" || method === "scrape.do") return "render";
   return method;
 }
 
@@ -409,7 +495,11 @@ export async function extractPageContent(
     emitSubAgentEvent({ type: "text-delta", id: saId, delta: `Extracting content from ${url}...\n\n` });
   }
 
-  const engine = getEngine(options.chromeMcp);
+  const engine = getEngine(
+    options.chromeMcp,
+    options.scrapeDoApiKey,
+    forced,
+  );
   const extractResult = await engine.extract(url, {
     method: mapAppMethod(forced),
     summarize: false,
@@ -490,10 +580,10 @@ export const extractPageContentInputSchema = z.object({
       "Set to false to get the full page content. By default the page is summarized.",
     ),
   method: z
-    .enum(["auto", "fetch", "webview"])
+    .enum(["auto", "fetch", "webview", "chrome", "scrape.do"])
     .optional()
     .describe(
-      "Extraction method. 'auto' tries fetch then falls back to webview. 'fetch' forces HTTP-only. 'webview' forces browser rendering.",
+      "Extraction method. 'auto' tries fetch, then remote extraction (Scrape.do if configured), then browser rendering. 'fetch' forces HTTP-only. 'webview' forces the built-in browser renderer. 'chrome' prefers your local Chrome via Chrome DevTools MCP (falls back to the webview if unavailable). 'scrape.do' prefers the Scrape.do remote renderer (falls back if no API key).",
     ),
 });
 
@@ -504,8 +594,10 @@ export function createExtractPageContentTool(
     enabled: boolean;
     connectionMode?: ChromeMcpConnectionMode;
     browserUrl?: string;
+    nodePath?: string;
     backend: WebExtractionBackend;
   },
+  scrapeDoApiKey?: string | null,
 ) {
   return tool({
     description:
@@ -522,6 +614,7 @@ export function createExtractPageContentTool(
       }
 
       const saId = createSubAgentId();
+      const toolCallId = options?.toolCallId;
       emitSubAgentEvent({
         type: "start",
         id: saId,
@@ -529,8 +622,8 @@ export function createExtractPageContentTool(
         name: "Content Extraction",
         toolName: "extract_page_content",
         parentMessageId: "tool",
-        displayTarget: options.toolCallId
-          ? { type: "toolCall", toolCallId: options.toolCallId }
+        displayTarget: toolCallId
+          ? { type: "toolCall", toolCallId }
           : { type: "sidebar" },
       });
 
@@ -544,6 +637,7 @@ export function createExtractPageContentTool(
           abortSignal: options?.abortSignal,
           subAgentId: saId,
           chromeMcp,
+          scrapeDoApiKey,
         });
 
         emitSubAgentEvent({ type: "complete", id: saId });

@@ -1,4 +1,4 @@
-import { resolveResource, createSystemCommand } from "@/lib/tauri-bridge";
+import { resolveResource, createSystemCommand, resolveNodePath } from "@/lib/tauri-bridge";
 import { validateServiceUrl } from "@/lib/url-validation";
 import type { ChromeMcpConnectionMode } from "@/lib/settings-store";
 
@@ -47,41 +47,43 @@ export function checkNodeVersion(version: Semver): boolean {
 }
 
 /**
- * Runs `node --version` via the Tauri shell plugin and validates the result
- * against the required Node range. Returns the version string on success.
- * Throws with a descriptive message if Node is missing, unsupported, or the
- * output cannot be parsed.
+ * Resolves the Node binary to launch the chrome-devtools-mcp sidecar with, via
+ * the Rust `resolve_node_path` command. A GUI app's PATH usually does not
+ * include Homebrew or version-manager directories, so the resolver probes the
+ * login shell and common locations (or honors a user-supplied override) and
+ * returns a `PATH` env var that makes a bare `node` resolve. The result is
+ * cached per override key.
  */
-export async function validateSystemNode(): Promise<string> {
-  const cmd = await createSystemCommand(SYSTEM_NODE_ALIAS, ["--version"]);
-  const result = await cmd.execute();
+let nodeEnvPromise: Promise<{ envPath: string; version: string }> | null = null;
+let nodeEnvKey: string | null = null;
 
-  if (result.code !== 0) {
-    const detail = result.stderr?.trim() || `exit code ${result.code}`;
-    throw new Error(
-      `Node.js is not installed or not accessible from PATH (${detail}). ` +
-        `Deep Search requires Node ${REQUIRED_NODE_RANGE}. Install Node from https://nodejs.org and ensure it is on your PATH.`,
-    );
-  }
+function getNodeEnvironment(
+  nodePath: string | undefined,
+): Promise<{ envPath: string; version: string }> {
+  const key = nodePath?.trim() || "auto";
+  if (nodeEnvPromise && nodeEnvKey === key) return nodeEnvPromise;
+  nodeEnvKey = key;
+  nodeEnvPromise = (async () => {
+    const resolved = await resolveNodePath(nodePath);
+    const parsed = parseNodeVersion(resolved.version);
+    if (!parsed || !checkNodeVersion(parsed)) {
+      throw new Error(
+        `Node ${resolved.version} is not supported. Deep Search requires Node ${REQUIRED_NODE_RANGE}.`,
+      );
+    }
+    return { envPath: resolved.envPath, version: resolved.version };
+  })().catch((error) => {
+    nodeEnvPromise = null;
+    nodeEnvKey = null;
+    throw error instanceof Error ? error : new Error(String(error));
+  });
+  return nodeEnvPromise;
+}
 
-  const raw = (result.stdout || "").trim();
-  const version = parseNodeVersion(raw);
-  if (!version) {
-    throw new Error(
-      `Failed to parse Node version from output: "${raw}". ` +
-        `Deep Search requires Node ${REQUIRED_NODE_RANGE}.`,
-    );
-  }
-
-  if (!checkNodeVersion(version)) {
-    throw new Error(
-      `Node ${version.major}.${version.minor}.${version.patch} is not supported. ` +
-        `Deep Search requires Node ${REQUIRED_NODE_RANGE}. ` +
-        `Please upgrade Node from https://nodejs.org.`,
-    );
-  }
-
-  return raw;
+/** Clears the cached Node resolution. Call when the override setting changes. */
+export function resetNodeEnvironmentCache(): void {
+  nodeEnvPromise = null;
+  nodeEnvKey = null;
 }
 
 /**
@@ -114,10 +116,12 @@ export function resolveChromeDevToolsConnectionArgs(
 }
 
 export async function createChromeDevToolsMcpCommand(
-  options: { mode?: ChromeMcpConnectionMode; browserUrl?: string } = {},
+  options: { mode?: ChromeMcpConnectionMode; browserUrl?: string; nodePath?: string } = {},
 ) {
-  await validateSystemNode();
+  const { envPath } = await getNodeEnvironment(options.nodePath);
   const connectionArgs = resolveChromeDevToolsConnectionArgs(options);
   const entrypoint = await resolveResource(CHROME_DEVTOOLS_MCP_RESOURCE);
-  return createSystemCommand(SYSTEM_NODE_ALIAS, [entrypoint, ...connectionArgs]);
+  return createSystemCommand(SYSTEM_NODE_ALIAS, [entrypoint, ...connectionArgs], {
+    PATH: envPath,
+  });
 }

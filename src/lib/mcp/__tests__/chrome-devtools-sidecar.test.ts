@@ -1,14 +1,16 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // vi.mock is hoisted above all imports, so mock refs must be hoisted too.
-const { mockCreateSystemCommand, mockResolveResource } = vi.hoisted(() => ({
+const { mockCreateSystemCommand, mockResolveResource, mockResolveNodePath } = vi.hoisted(() => ({
   mockCreateSystemCommand: vi.fn(),
   mockResolveResource: vi.fn(),
+  mockResolveNodePath: vi.fn(),
 }));
 
 vi.mock("@/lib/tauri-bridge", () => ({
   createSystemCommand: mockCreateSystemCommand,
   resolveResource: mockResolveResource,
+  resolveNodePath: mockResolveNodePath,
   createSidecarCommand: vi.fn(),
   isTauri: () => true,
 }));
@@ -17,8 +19,8 @@ import {
   resolveChromeDevToolsConnectionArgs,
   parseNodeVersion,
   checkNodeVersion,
-  validateSystemNode,
   createChromeDevToolsMcpCommand,
+  resetNodeEnvironmentCache,
   SYSTEM_NODE_ALIAS,
 } from "@/lib/mcp/chrome-devtools-sidecar";
 
@@ -109,107 +111,37 @@ describe("checkNodeVersion", () => {
   });
 });
 
-describe("validateSystemNode", () => {
-  function mockNodeVersion(stdout: string, code = 0) {
-    const cmd = {
-      execute: vi.fn().mockResolvedValue({ code, signal: null, stdout, stderr: "" }),
-    };
-    mockCreateSystemCommand.mockResolvedValue(cmd);
-  }
-
-  function mockNodeMissing(stderr: string, code = 1) {
-    const cmd = {
-      execute: vi.fn().mockResolvedValue({ code, signal: null, stdout: "", stderr }),
-    };
-    mockCreateSystemCommand.mockResolvedValue(cmd);
-  }
-
-  beforeEach(() => {
-    mockCreateSystemCommand.mockReset();
-  });
-
-  it("calls createSystemCommand with the system-node alias and --version", async () => {
-    mockNodeVersion("v22.12.0\n");
-    await validateSystemNode();
-    expect(mockCreateSystemCommand).toHaveBeenCalledWith(SYSTEM_NODE_ALIAS, ["--version"]);
-  });
-
-  it("accepts valid Node version v22.12.0", async () => {
-    mockNodeVersion("v22.12.0\n");
-    const version = await validateSystemNode();
-    expect(version).toBe("v22.12.0");
-  });
-
-  it("accepts valid Node version v20.19.0", async () => {
-    mockNodeVersion("v20.19.0\n");
-    const version = await validateSystemNode();
-    expect(version).toBe("v20.19.0");
-  });
-
-  it("accepts valid Node version v23.0.0", async () => {
-    mockNodeVersion("v23.0.0\n");
-    const version = await validateSystemNode();
-    expect(version).toBe("v23.0.0");
-  });
-
-  it("rejects Node when command exits nonzero", async () => {
-    mockNodeMissing("command not found", 127);
-    await expect(validateSystemNode()).rejects.toThrow(
-      /not installed|not accessible from PATH/,
-    );
-  });
-
-  it("rejects Node when version output is unparseable", async () => {
-    mockNodeVersion("garbage");
-    await expect(validateSystemNode()).rejects.toThrow(
-      /Failed to parse Node version/,
-    );
-  });
-
-  it("rejects unsupported Node version v20.18.0", async () => {
-    mockNodeVersion("v20.18.0\n");
-    await expect(validateSystemNode()).rejects.toThrow(
-      /not supported/,
-    );
-  });
-
-  it("rejects unsupported Node version v22.11.0", async () => {
-    mockNodeVersion("v22.11.0\n");
-    await expect(validateSystemNode()).rejects.toThrow(
-      /not supported/,
-    );
-  });
-
-  it("rejects unsupported Node version v18.20.0", async () => {
-    mockNodeVersion("v18.20.0\n");
-    await expect(validateSystemNode()).rejects.toThrow(
-      /not supported/,
-    );
-  });
-});
-
 describe("createChromeDevToolsMcpCommand", () => {
-  let sharedCmd: { execute: ReturnType<typeof vi.fn> };
+  const resolvedNode = {
+    path: "/opt/homebrew/bin/node",
+    dir: "/opt/homebrew/bin",
+    version: "v22.12.0",
+    envPath: "/opt/homebrew/bin:/usr/bin:/bin",
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    sharedCmd = {
-      execute: vi.fn().mockResolvedValue({ code: 0, signal: null, stdout: "v22.12.0\n", stderr: "" }),
-    };
-    mockCreateSystemCommand.mockResolvedValue(sharedCmd);
+    resetNodeEnvironmentCache();
+    mockResolveNodePath.mockResolvedValue(resolvedNode);
+    mockCreateSystemCommand.mockResolvedValue("mock-command");
     mockResolveResource.mockResolvedValue("/resolved/chrome-devtools-mcp.js");
   });
 
-  it("validates Node before returning the MCP command", async () => {
+  it("resolves Node then spawns the MCP server with the resolved PATH env", async () => {
     const result = await createChromeDevToolsMcpCommand();
-    expect(mockCreateSystemCommand).toHaveBeenCalledTimes(2);
-    expect(mockCreateSystemCommand).toHaveBeenNthCalledWith(1, SYSTEM_NODE_ALIAS, ["--version"]);
-    expect(mockCreateSystemCommand).toHaveBeenNthCalledWith(
-      2,
+    expect(mockResolveNodePath).toHaveBeenCalledWith(undefined);
+    expect(mockCreateSystemCommand).toHaveBeenCalledTimes(1);
+    expect(mockCreateSystemCommand).toHaveBeenCalledWith(
       SYSTEM_NODE_ALIAS,
       ["/resolved/chrome-devtools-mcp.js", "--auto-connect"],
+      { PATH: resolvedNode.envPath },
     );
-    expect(result).toBe(sharedCmd);
+    expect(result).toBe("mock-command");
+  });
+
+  it("passes the override node path through to the resolver", async () => {
+    await createChromeDevToolsMcpCommand({ nodePath: "/custom/node" });
+    expect(mockResolveNodePath).toHaveBeenCalledWith("/custom/node");
   });
 
   it("passes connection args through to the system command", async () => {
@@ -217,11 +149,33 @@ describe("createChromeDevToolsMcpCommand", () => {
       mode: "browser-url",
       browserUrl: "http://127.0.0.1:9222",
     });
-    expect(mockCreateSystemCommand).toHaveBeenCalledTimes(2);
-    expect(mockCreateSystemCommand).toHaveBeenNthCalledWith(
-      2,
+    expect(mockCreateSystemCommand).toHaveBeenCalledWith(
       SYSTEM_NODE_ALIAS,
       ["/resolved/chrome-devtools-mcp.js", "--browser-url=http://127.0.0.1:9222"],
+      { PATH: resolvedNode.envPath },
     );
+  });
+
+  it("caches the resolved Node environment across calls", async () => {
+    await createChromeDevToolsMcpCommand();
+    await createChromeDevToolsMcpCommand();
+    expect(mockResolveNodePath).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-resolves after the cache is reset", async () => {
+    await createChromeDevToolsMcpCommand();
+    resetNodeEnvironmentCache();
+    await createChromeDevToolsMcpCommand();
+    expect(mockResolveNodePath).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws when the resolved Node version is unsupported", async () => {
+    mockResolveNodePath.mockResolvedValueOnce({ ...resolvedNode, version: "v18.20.0" });
+    await expect(createChromeDevToolsMcpCommand()).rejects.toThrow(/not supported/);
+  });
+
+  it("propagates resolver failures", async () => {
+    mockResolveNodePath.mockRejectedValueOnce(new Error("Node.js was not found."));
+    await expect(createChromeDevToolsMcpCommand()).rejects.toThrow(/not found/);
   });
 });

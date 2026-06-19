@@ -96,6 +96,12 @@ describe("SettingsFields", () => {
     expect(updateSetting).not.toHaveBeenCalled();
   });
 
+  it("renders Scrape.do API key setting", () => {
+    renderSettingsFields();
+
+    expect(screen.getByLabelText("Scrape.do API Key")).toBeTruthy();
+  });
+
   it("does not save provider fields on blur, only on Save button click", async () => {
     const updateSetting = vi.fn().mockResolvedValue(undefined);
     renderSettingsFields({ updateSetting: updateSetting as never });

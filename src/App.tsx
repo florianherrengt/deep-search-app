@@ -461,11 +461,13 @@ function AppInner() {
     exaApiKey: settings.exa_api_key || null,
     serperApiKey: settings.serper_api_key || null,
     tavilyApiKey: settings.tavily_api_key || null,
+    scrapeDoApiKey: settings.scrape_do_api_key || null,
     searxngBaseUrl: settings.searxng_url || null,
     currency: settings.currency,
     chromeDevToolsMcpEnabled: settings.chrome_devtools_mcp_enabled,
     chromeDevToolsMcpConnectionMode: settings.chrome_devtools_mcp_connection_mode,
     chromeDevToolsMcpBrowserUrl: settings.chrome_devtools_mcp_browser_url || null,
+    chromeDevToolsMcpNodePath: settings.chrome_devtools_mcp_node_path || null,
     webExtractionBackend: settings.web_extraction_backend,
   };
   const effectiveSelectedModelId = selectedModelId || defaultChatModelId;

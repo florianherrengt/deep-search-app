@@ -67,6 +67,7 @@ type AnyTool = {
 
 type ToolExecutor = (
   input: Record<string, unknown>,
+  options?: Record<string, unknown>,
 ) => unknown | Promise<unknown>;
 
 export function describeTool(
@@ -77,9 +78,13 @@ export function describeTool(
 ): ToolDescriptor {
   const toolLike = tool && typeof tool === "object" ? (tool as AnyTool) : {};
   const toolExecute = toolLike.execute as ToolExecutor;
+  // The Tools panel calls execute(params) directly, but tool execute callbacks
+  // may read options.toolCallId / options.abortSignal. Pass a defined (empty)
+  // options object so those reads never hit "undefined is not an object".
   const execute =
     typeof toolLike.execute === "function"
-      ? (params: Record<string, unknown>) => Promise.resolve(toolExecute(params))
+      ? (params: Record<string, unknown>) =>
+          Promise.resolve(toolExecute(params, {}))
       : () => Promise.resolve(null);
 
   return {

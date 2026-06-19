@@ -69,6 +69,7 @@ import {
 } from "@/tools/facts-check-tool";
 import { researchCheckpointInputSchema } from "@/lib/agent-guards";
 import { isValidServiceUrl } from "@/lib/url-validation";
+import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 
 export type { ToolDescriptor, ToolParameter } from "@/lib/tool-descriptor";
 
@@ -83,7 +84,13 @@ export interface ToolExecuteConfig {
   exaApiKey?: string | null;
   serperApiKey?: string | null;
   tavilyApiKey?: string | null;
+  scrapeDoApiKey?: string | null;
   searxngBaseUrl?: string | null;
+  chromeDevToolsMcpEnabled?: boolean | null;
+  chromeDevToolsMcpConnectionMode?: ChromeMcpConnectionMode | null;
+  chromeDevToolsMcpBrowserUrl?: string | null;
+  chromeDevToolsMcpNodePath?: string | null;
+  webExtractionBackend?: WebExtractionBackend | null;
 }
 
 function describeOptionalTool(
@@ -105,6 +112,7 @@ export function getAvailableTools(
   const exaApiKey = config?.exaApiKey;
   const serperApiKey = config?.serperApiKey;
   const tavilyApiKey = config?.tavilyApiKey;
+  const scrapeDoApiKey = config?.scrapeDoApiKey;
   const searxngBaseUrl = config?.searxngBaseUrl;
 
   const chatModel = getChatModel?.();
@@ -121,8 +129,17 @@ export function getAvailableTools(
     searxngBaseUrl && isValidServiceUrl(searxngBaseUrl)
       ? createSearXNGSearchTool(searxngBaseUrl)
       : undefined;
+  const chromeMcpConfig = config?.chromeDevToolsMcpEnabled
+    ? {
+        enabled: true,
+        connectionMode: config.chromeDevToolsMcpConnectionMode ?? undefined,
+        browserUrl: config.chromeDevToolsMcpBrowserUrl ?? undefined,
+        nodePath: config.chromeDevToolsMcpNodePath ?? undefined,
+        backend: config.webExtractionBackend ?? "tauri-webview",
+      }
+    : undefined;
   const extractTool = model && getResearchFolder
-    ? createExtractPageContentTool(model, getResearchFolder)
+    ? createExtractPageContentTool(model, getResearchFolder, chromeMcpConfig, scrapeDoApiKey)
     : undefined;
   const searchResearchTool = embeddingConfig && rerankerConfig && model ? createSearchResearchTool(embeddingConfig, rerankerConfig, model) : undefined;
   const createTool = getResearchFolder
@@ -146,7 +163,7 @@ export function getAvailableTools(
   const checkpointTool = model ? createResearchCheckpointTool(model) : undefined;
   const planTool = model ? createResearchPlanTool(model) : undefined;
   const factsCheckTool = model
-    ? createFactsCheckTool(model)
+    ? createFactsCheckTool(model, scrapeDoApiKey)
     : undefined;
 
   return [

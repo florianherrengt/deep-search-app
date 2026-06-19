@@ -26,11 +26,13 @@ export interface SearchToolKeys {
   exaApiKey?: string | null;
   serperApiKey?: string | null;
   tavilyApiKey?: string | null;
+  scrapeDoApiKey?: string | null;
   searxngBaseUrl?: string | null;
   currency?: Currency;
   chromeDevToolsMcpEnabled?: boolean;
   chromeDevToolsMcpConnectionMode?: ChromeMcpConnectionMode;
   chromeDevToolsMcpBrowserUrl?: string | null;
+  chromeDevToolsMcpNodePath?: string | null;
   webExtractionBackend?: WebExtractionBackend;
 }
 
@@ -53,6 +55,7 @@ export async function createTools({
     enabled: Boolean(searchKeys?.chromeDevToolsMcpEnabled),
     connectionMode: searchKeys?.chromeDevToolsMcpConnectionMode,
     browserUrl: searchKeys?.chromeDevToolsMcpBrowserUrl ?? undefined,
+    nodePath: searchKeys?.chromeDevToolsMcpNodePath ?? undefined,
   });
   const chromeDevToolsTools: ToolSet = {};
   for (const [name, t] of Object.entries(chromeDevToolsToolsRaw)) {
@@ -87,11 +90,13 @@ export async function createTools({
             enabled: true,
             connectionMode: searchKeys.chromeDevToolsMcpConnectionMode,
             browserUrl: searchKeys.chromeDevToolsMcpBrowserUrl ?? undefined,
+            nodePath: searchKeys.chromeDevToolsMcpNodePath ?? undefined,
             backend: searchKeys?.webExtractionBackend ?? "tauri-webview",
           }
         : undefined,
+      searchKeys?.scrapeDoApiKey ?? undefined,
     ),
-    facts_check: createFactsCheckTool(model),
+    facts_check: createFactsCheckTool(model, searchKeys?.scrapeDoApiKey ?? undefined),
     create_file: createCreateFileTool(getResearchFolder, embeddingConfig),
     read_file: createReadFileTool(getResearchFolder),
     update_file: createUpdateFileTool(getResearchFolder, embeddingConfig),

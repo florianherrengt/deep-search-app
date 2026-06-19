@@ -308,10 +308,42 @@ export async function createSidecarCommand(
 export async function createSystemCommand(
   alias: string,
   args: string | string[],
+  env?: Record<string, string>,
 ): Promise<SidecarCommand> {
   requireTauri();
   const { Command } = await import("@tauri-apps/plugin-shell");
-  return Command.create(alias, args) as unknown as SidecarCommand;
+  return Command.create(alias, args, env ? { env } : undefined) as unknown as SidecarCommand;
+}
+
+export interface ResolvedNode {
+  path: string;
+  dir: string;
+  version: string;
+  envPath: string;
+}
+
+/**
+ * Resolves the Node binary to use for the chrome-devtools-mcp sidecar, via the
+ * Rust `resolve_node_path` command. The returned `envPath` is the `PATH` to
+ * pass when spawning the sidecar so a bare `node` resolves regardless of the
+ * GUI app's PATH.
+ */
+export async function resolveNodePath(nodePathOverride?: string): Promise<ResolvedNode> {
+  requireTauri();
+  const { invoke } = await import("@tauri-apps/api/core");
+  const trimmed = nodePathOverride?.trim();
+  const raw = await invoke<{
+    path: string;
+    dir: string;
+    version: string;
+    env_path: string;
+  }>("resolve_node_path", { nodeOverride: trimmed ? trimmed : null });
+  return {
+    path: raw.path,
+    dir: raw.dir,
+    version: raw.version,
+    envPath: raw.env_path,
+  };
 }
 
 export async function registerSidecarPid(pid: number): Promise<void> {

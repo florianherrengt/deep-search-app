@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/tauri-bridge", () => ({
   invoke: vi.fn(),
+  fetch: vi.fn(),
   isTauri: vi.fn(() => true),
 }));
 
@@ -12,15 +13,18 @@ vi.mock("@/lib/mcp/chrome-devtools-tools", () => ({
   getChromeDevToolsMcpClient: (...args: unknown[]) => mockMcpGetClient(...args),
 }));
 
-import { invoke, isTauri } from "@/lib/tauri-bridge";
+import { fetch as bridgeFetch, invoke, isTauri } from "@/lib/tauri-bridge";
 import {
   extractPageContent,
   fetchHtml,
   sanitizeHtml,
 } from "../extract-page-content-tool";
+import { getAvailableTools } from "@/lib/execute-tool";
+import type { ChatModelConfig } from "@/lib/chat-providers";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";
 
 const mockInvoke = vi.mocked(invoke);
+const mockBridgeFetch = vi.mocked(bridgeFetch);
 
 const OLD_REDDIT_HTML = `
 <html>
@@ -53,6 +57,7 @@ function deferred<T = void>() {
 describe("extractPageContent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockBridgeFetch.mockReset();
     mockInvoke.mockImplementation(async (command) => {
       if (command === "extract_content") return OLD_REDDIT_HTML;
       return undefined;
@@ -282,6 +287,7 @@ describe("URL validation", () => {
 describe("extractPageContent edge cases", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockBridgeFetch.mockReset();
     mockInvoke.mockImplementation(async (command) => {
       if (command === "extract_content") return "<html><body>Fallback content from webview</body></html>";
       return undefined;
@@ -308,6 +314,76 @@ describe("extractPageContent edge cases", () => {
       id: expect.any(String),
       url: "https://example.com/page",
     });
+    expect(mockBridgeFetch).not.toHaveBeenCalled();
+  });
+
+  it("tries Scrape.do before webview when auto fetch content is short", async () => {
+    const remoteContent = "Remote content from Scrape.do. ".repeat(12);
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "fetch_html") return "<html><body>Short</body></html>";
+      if (command === "extract_content") return "<html><body>Browser fallback content</body></html>";
+      return undefined;
+    });
+    mockBridgeFetch.mockResolvedValueOnce(
+      new Response(`<html><body>${remoteContent}</body></html>`, { status: 200 }),
+    );
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      { summarize: false, scrapeDoApiKey: "scrape-token" },
+    );
+
+    expect(result).toContain("Remote content from Scrape.do");
+    expect(mockBridgeFetch).toHaveBeenCalledTimes(1);
+    const [requestUrl, init] = mockBridgeFetch.mock.calls[0];
+    const endpoint = new URL(String(requestUrl));
+    expect(endpoint.origin).toBe("https://api.scrape.do");
+    expect(endpoint.searchParams.get("token")).toBe("scrape-token");
+    expect(endpoint.searchParams.get("url")).toBe("https://example.com/page");
+    expect(init).toEqual(expect.objectContaining({ method: "GET" }));
+    expect(mockInvoke).not.toHaveBeenCalledWith("open_tab", expect.anything());
+  });
+
+  it("falls through to webview when Scrape.do content is still too short", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "fetch_html") return null;
+      if (command === "extract_content") return "<html><body>Fallback content from webview with enough detail</body></html>";
+      return undefined;
+    });
+    mockBridgeFetch.mockResolvedValueOnce(
+      new Response("<html><body>Tiny</body></html>", { status: 200 }),
+    );
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      { summarize: false, scrapeDoApiKey: "scrape-token" },
+    );
+
+    expect(result).toContain("Fallback content from webview");
+    expect(mockBridgeFetch).toHaveBeenCalledTimes(1);
+    expect(mockInvoke).toHaveBeenCalledWith("open_tab", {
+      id: expect.any(String),
+      url: "https://example.com/page",
+    });
+  });
+
+  it("uses Scrape.do when method is scrape.do", async () => {
+    const remoteContent = "Forced Scrape.do content. ".repeat(12);
+    mockBridgeFetch.mockResolvedValueOnce(
+      new Response(`<html><body>${remoteContent}</body></html>`, { status: 200 }),
+    );
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      { summarize: false, method: "scrape.do", scrapeDoApiKey: "scrape-token" },
+    );
+
+    expect(result).toContain("Forced Scrape.do content");
+    expect(mockBridgeFetch).toHaveBeenCalledTimes(1);
+    const endpoint = new URL(String(mockBridgeFetch.mock.calls[0][0]));
+    expect(endpoint.origin).toBe("https://api.scrape.do");
+    expect(endpoint.searchParams.get("token")).toBe("scrape-token");
+    expect(mockInvoke).not.toHaveBeenCalledWith("open_tab", expect.anything());
   });
 
   it("returns a descriptive error when fetch and webview both produce no content", async () => {
@@ -339,6 +415,26 @@ describe("extractPageContent edge cases", () => {
 
     expect(result).toContain("Hi");
     expect(mockInvoke).not.toHaveBeenCalledWith("open_tab", expect.anything());
+    expect(mockBridgeFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not use Scrape.do when method is webview", async () => {
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "extract_content") return "<html><body>Forced browser content</body></html>";
+      return undefined;
+    });
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      { method: "webview", summarize: false, scrapeDoApiKey: "scrape-token" },
+    );
+
+    expect(result).toContain("Forced browser content");
+    expect(mockBridgeFetch).not.toHaveBeenCalled();
+    expect(mockInvoke).toHaveBeenCalledWith("open_tab", {
+      id: expect.any(String),
+      url: "https://example.com/page",
+    });
   });
 
   it("falls back to fetch when custom extractor returns empty content", async () => {
@@ -377,6 +473,7 @@ describe("extractPageContent with Chrome MCP backend", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockBridgeFetch.mockReset();
     vi.mocked(isTauri).mockReturnValue(true);
     mockMcpGetClient.mockResolvedValue({ callTool: mockMcpCallTool });
   });
@@ -399,6 +496,29 @@ describe("extractPageContent with Chrome MCP backend", () => {
     );
     expect(mockMcpCallTool).toHaveBeenCalledWith(
       expect.objectContaining({ name: "evaluate_script" }),
+      undefined,
+      expect.anything(),
+    );
+    expect(mockInvoke).not.toHaveBeenCalledWith("open_tab", expect.anything());
+  });
+
+  it("forces Chrome MCP when method is chrome even if backend is tauri-webview", async () => {
+    mockMcpCallTool
+      .mockResolvedValueOnce({ content: [], isError: false })
+      .mockResolvedValueOnce({ content: [{ type: "text", text: CHROME_MCP_HTML }], isError: false });
+
+    const result = await extractPageContent(
+      "https://example.com/page",
+      {
+        summarize: false,
+        method: "chrome",
+        chromeMcp: { enabled: true, backend: "tauri-webview" },
+      },
+    );
+
+    expect(result).toContain("Extracted via Chrome");
+    expect(mockMcpCallTool).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "navigate_page" }),
       undefined,
       expect.anything(),
     );
@@ -520,5 +640,75 @@ describe("extractPageContent with Chrome MCP backend", () => {
     );
 
     expect(chromeResult).toBe(webviewResult);
+  });
+});
+
+describe("extract_page_content via the Tools panel path (getAvailableTools)", () => {
+  const PANEL_MODEL: ChatModelConfig = {
+    provider: "openrouter",
+    apiKey: "test-key",
+    model: "x",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBridgeFetch.mockReset();
+    vi.mocked(isTauri).mockReturnValue(true);
+    mockMcpGetClient.mockResolvedValue({ callTool: mockMcpCallTool });
+  });
+
+  it("runs the chrome method through the panel without crashing on options.toolCallId", async () => {
+    // Reproduces: ToolsPanel calls descriptor.execute(params) -> execute(params, undefined).
+    mockMcpCallTool
+      .mockResolvedValueOnce({ content: [], isError: false })
+      .mockResolvedValueOnce({ content: [{ type: "text", text: "<html><body><p>Panel chrome content</p></body></html>" }], isError: false });
+
+    const tools = getAvailableTools({
+      researchFolder: "folder",
+      getChatModel: () => PANEL_MODEL,
+      chromeDevToolsMcpEnabled: true,
+      webExtractionBackend: "chrome-mcp",
+    });
+    const extract = tools.find((t) => t.name === "extract_page_content");
+    expect(extract?.available).toBe(true);
+
+    const result = await extract!.execute({
+      url: "https://example.com/page",
+      summarize: false,
+      method: "chrome",
+    });
+
+    expect(result).toContain("Panel chrome content");
+    expect(mockMcpCallTool).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "navigate_page" }),
+      undefined,
+      expect.anything(),
+    );
+  });
+
+  it("runs the scrape.do method through the panel", async () => {
+    const remoteContent = "Panel scrape.do content. ".repeat(12);
+    mockBridgeFetch.mockResolvedValueOnce(
+      new Response(`<html><body>${remoteContent}</body></html>`, { status: 200 }),
+    );
+
+    const tools = getAvailableTools({
+      researchFolder: "folder",
+      getChatModel: () => PANEL_MODEL,
+      scrapeDoApiKey: "scrape-token",
+    });
+    const extract = tools.find((t) => t.name === "extract_page_content");
+    expect(extract?.available).toBe(true);
+
+    const result = await extract!.execute({
+      url: "https://example.com/page",
+      summarize: false,
+      method: "scrape.do",
+    });
+
+    expect(result).toContain("Panel scrape.do content");
+    expect(mockBridgeFetch).toHaveBeenCalledTimes(1);
+    const endpoint = new URL(String(mockBridgeFetch.mock.calls[0][0]));
+    expect(endpoint.origin).toBe("https://api.scrape.do");
   });
 });

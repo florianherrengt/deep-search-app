@@ -45,7 +45,10 @@ If all checked claims are confirmed, say so. If something is wrong or unsupporte
 
 Return plain text, not JSON.`;
 
-export function createFactsCheckTool(model: LanguageModel) {
+export function createFactsCheckTool(
+  model: LanguageModel,
+  scrapeDoApiKey?: string | null,
+) {
   return tool({
     description:
       "Call this before giving the final answer. It extracts source URLs from the research text, opens each one, and checks whether the high-risk factual claims are supported by those sources.",
@@ -66,6 +69,7 @@ export function createFactsCheckTool(model: LanguageModel) {
           const content = await extractPageContent(url, {
             summarize: false,
             abortSignal: options?.abortSignal,
+            scrapeDoApiKey,
           });
           return { url, content };
         }),

@@ -19,6 +19,7 @@ import {
   resolveEmbeddingConfig,
 } from "@/lib/settings-store";
 import { backfillIndex } from "@/lib/research-search";
+import { resolveNodePath, isTauri } from "@/lib/tauri-bridge";
 import type { Settings } from "@/hooks/use-settings";
 import { useAppUpdate } from "@/hooks/use-app-update";
 
@@ -150,6 +151,15 @@ const SERVICE_FIELDS: readonly SettingsFieldDefinition[] = [
   },
 ];
 
+const EXTRACTION_SERVICE_FIELDS: readonly SettingsFieldDefinition[] = [
+  {
+    key: "scrape_do_api_key",
+    label: "Scrape.do API Key",
+    type: "password",
+    placeholder: "scrape.do token",
+  },
+];
+
 export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps) {
   const fieldIdPrefix = useId();
   const [selectedProvider, setSelectedProvider] = useState<ChatProvider>(() =>
@@ -160,6 +170,30 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
     () => new Set(getConfiguredChatProviderDefinitions(settings).map((d) => d.provider)),
     [settings],
   );
+
+  const [detectedNode, setDetectedNode] = useState<{ path: string; version: string } | null>(null);
+  const [nodeDetectError, setNodeDetectError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!settings.chrome_devtools_mcp_enabled || !isTauri()) return;
+    if (settings.chrome_devtools_mcp_node_path.trim()) {
+      setDetectedNode(null);
+      setNodeDetectError(null);
+      return;
+    }
+    let cancelled = false;
+    setNodeDetectError(null);
+    setDetectedNode(null);
+    resolveNodePath()
+      .then((r) => {
+        if (!cancelled) setDetectedNode({ path: r.path, version: r.version });
+      })
+      .catch((e) => {
+        if (!cancelled) setNodeDetectError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.chrome_devtools_mcp_enabled, settings.chrome_devtools_mcp_node_path]);
   const providerOptions = useMemo(
     () =>
       CHAT_PROVIDER_SETTINGS.map((definition) => ({
@@ -221,6 +255,19 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
       <Stack gap="sm">
         <Text size="sm" fw={500}>Search Services</Text>
         {SERVICE_FIELDS.map((field) => (
+          <SettingInput
+            key={field.key}
+            field={field}
+            inputId={`${fieldIdPrefix}-${field.key}`}
+            value={String(settings[field.key] ?? "")}
+            onCommit={handleCommit}
+          />
+        ))}
+      </Stack>
+
+      <Stack gap="sm">
+        <Text size="sm" fw={500}>Extraction Services</Text>
+        {EXTRACTION_SERVICE_FIELDS.map((field) => (
           <SettingInput
             key={field.key}
             field={field}
@@ -337,6 +384,33 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             )}
           </Stack>
         )}
+        <Stack gap="xs" mt="sm">
+          <Text size="sm" fw={500}>Node.js path</Text>
+          <SettingInput
+            field={{
+              key: "chrome_devtools_mcp_node_path",
+              label: "Node.js binary",
+              type: "text",
+              placeholder: "/opt/homebrew/bin/node",
+            }}
+            inputId={`${fieldIdPrefix}-chrome_devtools_mcp_node_path`}
+            value={String(settings.chrome_devtools_mcp_node_path ?? "")}
+            onCommit={handleCommit}
+          />
+          {settings.chrome_devtools_mcp_node_path.trim() ? (
+            <Text size="xs" c="dimmed">
+              Using the Node.js path you set. Clear the field to auto-detect.
+            </Text>
+          ) : nodeDetectError ? (
+            <Text size="xs" c="red">{nodeDetectError}</Text>
+          ) : detectedNode ? (
+            <Text size="xs" c="dimmed">
+              Detected Node {detectedNode.version} at <code>{detectedNode.path}</code>.
+            </Text>
+          ) : (
+            <Text size="xs" c="dimmed">Detecting Node.js…</Text>
+          )}
+        </Stack>
         <Stack gap="xs" mt="sm">
           <Text size="sm" fw={500}>Extraction backend</Text>
           <Select

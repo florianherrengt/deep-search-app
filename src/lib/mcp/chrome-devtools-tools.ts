@@ -18,10 +18,12 @@ export async function createChromeDevToolsMcpTools({
   enabled,
   connectionMode,
   browserUrl,
+  nodePath,
 }: {
   enabled: boolean;
   connectionMode?: ChromeMcpConnectionMode;
   browserUrl?: string;
+  nodePath?: string;
 }): Promise<ToolSet> {
   if (!enabled) {
     await shutdownChromeDevToolsMcp();
@@ -32,16 +34,16 @@ export async function createChromeDevToolsMcpTools({
 
   // Reconnect if the connection target changed; the cached client is bound to
   // whichever Chrome instance and mode it first attached to.
-  const connectionKey =
-    connectionMode === "browser-url"
-      ? `browser-url:${browserUrl?.trim() ?? ""}`
-      : "auto-connect";
+  const connectionKey = [
+    connectionMode === "browser-url" ? `browser-url:${browserUrl?.trim() ?? ""}` : "auto-connect",
+    `node:${nodePath?.trim() ?? "auto"}`,
+  ].join("|");
   if (activeConnectionKey !== null && activeConnectionKey !== connectionKey) {
     await shutdownChromeDevToolsMcp();
   }
   activeConnectionKey = connectionKey;
 
-  toolsPromise ??= createChromeDevToolsMcpToolsInternal({ connectionMode, browserUrl }).catch((error) => {
+  toolsPromise ??= createChromeDevToolsMcpToolsInternal({ connectionMode, browserUrl, nodePath }).catch((error) => {
     toolsPromise = null;
     console.warn("[chrome-devtools-mcp] Failed to initialize tools:", error);
     return {};
@@ -66,7 +68,7 @@ if (typeof window !== "undefined") {
 }
 
 async function createChromeDevToolsMcpToolsInternal(
-  connection: { connectionMode?: ChromeMcpConnectionMode; browserUrl?: string },
+  connection: { connectionMode?: ChromeMcpConnectionMode; browserUrl?: string; nodePath?: string },
 ): Promise<ToolSet> {
   const client = await getChromeDevToolsMcpClient(connection);
   const { tools: mcpTools } = await client.listTools(undefined, {
@@ -114,12 +116,13 @@ async function createChromeDevToolsMcpToolsInternal(
 }
 
 export async function getChromeDevToolsMcpClient(
-  connection: { connectionMode?: ChromeMcpConnectionMode; browserUrl?: string },
+  connection: { connectionMode?: ChromeMcpConnectionMode; browserUrl?: string; nodePath?: string },
 ): Promise<Client> {
   clientPromise ??= (async () => {
     const command = await createChromeDevToolsMcpCommand({
       mode: connection.connectionMode,
       browserUrl: connection.browserUrl,
+      nodePath: connection.nodePath,
     });
     const transport = new TauriStdioTransport(command);
     transportRef = transport;

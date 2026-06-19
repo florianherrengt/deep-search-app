@@ -1,5 +1,3 @@
-You are a ruthless recurring bug-hunting engineering agent.
-
 Your job is to find and fix real bugs in this codebase. Do not perform a shallow audit. Do not merely report recommendations. Work directly in the code.
 
 This prompt is intended to be run regularly, so you must build on previous runs, rotate focus areas, avoid repeating shallow checks, and maintain a compact bug-hunt memory file.

@@ -806,6 +806,202 @@ fn unregister_sidecar_pid(state: tauri::State<SidecarState>) -> Result<(), Strin
     Ok(())
 }
 
+/// Required Node version range for chrome-devtools-mcp.
+/// Mirrors `chrome-devtools-mcp`'s `engines.node` and the TS-side check in
+/// `src/lib/mcp/chrome-devtools-sidecar.ts`.
+const REQUIRED_NODE_RANGE: &str = "^20.19.0 || ^22.12.0 || >=23";
+const NODE_RESOLVE_TIMEOUT_SECS: u64 = 8;
+
+#[derive(serde::Serialize)]
+struct NodeResolution {
+    path: String,
+    dir: String,
+    version: String,
+    env_path: String,
+}
+
+/// Parses a Node version string like "v22.12.0" into (major, minor, patch).
+fn parse_node_version(raw: &str) -> Option<(u32, u32, u32)> {
+    let raw = raw.trim().trim_start_matches('v');
+    let mut parts = raw.split('.');
+    let major = parts.next()?.parse::<u32>().ok()?;
+    let minor = parts.next()?.parse::<u32>().ok()?;
+    let patch_raw = parts.next()?;
+    let patch = patch_raw
+        .split(|c: char| !c.is_ascii_digit())
+        .next()?
+        .parse::<u32>()
+        .ok()?;
+    Some((major, minor, patch))
+}
+
+/// Matches the engines.node range required by chrome-devtools-mcp:
+/// ^20.19.0 (20.x >=20.19), ^22.12.0 (22.x >=22.12), or >=23.
+fn node_version_satisfies(major: u32, minor: u32) -> bool {
+    (major == 20 && minor >= 19) || (major == 22 && minor >= 12) || major >= 23
+}
+
+/// Runs `<node> --version` for an absolute path and returns the version when
+/// the binary exists and satisfies the required range.
+fn validate_node_at(path: &std::path::Path) -> Option<String> {
+    if !path.is_file() {
+        return None;
+    }
+    let output = std::process::Command::new(path).arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let (major, minor, _patch) = parse_node_version(&version)?;
+    if !node_version_satisfies(major, minor) {
+        return None;
+    }
+    Some(version)
+}
+
+fn node_resolution_for(path: &std::path::Path, version: &str) -> NodeResolution {
+    let dir = path
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let existing_path = std::env::var("PATH").unwrap_or_default();
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    let env_path = if existing_path.is_empty() {
+        dir.clone()
+    } else {
+        format!("{}{}{}", dir, separator, existing_path)
+    };
+    NodeResolution {
+        path: path.to_string_lossy().into_owned(),
+        dir,
+        version: version.to_string(),
+        env_path,
+    }
+}
+
+/// Tries to locate `node` through the user's login shell, which sources the
+/// profile that version managers (nvm, fnm, asdf, volta) and Homebrew rely on.
+/// zsh uses `-lic` so `~/.zshrc` is sourced; bash uses `-lc` to avoid
+/// interactive hangs (it will not source `.bashrc`, which is acceptable given
+/// macOS defaults to zsh).
+fn detect_node_via_login_shell() -> Option<std::path::PathBuf> {
+    let user_shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty());
+    let mut attempts: Vec<(&str, Vec<&str>)> = Vec::new();
+    if cfg!(target_os = "macos") {
+        attempts.push(("/bin/zsh", vec!["-lic", "command -v node"]));
+    }
+    attempts.push(("/bin/bash", vec!["-lc", "command -v node"]));
+    if let Some(ref shell) = user_shell {
+        let args: Vec<&str> = if cfg!(target_os = "macos") {
+            vec!["-lic", "command -v node"]
+        } else {
+            vec!["-lc", "command -v node"]
+        };
+        attempts.push((shell.as_str(), args));
+    }
+
+    for (shell, args) in &attempts {
+        if let Ok(out) = std::process::Command::new(shell).args(args).output() {
+            if out.status.success() {
+                let line = String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if !line.is_empty() && !line.contains(char::is_whitespace) {
+                    let candidate = std::path::PathBuf::from(&line);
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn common_node_candidates() -> Vec<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+    if cfg!(target_os = "macos") {
+        candidates.push(std::path::PathBuf::from("/opt/homebrew/bin/node"));
+        candidates.push(std::path::PathBuf::from("/usr/local/bin/node"));
+        candidates.push(std::path::PathBuf::from("/usr/bin/node"));
+    } else if cfg!(target_os = "linux") {
+        candidates.push(std::path::PathBuf::from("/usr/local/bin/node"));
+        candidates.push(std::path::PathBuf::from("/usr/bin/node"));
+    } else if cfg!(windows) {
+        if let Ok(pf) = std::env::var("ProgramFiles") {
+            candidates.push(std::path::PathBuf::from(&pf).join("nodejs").join("node.exe"));
+        }
+        if let Ok(pf) = std::env::var("ProgramFiles(x86)") {
+            candidates.push(std::path::PathBuf::from(&pf).join("nodejs").join("node.exe"));
+        }
+    }
+    candidates
+}
+
+/// Resolves a usable Node binary. A user-supplied override is validated
+/// strictly; otherwise we probe the login shell, then well-known locations.
+fn resolve_node_blocking(override_path: Option<&str>) -> Result<NodeResolution, String> {
+    if let Some(raw_override) = override_path {
+        let trimmed = raw_override.trim();
+        let path = std::path::Path::new(trimmed);
+        return match validate_node_at(path) {
+            Some(version) => Ok(node_resolution_for(path, &version)),
+            None => Err(format!(
+                "The Node.js path set in settings (\"{}\") is not usable. Point it at a Node.js {} binary.",
+                trimmed, REQUIRED_NODE_RANGE
+            )),
+        };
+    }
+
+    if let Some(found) = detect_node_via_login_shell() {
+        if let Some(version) = validate_node_at(&found) {
+            return Ok(node_resolution_for(&found, &version));
+        }
+    }
+
+    for candidate in common_node_candidates() {
+        if let Some(version) = validate_node_at(&candidate) {
+            return Ok(node_resolution_for(&candidate, &version));
+        }
+    }
+
+    Err(format!(
+        "Node.js {} was not found. Install it from https://nodejs.org, or set the Node.js path in Chrome DevTools MCP settings.",
+        REQUIRED_NODE_RANGE
+    ))
+}
+
+/// Resolves the Node binary to use for the chrome-devtools-mcp sidecar.
+/// `nodeOverride` (an absolute path from settings) takes precedence; otherwise
+/// the login shell and common install locations are probed. The returned
+/// `env_path` is meant to be passed as the `PATH` env var when spawning the
+/// sidecar, so a bare `node` command resolves regardless of the GUI app PATH.
+#[tauri::command]
+async fn resolve_node_path(node_override: Option<String>) -> Result<NodeResolution, String> {
+    let override_path = node_override
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_string());
+    let timeout = Duration::from_secs(NODE_RESOLVE_TIMEOUT_SECS);
+    match tokio::time::timeout(
+        timeout,
+        tokio::task::spawn_blocking(move || resolve_node_blocking(override_path.as_deref())),
+    )
+    .await
+    {
+        // timeout(..).await is Result<Result<Result<NodeResolution, String>, JoinError>, Elapsed>:
+        // outer Ok = not timed out, middle Ok = spawn_blocking joined, inner is resolve_node_blocking's Result.
+        Ok(Ok(inner)) => inner,
+        Ok(Err(join_err)) => Err(format!("Node.js resolution failed: {}", join_err)),
+        Err(_elapsed) => Err(format!(
+            "Node.js resolution timed out after {}s. Set the Node.js path in Chrome DevTools MCP settings.",
+            NODE_RESOLVE_TIMEOUT_SECS
+        )),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -844,6 +1040,7 @@ pub fn run() {
             backfill_index,
             register_sidecar_pid,
             unregister_sidecar_pid,
+            resolve_node_path,
         ]);
 
     #[cfg(debug_assertions)]
@@ -921,6 +1118,23 @@ mod tests {
             let parsed: url::Url = raw.parse().unwrap();
             assert!(validate_url_components(&parsed).is_ok(), "{raw}");
         }
+    }
+
+    #[test]
+    fn node_version_parser_and_range() {
+        assert_eq!(parse_node_version("v22.12.0"), Some((22, 12, 0)));
+        assert_eq!(parse_node_version("20.19.0\n"), Some((20, 19, 0)));
+        assert_eq!(parse_node_version("v23.1.0-beta"), Some((23, 1, 0)));
+        assert_eq!(parse_node_version("garbage"), None);
+        assert_eq!(parse_node_version("v22"), None);
+
+        assert!(node_version_satisfies(20, 19));
+        assert!(node_version_satisfies(22, 12));
+        assert!(node_version_satisfies(23, 0));
+        assert!(node_version_satisfies(24, 0));
+        assert!(!node_version_satisfies(20, 18));
+        assert!(!node_version_satisfies(22, 11));
+        assert!(!node_version_satisfies(18, 20));
     }
 
     #[test]
