@@ -53,7 +53,7 @@
     "cheerio": "^1.2.0",
     "chrome-devtools-mcp": "^1.1.1",
     "currency-symbol-map": "^5.1.0",
-    "deep-search-core": "git+https://github.com/florianherrengt/deep-search-core.git",
+    "deep-search-core": "git+https://github.com/florianherrengt/deep-search-core.git#d4b972861ff3a5af52cd7a596929261506abef6f",
     "ipaddr.js": "^2.4.0",
     "lucide-react": "^1.16.0",
     "p-queue": "^9.3.0",
