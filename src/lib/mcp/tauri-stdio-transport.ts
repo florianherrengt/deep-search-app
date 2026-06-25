@@ -15,6 +15,15 @@ export class TauriStdioTransport implements Transport {
   private stdoutBuffer = "";
   private _stderrTail = "";
   private started = false;
+  /**
+   * True once onclose has been delivered. Both `close()` and the sidecar's
+   * "close" event can fire (kill() triggers the event, and `close()` also
+   * delivers onclose directly to handle the case where no process was ever
+   * spawned). Without this guard, a user-initiated close ends up firing
+   * onclose twice — once from the close() body and once from the kill-induced
+   * "close" event — which violates the MCP Transport contract.
+   */
+  private closed = false;
 
   constructor(private readonly command: SidecarCommand) {}
 
@@ -40,8 +49,7 @@ export class TauriStdioTransport implements Transport {
       console.info(
         `[sidecar] Process exited (code ${code ?? "null"}, signal ${signal ?? "null"})`,
       );
-      this.onclose?.();
-      this.onerror?.(
+      this.emitClose(
         new Error(
           `Chrome DevTools MCP sidecar exited with code ${code ?? "null"} signal ${signal ?? "null"}.${this._stderrTail ? ` Last stderr: ${this._stderrTail}` : ""}`,
         ),
@@ -64,10 +72,29 @@ export class TauriStdioTransport implements Transport {
   }
 
   async close(): Promise<void> {
+    if (this.closed) return;
     this.started = false;
     void unregisterSidecarPid();
     await this.child?.kill().catch(() => {});
     this.child = null;
+    // If a child was running, kill() will trigger the sidecar "close" event
+    // which calls emitClose. If no child ever existed, we deliver onclose
+    // ourselves here. Either way, emitClose is the single source of truth and
+    // is idempotent.
+    this.emitClose();
+  }
+
+  /**
+   * Idempotent: delivers onclose (and optionally onerror for an unexpected
+   * exit) exactly once, regardless of whether close() or the sidecar "close"
+   * event fires first.
+   */
+  private emitClose(exitError?: Error): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (exitError) {
+      this.onerror?.(exitError);
+    }
     this.onclose?.();
   }
 

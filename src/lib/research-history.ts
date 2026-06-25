@@ -156,7 +156,10 @@ function parseChatFileContent(content: string): ParsedChatFile | null {
           typeof m.createdAt === "string" || m.createdAt === null
             ? m.createdAt
             : undefined,
-        updatedAt: asString(m.updatedAt),
+        updatedAt:
+          typeof m.updatedAt === "string" || m.updatedAt === null
+            ? m.updatedAt
+            : undefined,
       };
     } else {
       messages.push(parsed);
@@ -418,23 +421,40 @@ export async function moveResearchChatToFolder({
       filename: researchChatFilename(parsedChatId),
     });
   } catch (error) {
+    // Rollback: undo the destination write so the move is atomic from the
+    // user's perspective. We must remove BOTH the destination chat file AND
+    // its index entry — otherwise listResearchChats returns a ghost chat
+    // whose readResearchChatMessages comes back empty.
     try {
       await deleteAppFile({
         subfolder: researchChatsSubfolder(parsedToFolderName),
         filename: researchChatFilename(parsedChatId),
       });
-    } catch (rollbackError) {
+    } catch (rollbackDeleteError) {
       console.error(
-        "[research-history] failed to rollback destination after source delete failure during move",
+        "[research-history] failed to rollback destination chat file after source delete failure during move",
         {
           fromFolder: parsedFromFolderName,
           toFolder: parsedToFolderName,
           chatId: parsedChatId,
           deleteError: error instanceof Error ? error.message : "unknown",
-          rollbackError: rollbackError instanceof Error ? rollbackError.message : "unknown",
+          rollbackError: rollbackDeleteError instanceof Error ? rollbackDeleteError.message : "unknown",
         },
       );
     }
+    await removeResearchChatSummary(parsedToFolderName, parsedChatId).catch(
+      (rollbackIndexError) => {
+        console.error(
+          "[research-history] failed to rollback destination chat index after source delete failure during move",
+          {
+            fromFolder: parsedFromFolderName,
+            toFolder: parsedToFolderName,
+            chatId: parsedChatId,
+            rollbackError: rollbackIndexError instanceof Error ? rollbackIndexError.message : "unknown",
+          },
+        );
+      },
+    );
     throw errorWithCause(
       `Failed to move chat "${parsedChatId}" from "${parsedFromFolderName}" to "${parsedToFolderName}": source deletion failed`,
       error,
@@ -647,7 +667,49 @@ function toResearchChatSummary(chat: StoredResearchChat): ResearchChatSummary {
   };
 }
 
-async function getResearchFolderUpdatedAt(folderName: string) {
+async function getResearchFolderUpdatedAt(folderName: string): Promise<string | null> {
+  // listResearchFolders() calls this once per folder just to read the most
+  // recent chat's updatedAt. The full listResearchChats() path does an
+  // O(chats) Zod schema validation + normalizeResearchChatSummary pass and
+  // an O(chats log chats) sort — none of which is needed to find a max.
+  //
+  // This dedicated path reads the raw index JSON and scans for the max
+  // sortable timestamp in a single O(chats) pass. If anything looks off
+  // (missing/corrupt index, schema version mismatch), it falls back to the
+  // full listResearchChats() path so correctness is never compromised.
+  const content = await readAppFile({
+    subfolder: researchChatsSubfolder(folderName),
+    filename: CHAT_INDEX_FILENAME,
+  });
+
+  if (content) {
+    const parsed = tryParseJson(content) as
+      | {
+          version?: unknown;
+          chats?: Array<{
+            updatedAt?: string | null;
+            createdAt?: string | null;
+          }>;
+        }
+      | null;
+
+    if (parsed && parsed.version === CHAT_INDEX_VERSION && Array.isArray(parsed.chats)) {
+      let best = 0;
+      for (const chat of parsed.chats) {
+        const value = chat?.updatedAt ?? chat?.createdAt;
+        if (!value) continue;
+        const ts = Date.parse(value);
+        if (!Number.isNaN(ts) && ts > best) best = ts;
+      }
+      if (best > 0) return new Date(best).toISOString();
+      // Index exists but no chat has a usable timestamp — fall through to
+      // the full path so legacy chats (null timestamps) are handled too.
+    }
+  }
+
+  // Fallback: no index, corrupt index, or only null-timestamp entries.
+  // This preserves the existing behaviour for fresh folders (index not yet
+  // built) and legacy chats with null createdAt/updatedAt.
   const [latestChat] = await listResearchChats(folderName);
   return latestChat?.updatedAt ?? latestChat?.createdAt ?? null;
 }

@@ -440,20 +440,39 @@ function AppInner() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [researchFolders, activeResearchFolder]);
 
-  const searchKeys = {
-    braveApiKey: settings.brave_api_key || null,
-    exaApiKey: settings.exa_api_key || null,
-    serperApiKey: settings.serper_api_key || null,
-    tavilyApiKey: settings.tavily_api_key || null,
-    scrapeDoApiKey: settings.scrape_do_api_key || null,
-    searxngBaseUrl: settings.searxng_url || null,
-    currency: settings.currency,
-    chromeDevToolsMcpEnabled: settings.chrome_devtools_mcp_enabled,
-    chromeDevToolsMcpConnectionMode: settings.chrome_devtools_mcp_connection_mode,
-    chromeDevToolsMcpBrowserUrl: settings.chrome_devtools_mcp_browser_url || null,
-    chromeDevToolsMcpNodePath: settings.chrome_devtools_mcp_node_path || null,
-    webExtractionBackend: settings.web_extraction_backend,
-  };
+  // Memoized: Chat's effectiveSearchKeys useMemo depends on this reference.
+  // An unmemoized inline object would defeat that memo and re-run the spread
+  // on every AppInner render (which happens on folder/attention transitions).
+  const searchKeys = useMemo(
+    () => ({
+      braveApiKey: settings.brave_api_key || null,
+      exaApiKey: settings.exa_api_key || null,
+      serperApiKey: settings.serper_api_key || null,
+      tavilyApiKey: settings.tavily_api_key || null,
+      scrapeDoApiKey: settings.scrape_do_api_key || null,
+      searxngBaseUrl: settings.searxng_url || null,
+      currency: settings.currency,
+      chromeDevToolsMcpEnabled: settings.chrome_devtools_mcp_enabled,
+      chromeDevToolsMcpConnectionMode: settings.chrome_devtools_mcp_connection_mode,
+      chromeDevtoolsMcpBrowserUrl: settings.chrome_devtools_mcp_browser_url || null,
+      chromeDevtoolsMcpNodePath: settings.chrome_devtools_mcp_node_path || null,
+      webExtractionBackend: settings.web_extraction_backend,
+    }),
+    [
+      settings.brave_api_key,
+      settings.exa_api_key,
+      settings.serper_api_key,
+      settings.tavily_api_key,
+      settings.scrape_do_api_key,
+      settings.searxng_url,
+      settings.currency,
+      settings.chrome_devtools_mcp_enabled,
+      settings.chrome_devtools_mcp_connection_mode,
+      settings.chrome_devtools_mcp_browser_url,
+      settings.chrome_devtools_mcp_node_path,
+      settings.web_extraction_backend,
+    ],
+  );
   const effectiveSelectedModelId = selectedModelId || defaultChatModelId;
 
   const getSelectedToolChatModel = (): ChatModelConfig | null => {
@@ -470,15 +489,21 @@ function AppInner() {
     };
   };
 
-  const handleSelectedModelChange = (modelId: string) => {
-    const selected = chatModelOptions.find(
+  const chatModelOptionsRef = useRef(chatModelOptions);
+  chatModelOptionsRef.current = chatModelOptions;
+
+  // useCallback + refs so the handler identity is stable across AppInner
+  // re-renders. Without this, Chat's useEffect at chat.tsx:150 re-fires on
+  // every AppInner render because its `onSelectedModelIdChange` dep changes.
+  const handleSelectedModelChange = useCallback((modelId: string) => {
+    const selected = chatModelOptionsRef.current.find(
       (option) => option.id === modelId && !option.disabled,
     );
     if (!selected) return;
 
     setSelectedModelId(modelId);
     updateDefaultChatProvider(selected.provider);
-  };
+  }, [updateDefaultChatProvider]);
 
   const handleSearchFolders = useCallback(
     async (query: string, abortSignal?: AbortSignal): Promise<string[]> => {
@@ -507,7 +532,16 @@ function AppInner() {
     );
   }
 
+  // Tracks the most recently requested folder selection so that out-of-order
+  // async resolutions don't clobber the user's latest click. Without this,
+  // clicking folder A then folder B in quick succession could leave the app
+  // showing A if A's listResearchChats promise resolved slower than B's.
+  const latestFolderSelectionRef = useRef<string | null>(null);
+
   const handleSelectResearchFolder = async (folderName: string) => {
+    latestFolderSelectionRef.current = folderName;
+    const isStale = () => latestFolderSelectionRef.current !== folderName;
+
     setResearchChatsStatus("loading");
     switchToTab("main");
 
@@ -521,9 +555,12 @@ function AppInner() {
         researchFolder: folderName,
       });
       try {
-        setResearchChats(await listResearchChats(folderName));
+        const chats = await listResearchChats(folderName);
+        if (isStale()) return;
+        setResearchChats(chats);
         setResearchChatsStatus("ready");
       } catch (error) {
+        if (isStale()) return;
         console.error("[App] Failed to list research chats:", error);
         setResearchChats([]);
         setResearchChatsStatus("error");
@@ -533,11 +570,13 @@ function AppInner() {
 
     try {
       const chats = await listResearchChats(folderName);
+      if (isStale()) return;
       const selectedChatId = chats[0]?.id ?? createResearchChatId();
       const messages = chats[0]
         ? await readResearchChatMessages(folderName, selectedChatId)
         : [];
 
+      if (isStale()) return;
       setResearchChats(chats);
       setResearchChatsStatus("ready");
       activateSession({
@@ -546,6 +585,7 @@ function AppInner() {
         initialMessages: messages,
       });
     } catch (error) {
+      if (isStale()) return;
       console.error("[App] Failed to open research folder:", error);
       const nextChatId = createResearchChatId();
       setResearchChats([]);
@@ -691,15 +731,37 @@ function AppInner() {
     void refreshResearchFolders();
   };
 
-  const runningFolderNames = getRunningResearchFolders(chatSessions);
-  const runningChatIds = getRunningResearchChatIds(chatSessions);
-  const attentionFolderNames = getAttentionRequiredResearchFolders(chatSessions);
-  const attentionChatIds = getAttentionRequiredResearchChatIds(chatSessions);
-  const visibleChatSessions = chatSessions.filter(
-    (session) =>
-      session.sessionId === activeSessionId ||
-      session.isRunning ||
-      session.needsAttention,
+  // Memoized: these five derivations all read from `chatSessions` and were
+  // previously recomputed on every AppInner render (which fires on settings
+  // changes, folder mutations, run-state transitions). Wrapping in useMemo
+  // means they only recompute when chatSessions or activeSessionId change.
+  // This keeps prop references stable for downstream consumers
+  // (ResearchSidebar, TabPanel) and avoids wasted work.
+  const runningFolderNames = useMemo(
+    () => getRunningResearchFolders(chatSessions),
+    [chatSessions],
+  );
+  const runningChatIds = useMemo(
+    () => getRunningResearchChatIds(chatSessions),
+    [chatSessions],
+  );
+  const attentionFolderNames = useMemo(
+    () => getAttentionRequiredResearchFolders(chatSessions),
+    [chatSessions],
+  );
+  const attentionChatIds = useMemo(
+    () => getAttentionRequiredResearchChatIds(chatSessions),
+    [chatSessions],
+  );
+  const visibleChatSessions = useMemo(
+    () =>
+      chatSessions.filter(
+        (session) =>
+          session.sessionId === activeSessionId ||
+          session.isRunning ||
+          session.needsAttention,
+      ),
+    [chatSessions, activeSessionId],
   );
 
   return (

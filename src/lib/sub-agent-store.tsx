@@ -713,10 +713,11 @@ function removeEventFingerprintsForChat(
 }
 
 function getEventFingerprint(chatId: string, event: SubAgentEvent): string | null {
-  if (typeof event.sequence === "number") {
-    return `${chatId}:seq:${event.sequence}`;
-  }
-
+  // The emitter assigns a globally-unique `sequence` to every event for
+  // ordering/profiling. It MUST NOT participate in the fingerprint — otherwise
+  // duplicate deliveries (e.g. via a stale direct handler) bypass dedup and
+  // produce ghost tool-calls / runs. The per-type fingerprints below encode
+  // the logical identity of each event.
   switch (event.type) {
     case "start":
       return `${chatId}:start:${event.id}`;

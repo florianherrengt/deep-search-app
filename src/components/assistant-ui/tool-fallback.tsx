@@ -1,6 +1,6 @@
 import { ChevronDownIcon, WrenchIcon } from "lucide-react";
 import { Collapse, Box, Text, UnstyledButton } from "@mantine/core";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState, type CSSProperties } from "react";
 import { useSubAgentReaders } from "@/lib/sub-agent-store";
 import { SubAgentTranscriptInline } from "@/components/sub-agent-transcript-inline";
 
@@ -9,6 +9,34 @@ function formatValue(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   return JSON.stringify(value, null, 2);
 }
+
+// Hoisted: ToolFallback re-renders on every token of any sibling streaming
+// text part inside the same message (assistant-ui re-renders all parts when
+// any part updates). Static style identity lets React skip the diff.
+const HEADER_BUTTON_STYLE: CSSProperties = {
+  display: "flex",
+  width: "100%",
+  alignItems: "center",
+  gap: 8,
+  padding: "8px 12px",
+  fontSize: 14,
+  textAlign: "left",
+};
+const RUNNING_SPINNER_STYLE: CSSProperties = {
+  marginLeft: "auto",
+  width: 12,
+  height: 12,
+  borderRadius: "50%",
+  border: "2px solid var(--mantine-color-default-border)",
+  borderTopColor: "var(--mantine-color-blue-6)",
+  animation: "spin 1s linear infinite",
+};
+const CHEVRON_STYLE: CSSProperties = {
+  width: 14,
+  height: 14,
+  color: "var(--mantine-color-dimmed)",
+  transition: "transform 0.2s",
+};
 
 export function ToolFallback({
   toolName,
@@ -56,20 +84,12 @@ export function ToolFallback({
       <UnstyledButton
         onClick={() => setOpened(!opened)}
         aria-label={`${opened ? "Collapse" : "Expand"} ${toolName} details`}
-        style={{
-          display: "flex",
-          width: "100%",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 12px",
-          fontSize: 14,
-          textAlign: "left",
-        }}
+        style={HEADER_BUTTON_STYLE}
       >
         <WrenchIcon style={{ width: 14, height: 14, color: "var(--mantine-color-dimmed)" }} />
         <Text size="sm" fw={500}>{toolName}</Text>
         {status === "running" && (
-          <span style={{ marginLeft: "auto", width: 12, height: 12, borderRadius: "50%", border: "2px solid var(--mantine-color-default-border)", borderTopColor: "var(--mantine-color-blue-6)", animation: "spin 1s linear infinite" }} />
+          <span style={RUNNING_SPINNER_STYLE} />
         )}
         {status === "complete" && (
           <Text size="xs" c="teal" ml="auto">done</Text>
@@ -79,10 +99,7 @@ export function ToolFallback({
         )}
         <ChevronDownIcon
           style={{
-            width: 14,
-            height: 14,
-            color: "var(--mantine-color-dimmed)",
-            transition: "transform 0.2s",
+            ...CHEVRON_STYLE,
             transform: opened ? "rotate(180deg)" : "rotate(0deg)",
           }}
         />

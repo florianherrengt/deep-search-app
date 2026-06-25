@@ -531,6 +531,177 @@ describe("research history", () => {
       `search-results/dest-folder/chats/${chatId}.json`,
     );
   });
+
+  it("rolls back destination chat INDEX (not just the file) when source deletion fails", async () => {
+    // Regression: previously the rollback deleted the destination chat FILE
+    // but left the destination chat INDEX pointing at it. listResearchChats
+    // would then return a ghost entry whose readResearchChatMessages is empty.
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+    ];
+    const chatId = "2026-05-22T10-11-12.123Z";
+    const sourceChatPath = `search-results/source-folder/chats/${chatId}.json`;
+    const files: Record<string, string> = {
+      [sourceChatPath]:
+        JSON.stringify({ _meta: 1, id: chatId, title: "Original", createdAt: "2026-05-22T10:11:12.123Z", updatedAt: "2026-05-22T10:11:12.123Z", count: 1 }) +
+        "\n" +
+        JSON.stringify({ id: "user-1", role: "user", parts: [{ type: "text", text: "Hello" }] }) +
+        "\n",
+    };
+    const dirs = new Set<string>([
+      "search-results",
+      "search-results/source-folder",
+      "search-results/source-folder/chats",
+      "search-results/dest-folder",
+      "search-results/dest-folder/chats",
+    ]);
+
+    fsMocks.exists.mockImplementation(async (path: string) => dirs.has(path) || path in files);
+    fsMocks.readDir.mockImplementation(async (path: string) => {
+      const prefix = `${path}/`;
+      const seen = new Set<string>();
+      const entries: Array<Record<string, unknown>> = [];
+      for (const dir of dirs) {
+        if (!dir.startsWith(prefix)) continue;
+        const name = dir.slice(prefix.length).split("/")[0];
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          entries.push({ name, isDirectory: true, isFile: false });
+        }
+      }
+      for (const filePath of Object.keys(files)) {
+        if (!filePath.startsWith(prefix)) continue;
+        const name = filePath.slice(prefix.length).split("/")[0];
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          entries.push({ name, isDirectory: false, isFile: true });
+        }
+      }
+      return entries;
+    });
+    fsMocks.readTextFile.mockImplementation(async (path: string) => {
+      const content = files[path];
+      if (content === undefined) throw new Error(`Missing mocked file: ${path}`);
+      return content;
+    });
+    fsMocks.writeTextFile.mockImplementation(async (path: string, content: string) => {
+      files[path] = content;
+    });
+    fsMocks.mkdir.mockImplementation(async (path: string) => {
+      dirs.add(path);
+    });
+    fsMocks.remove.mockImplementation(async (path: string) => {
+      if (path === `search-results/source-folder/chats/${chatId}.json`) {
+        throw new Error("Permission denied");
+      }
+      delete files[path];
+    });
+
+    await expect(
+      moveResearchChatToFolder({
+        fromFolderName: "source-folder",
+        toFolderName: "dest-folder",
+        chatId,
+        messages: messages as never,
+      }),
+    ).rejects.toThrow("source deletion failed");
+
+    // The destination must NOT advertise the moved chat — neither via the
+    // index nor via a stray chat file.
+    const destChats = await listResearchChats("dest-folder");
+    expect(destChats.find((c) => c.id === chatId)).toBeUndefined();
+  });
+
+  it("saveResearchChatMessages writes the legacy chat transcript at chat.json and indexes it as legacy", async () => {
+    // Regression: the LEGACY_CHAT_TRANSCRIPT_ID branch of
+    // saveResearchChatMessages had zero coverage. It writes the chat as a
+    // single JSON array at search-results/<folder>/chat.json (NOT in chats/)
+    // and upserts a summary with legacy: true and null timestamps. A bug in
+    // either step silently breaks migration of pre-existing v0 chats.
+    const messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      },
+    ];
+    const writtenFiles: Record<string, string> = {};
+    const writtenDirs = new Set<string>(["search-results/legacy-folder"]);
+
+    fsMocks.exists.mockImplementation(async (path: string) =>
+      writtenDirs.has(path) || path in writtenFiles,
+    );
+    fsMocks.readDir.mockImplementation(async (path: string) => {
+      const prefix = `${path}/`;
+      const seen = new Set<string>();
+      const entries: Array<Record<string, unknown>> = [];
+      for (const dir of writtenDirs) {
+        if (!dir.startsWith(prefix)) continue;
+        const name = dir.slice(prefix.length).split("/")[0];
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          entries.push({ name, isDirectory: true, isFile: false });
+        }
+      }
+      for (const filePath of Object.keys(writtenFiles)) {
+        if (!filePath.startsWith(prefix)) continue;
+        const name = filePath.slice(prefix.length).split("/")[0];
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          entries.push({ name, isDirectory: false, isFile: true });
+        }
+      }
+      return entries;
+    });
+    fsMocks.readTextFile.mockImplementation(async (path: string) => {
+      const content = writtenFiles[path];
+      if (content === undefined) throw new Error(`Missing mocked file: ${path}`);
+      return content;
+    });
+    fsMocks.writeTextFile.mockImplementation(async (path: string, content: string) => {
+      writtenFiles[path] = content;
+    });
+    fsMocks.mkdir.mockImplementation(async (path: string) => {
+      writtenDirs.add(path);
+    });
+
+    await saveResearchChatMessages(
+      "legacy-folder",
+      "legacy-chat",
+      messages as never,
+    );
+
+    // 1. Transcript written to the legacy path (folder root, not chats/).
+    expect(
+      writtenFiles["search-results/legacy-folder/chat.json"],
+    ).toBeDefined();
+    // 2. No per-chat transcript file is written under chats/.
+    expect(
+      Object.keys(writtenFiles).some((p) =>
+        p.startsWith("search-results/legacy-folder/chats/") &&
+        !p.endsWith("index.json"),
+      ),
+    ).toBe(false);
+
+    // 3. The chat appears in listResearchChats flagged as legacy.
+    const chats = await listResearchChats("legacy-folder");
+    const legacy = chats.find((c) => c.id === "legacy-chat");
+    expect(legacy).toBeDefined();
+    expect(legacy?.legacy).toBe(true);
+    expect(legacy?.messageCount).toBe(1);
+
+    // 4. The transcript is readable via the same id.
+    const readBack = await readResearchChatMessages(
+      "legacy-folder",
+      "legacy-chat",
+    );
+    expect(readBack).toHaveLength(1);
+    expect((readBack[0] as { parts: Array<{ text?: string }> }).parts[0]?.text).toBe("Hello");
+  });
 });
 
 interface WrittenChatMeta {
@@ -817,6 +988,130 @@ describe("chat history metadata index", () => {
     expect(fsMocks.readTextFile).toHaveBeenCalledWith(
       `search-results/${folderName}/chats/${chatId}.json`,
     );
+  });
+
+  it("listResearchFolders reads the chat index fast path without scanning transcripts", async () => {
+    // Regression: listResearchFolders used to call listResearchChats per
+    // folder (full Zod parse + normalize + sort) just to read the latest
+    // chat's updatedAt. The optimized getResearchFolderUpdatedAt reads the
+    // raw index JSON and scans for max(updatedAt) in a single pass.
+    const olderChatId = "2026-06-07T10-00-00.000Z";
+    const latestChatId = "2026-06-08T10-00-00.000Z";
+
+    mockAppStorage({
+      directories: {
+        "search-results": [
+          directoryEntry(folderName),
+          directoryEntry("empty-folder"),
+        ],
+        [`search-results/${folderName}`]: [directoryEntry("chats")],
+        [`search-results/${folderName}/chats`]: [
+          fileEntry("index.json"),
+          fileEntry(`${olderChatId}.json`),
+          fileEntry(`${latestChatId}.json`),
+        ],
+        "search-results/empty-folder": [directoryEntry("chats")],
+        "search-results/empty-folder/chats": [
+          fileEntry("index.json"),
+        ],
+      },
+      files: {
+        [`search-results/${folderName}/chats/index.json`]: serializedIndex([
+          {
+            id: olderChatId,
+            title: "Older",
+            createdAt: "2026-06-07T10:00:00.000Z",
+            updatedAt: "2026-06-07T11:00:00.000Z",
+            messageCount: 4,
+          },
+          {
+            id: latestChatId,
+            title: "Latest",
+            createdAt: "2026-06-08T10:00:00.000Z",
+            updatedAt: "2026-06-08T11:00:00.000Z",
+            messageCount: 4,
+          },
+        ]),
+        [`search-results/${folderName}/chats/${olderChatId}.json`]:
+          serializedForm(generateLargeConversation({ researchSteps: 2 }), {
+            id: olderChatId,
+            title: "Older",
+          }),
+        [`search-results/${folderName}/chats/${latestChatId}.json`]:
+          serializedForm(generateLargeConversation({ researchSteps: 2 }), {
+            id: latestChatId,
+            title: "Latest",
+          }),
+        // Empty folder: index exists with no chat entries.
+        "search-results/empty-folder/chats/index.json":
+          JSON.stringify({ version: 1, chats: [] }),
+      },
+    });
+
+    const folders = await listResearchFolders();
+
+    expect(folders).toEqual([
+      {
+        name: folderName,
+        updatedAt: "2026-06-08T11:00:00.000Z",
+      },
+      {
+        name: "empty-folder",
+        updatedAt: null,
+      },
+    ]);
+
+    // Fast-path proof: the index file was read once per folder, and the
+    // transcript files were NOT opened (the old path scanned them via
+    // listResearchChats only when no index was present; with an index, the
+    // old path still Zod-parsed + sorted every entry, but never opened
+    // transcripts either — so this assertion guards against regressions
+    // that drop the index fast path entirely).
+    expect(fsMocks.readTextFile).toHaveBeenCalledWith(
+      `search-results/${folderName}/chats/index.json`,
+    );
+    expect(fsMocks.readTextFile).toHaveBeenCalledWith(
+      "search-results/empty-folder/chats/index.json",
+    );
+    expect(fsMocks.readTextFile).not.toHaveBeenCalledWith(
+      `search-results/${folderName}/chats/${olderChatId}.json`,
+    );
+    expect(fsMocks.readTextFile).not.toHaveBeenCalledWith(
+      `search-results/${folderName}/chats/${latestChatId}.json`,
+    );
+  });
+
+  it("listResearchFolders falls back to listResearchChats when the index is corrupt", async () => {
+    // Correctness invariant: a corrupt or wrong-version index must not
+    // change folder sort order. The fast path falls through to the full
+    // listResearchChats() scan when tryParseJson or version check fails.
+    const messages = generateLargeConversation({ researchSteps: 1 });
+
+    mockAppStorage({
+      directories: {
+        "search-results": [directoryEntry(folderName)],
+        [`search-results/${folderName}`]: [directoryEntry("chats")],
+        [`search-results/${folderName}/chats`]: [
+          fileEntry("index.json"),
+          fileEntry(`${chatId}.json`),
+        ],
+      },
+      files: {
+        // Garbage in index.json — fast path must reject and fall back.
+        [`search-results/${folderName}/chats/index.json`]:
+          "this is not json {",
+        [`search-results/${folderName}/chats/${chatId}.json`]:
+          serializedForm(messages),
+      },
+    });
+
+    const folders = await listResearchFolders();
+    expect(folders).toEqual([
+      {
+        name: folderName,
+        updatedAt: "2026-06-08T11:00:00.000Z",
+      },
+    ]);
   });
 });
 

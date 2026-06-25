@@ -15,7 +15,6 @@ const EVAL_RECV_TIMEOUT_SECS: u64 = 5;
 const FETCH_TIMEOUT_SECS: u64 = 10;
 const MAX_FETCH_REDIRECTS: usize = 5;
 const MAX_HTML_BYTES: usize = 5 * 1024 * 1024;
-const MAX_JSON_BYTES: usize = 1024 * 1024;
 
 struct SidecarState {
     pid: Mutex<Option<u32>>,
@@ -128,7 +127,6 @@ async fn fetch_html(url: String) -> Result<Option<String>, String> {
     fetch_validated_text(
         &url,
         "text/html,application/xhtml+xml",
-        ContentKind::Html,
         MAX_HTML_BYTES,
     )
     .await
@@ -142,36 +140,6 @@ async fn validate_external_url(raw: &str) -> Result<url::Url, String> {
 
     validate_url_components(&parsed)?;
     let _ = resolve_public_socket_addrs(&parsed).await?;
-
-    Ok(parsed)
-}
-
-#[tauri::command]
-async fn fetch_searxng_json(base_url: String, query: String) -> Result<Option<String>, String> {
-    let base = validate_service_base_url(&base_url)?;
-    let mut url = base
-        .join("/search")
-        .map_err(|e| format!("Invalid SearXNG search URL: {}", e))?;
-    url.query_pairs_mut()
-        .append_pair("q", query.trim())
-        .append_pair("format", "json");
-
-    fetch_configured_service_text(&url, "application/json", ContentKind::Json, MAX_JSON_BYTES).await
-}
-
-fn validate_service_base_url(raw: &str) -> Result<url::Url, String> {
-    let parsed: url::Url = raw
-        .trim()
-        .parse()
-        .map_err(|e: url::ParseError| format!("Invalid service URL: {}", e))?;
-
-    if parsed.scheme() != "https" && parsed.scheme() != "http" {
-        return Err("Only http or https service URLs are allowed.".to_string());
-    }
-
-    parsed
-        .host_str()
-        .ok_or_else(|| "Service URL must include a hostname.".to_string())?;
 
     Ok(parsed)
 }
@@ -287,16 +255,9 @@ fn is_blocked_ip(ip: IpAddr) -> bool {
     blocked_ip_nets().iter().any(|net| net.contains(&ip))
 }
 
-#[derive(Clone, Copy)]
-enum ContentKind {
-    Html,
-    Json,
-}
-
 async fn fetch_validated_text(
     raw_url: &str,
     accept: &'static str,
-    content_kind: ContentKind,
     max_bytes: usize,
 ) -> Result<Option<String>, String> {
     let mut current = validate_external_url(raw_url).await?;
@@ -326,7 +287,7 @@ async fn fetch_validated_text(
             .and_then(|value| value.to_str().ok())
             .unwrap_or("");
 
-        if !content_type_is_allowed(content_type, content_kind) {
+        if !content_type_is_allowed(content_type) {
             return Ok(None);
         }
 
@@ -375,75 +336,7 @@ async fn validated_redirect_url(base: &url::Url, location: &str) -> Result<url::
     Ok(next)
 }
 
-async fn fetch_configured_service_text(
-    initial_url: &url::Url,
-    accept: &'static str,
-    content_kind: ContentKind,
-    max_bytes: usize,
-) -> Result<Option<String>, String> {
-    let mut current = initial_url.clone();
-
-    for _ in 0..=MAX_FETCH_REDIRECTS {
-        let response = send_configured_service_get(&current, accept).await?;
-        let status = response.status();
-
-        if status.is_redirection() {
-            let Some(location) = response.headers().get(LOCATION) else {
-                return Ok(None);
-            };
-            let location = location
-                .to_str()
-                .map_err(|_| "Redirect location is not valid UTF-8.".to_string())?;
-            current = current
-                .join(location)
-                .map_err(|e| format!("Invalid redirect location: {}", e))?;
-            validate_service_base_url(current.as_str())?;
-            continue;
-        }
-
-        if !status.is_success() {
-            return Ok(None);
-        }
-
-        let content_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("");
-
-        if !content_type_is_allowed(content_type, content_kind) {
-            return Ok(None);
-        }
-
-        return read_limited_response(response, max_bytes).await.map(Some);
-    }
-
-    Err("Too many redirects while fetching service URL.".to_string())
-}
-
-async fn send_configured_service_get(
-    url: &url::Url,
-    accept: &'static str,
-) -> Result<reqwest::Response, String> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(FETCH_TIMEOUT_SECS))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-    client
-        .get(url.as_str())
-        .header(ACCEPT, accept)
-        .header(
-            USER_AGENT,
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        )
-        .send()
-        .await
-        .map_err(|e| format!("Service fetch failed: {}", e))
-}
-
-fn content_type_is_allowed(content_type: &str, content_kind: ContentKind) -> bool {
+fn content_type_is_allowed(content_type: &str) -> bool {
     let normalized = content_type
         .split(';')
         .next()
@@ -451,10 +344,7 @@ fn content_type_is_allowed(content_type: &str, content_kind: ContentKind) -> boo
         .trim()
         .to_ascii_lowercase();
 
-    match content_kind {
-        ContentKind::Html => matches!(normalized.as_str(), "text/html" | "application/xhtml+xml"),
-        ContentKind::Json => normalized == "application/json" || normalized.ends_with("+json"),
-    }
+    matches!(normalized.as_str(), "text/html" | "application/xhtml+xml")
 }
 
 async fn read_limited_response(
@@ -716,7 +606,6 @@ pub fn run() {
             close_tab,
             extract_content,
             fetch_html,
-            fetch_searxng_json,
             register_sidecar_pid,
             unregister_sidecar_pid,
             resolve_node_path,
@@ -820,14 +709,10 @@ mod tests {
     fn content_type_matching_is_strict() {
         assert!(content_type_is_allowed(
             "text/html; charset=utf-8",
-            ContentKind::Html
         ));
-        assert!(content_type_is_allowed(
-            "application/vnd.api+json",
-            ContentKind::Json
-        ));
-        assert!(!content_type_is_allowed("text/plain", ContentKind::Html));
-        assert!(!content_type_is_allowed("text/html", ContentKind::Json));
+        assert!(content_type_is_allowed("application/xhtml+xml"));
+        assert!(!content_type_is_allowed("text/plain"));
+        assert!(!content_type_is_allowed("application/json"));
     }
 
     #[test]

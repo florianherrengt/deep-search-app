@@ -31,17 +31,22 @@ export function createStore<T extends z.ZodObject<any>>(
 
   async function get(): Promise<z.infer<T>> {
     const store = await loadStoreInstance();
-    const result = { ...defaults };
+    // Single IPC round-trip that returns every key/value pair, instead of
+    // one get() per key. For the 27-key settings schema this collapses
+    // 28 sequential IPC round-trips (load + 27 gets) into 2 (load + entries).
+    const all = await store.entries();
+    const valueMap: Record<string, unknown> = {};
+    for (const [key, raw] of all) valueMap[key] = raw;
 
+    const result = { ...defaults };
     for (const key of keys) {
-      const raw = await store.get<z.infer<T>[typeof key]>(key as string);
-      if (raw !== null && raw !== undefined) {
-        try {
-          const fieldSchema = shape[key as string];
-          result[key] = fieldSchema.parse(raw);
-        } catch {
-          result[key] = defaults[key];
-        }
+      const raw = valueMap[key as string];
+      if (raw === null || raw === undefined) continue;
+      try {
+        const fieldSchema = shape[key as string];
+        result[key] = fieldSchema.parse(raw);
+      } catch {
+        result[key] = defaults[key];
       }
     }
 
@@ -62,6 +67,9 @@ export function createStore<T extends z.ZodObject<any>>(
 
   async function reset(): Promise<void> {
     const store = await loadStoreInstance();
+    // clear() is a single IPC round-trip; then we write the defaults back
+    // and save once. Avoids one delete()/set() round-trip per key.
+    await store.clear();
     for (const key of keys) {
       await store.set(key as string, defaults[key]);
     }

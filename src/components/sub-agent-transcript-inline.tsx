@@ -1,11 +1,41 @@
 import { Box, Collapse, Text, UnstyledButton } from "@mantine/core";
 import { ChevronDownIcon } from "lucide-react";
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useState, type CSSProperties } from "react";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { MarkdownContent } from "@/components/assistant-ui/markdown-text";
 import type { SubAgentReport } from "@/lib/sub-agent-report";
 import type { SubAgentRun, SubAgentStatus } from "@/lib/sub-agent-types";
 import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
+
+// Hoisted: this component re-renders on every sub-agent text delta. Inline
+// style objects would be re-allocated per token; module-level constants have
+// stable identity so React's style diff short-circuits.
+const CONTAINER_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+};
+const BODY_STYLE: CSSProperties = {
+  overflowX: "auto",
+  fontSize: 13,
+  lineHeight: 1.55,
+};
+const STREAMING_PRE_STYLE: CSSProperties = {
+  margin: 0,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  fontFamily: "inherit",
+};
+const TOOL_CALLS_LIST_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 6,
+};
+const TOOL_CALLS_BUTTON_STYLE: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 4,
+};
 
 export interface SubAgentTranscriptInlineProps {
   text: string;
@@ -29,18 +59,13 @@ export function SubAgentTranscriptInline({
   const isCancelled = status === "cancelled";
 
   return (
-    <Box style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <Box style={CONTAINER_STYLE}>
       {hasContent ? (
-        <Box style={{ overflowX: "auto", fontSize: 13, lineHeight: 1.55 }}>
+        <Box style={BODY_STYLE}>
           {isActive ? (
             <Box
               component="pre"
-              style={{
-                margin: 0,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                fontFamily: "inherit",
-              }}
+              style={STREAMING_PRE_STYLE}
             >
               {deferredText}
             </Box>
@@ -85,7 +110,7 @@ function SubAgentToolCallsInline({
     <Box>
       <UnstyledButton
         onClick={() => setOpened(!opened)}
-        style={{ display: "flex", alignItems: "center", gap: 4 }}
+        style={TOOL_CALLS_BUTTON_STYLE}
       >
         <ChevronDownIcon
           size={12}
@@ -101,7 +126,7 @@ function SubAgentToolCallsInline({
       <Collapse in={opened}>
         <Box
           mt={4}
-          style={{ display: "flex", flexDirection: "column", gap: 6 }}
+          style={TOOL_CALLS_LIST_STYLE}
         >
           {toolCalls.map((toolCall, index) => (
             <ToolFallback

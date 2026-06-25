@@ -26,6 +26,8 @@ vi.mock("@/lib/tauri-bridge", () => ({
     get: vi.fn().mockResolvedValue(null),
     set: vi.fn(),
     save: vi.fn(),
+    entries: vi.fn().mockResolvedValue([]),
+    clear: vi.fn(),
   }),
 }));
 

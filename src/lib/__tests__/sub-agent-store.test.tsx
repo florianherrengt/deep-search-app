@@ -706,6 +706,40 @@ describe("SubAgentStore processEvent", () => {
     expect(runs[0].toolCalls[1].toolCallId).toBe("tc-2");
   });
 
+  it("deduplicates events even when emitter assigns unique sequence numbers", () => {
+    // Regression: emitSubAgentEvent stamps every event with a globally unique
+    // sequence number. The fingerprint must NOT use that sequence — otherwise
+    // duplicate deliveries (e.g. via a stale direct handler) bypass dedup.
+    const { result } = renderHook(() => useSubAgentStore(), { wrapper });
+
+    const seq = (n: number) => ({ sequence: n });
+
+    act(() => {
+      result.current.processEvent(chatId, { ...startEvent("sa-seq"), ...seq(1) });
+      result.current.processEvent(chatId, {
+        ...{
+          type: "tool-call",
+          id: "sa-seq",
+          toolCall: { toolCallId: "tc-1", toolName: "list_files", args: {}, status: "running" },
+        },
+        ...seq(2),
+      });
+      // Same logical event, different sequence number — must still dedup.
+      result.current.processEvent(chatId, {
+        ...{
+          type: "tool-call",
+          id: "sa-seq",
+          toolCall: { toolCallId: "tc-1", toolName: "list_files", args: {}, status: "running" },
+        },
+        ...seq(3),
+      });
+    });
+
+    const runs = result.current.getRuns(chatId);
+    expect(runs[0].toolCalls).toHaveLength(1);
+    expect(runs[0].toolCalls[0].toolCallId).toBe("tc-1");
+  });
+
   it("does not crash on tool-call event with missing toolCall property", () => {
     const { result } = renderHook(() => useSubAgentStore(), { wrapper });
 

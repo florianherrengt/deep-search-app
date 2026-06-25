@@ -2,6 +2,7 @@ import {
   createContext,
   memo,
   useEffect,
+  useMemo,
   type ReactNode,
 } from "react";
 import { Select as MantineSelect } from "@mantine/core";
@@ -78,6 +79,29 @@ const ModelSelectorImpl = ({
   });
   const api = useAui();
 
+  // Memoized: avoid re-running formatContextWindowTokens + string concat for
+  // every model on every render. Only recomputes when the models array
+  // reference changes (which happens on settings updates, not per token).
+  const selectData = useMemo(
+    () => [
+      ...models.map((model) => {
+        const contextWindowLabel = formatContextWindowTokens(model.contextWindowTokens);
+        const metadata = [model.description, contextWindowLabel].filter(Boolean).join(" - ");
+        return {
+          value: model.id,
+          label: metadata ? `${model.name} — ${metadata}` : model.name,
+          disabled: model.disabled,
+        };
+      }),
+      {
+        value: CONFIGURE_VALUE,
+        label: "Configure providers...",
+        disabled: false,
+      },
+    ],
+    [models],
+  );
+
   useEffect(() => {
     const context = { config: { modelName: value } };
     return api.modelContext().register({
@@ -95,22 +119,7 @@ const ModelSelectorImpl = ({
         }
         if (v) setValue(v);
       }}
-      data={[
-        ...models.map((model) => {
-          const contextWindowLabel = formatContextWindowTokens(model.contextWindowTokens);
-          const metadata = [model.description, contextWindowLabel].filter(Boolean).join(" - ");
-          return {
-            value: model.id,
-            label: metadata ? `${model.name} — ${metadata}` : model.name,
-            disabled: model.disabled,
-          };
-        }),
-        {
-          value: CONFIGURE_VALUE,
-          label: "Configure providers...",
-          disabled: false,
-        },
-      ]}
+      data={selectData}
       size={size === "sm" ? "xs" : "sm"}
       variant={variant === "ghost" ? "unstyled" : "default"}
       allowDeselect={false}

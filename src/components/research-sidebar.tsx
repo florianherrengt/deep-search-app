@@ -210,9 +210,21 @@ export function ResearchSidebar({
   }
 
   async function handleRevealInFinder(folderName: string) {
-    const dir = await appDataDir();
-    const folderPath = await join(dir, "search-results", folderName);
-    await openPath(folderPath);
+    try {
+      const dir = await appDataDir();
+      const folderPath = await join(dir, "search-results", folderName);
+      await openPath(folderPath);
+    } catch (error) {
+      // Reveal-in-Finder is invoked from a context menu and the result is
+      // discarded with `void` at the call site — without this catch, any
+      // rejection becomes an unhandled promise rejection that the user never
+      // sees. Log enough context to diagnose (which folder, which step).
+      const step = error instanceof Error ? error.message : String(error);
+      console.error(
+        "[research-sidebar] Failed to reveal research folder in Finder",
+        { folderName, error: step },
+      );
+    }
   }
 
   const matchedFolders = searchResults ?? [];
@@ -630,6 +642,16 @@ function ResearchStatusIndicator({
   return null;
 }
 
+// Hoisted singleton — constructing Intl.DateTimeFormat is ~30μs per call
+// (locale + ICU data load), versus ~1μs to reuse one. For a folder with N
+// chats this is called N times per render of ResearchChatList.
+const CHAT_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 function formatChatTimestamp(value: string | null) {
   if (!value) {
     return "Legacy chat";
@@ -640,12 +662,7 @@ function formatChatTimestamp(value: string | null) {
     return "Saved chat";
   }
 
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
+  return CHAT_TIMESTAMP_FORMATTER.format(date);
 }
 
 type ContextMenuState = {

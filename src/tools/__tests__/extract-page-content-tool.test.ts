@@ -17,8 +17,8 @@ import { fetch as bridgeFetch, invoke, isTauri } from "@/lib/tauri-bridge";
 import {
   extractPageContent,
   fetchHtml,
-  sanitizeHtml,
 } from "../extract-page-content-tool";
+import { sanitizeHtml } from "deep-search-core/search-extract";
 import { getAvailableTools } from "@/lib/execute-tool";
 import type { ChatModelConfig } from "@/lib/chat-providers";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";

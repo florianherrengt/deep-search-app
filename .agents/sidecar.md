@@ -1,377 +1,168 @@
-# Node Sidecar Workflow
+# chrome-devtools-mcp Sidecar Workflow
 
-Use this file for work involving the Node.js sidecar, local runtime behaviour, sidecar communication, packaging, process lifecycle, and integration with Tauri/frontend code.
+Use this file for work involving the **chrome-devtools-mcp** sidecar: spawning it,
+talking to it over stdio, Node resolution, connection modes, lifecycle, and the
+Tauri shell-scope/security boundaries around it.
 
-## Scope
+## What the sidecar is
 
-This workflow applies when changing:
+The only sidecar in this app is **chrome-devtools-mcp**, an MCP server bundled as
+a JS resource and run with the **host's Node**. There is no separate Node runtime,
+no bundled Node binary, and no custom request/response API — the sidecar speaks
+[MCP](https://modelcontextprotocol.io) JSON-RPC over stdio.
 
-- Node sidecar source code
-- Sidecar startup or shutdown behaviour
-- Sidecar request/response APIs
-- Frontend or Tauri code that calls the sidecar
-- Local filesystem/runtime tasks handled by the sidecar
-- Sidecar packaging or bundled binaries
-- Sidecar logging, errors, timeouts, cancellation, or health checks
-- App flows that depend on the sidecar being available
+It is used as a `WebExtractionBackend` option (`"chrome-mcp"` vs `"tauri-webview"`,
+see `src/lib/settings-store.ts`) and exposes Chrome DevTools tools to the model.
+It is intentionally a **last-resort** tool (see `describeMcpTool` in
+`chrome-devtools-tools.ts`); ordinary research uses the internal webview/extraction
+path.
 
-## Core Rule
-
-The sidecar is part of the local desktop runtime.
-
-Do not replace sidecar behaviour with a hosted service unless explicitly requested.
-
-Keep the sidecar boundary clear:
-
-```text id="s82m6r"
+```text
 React frontend
-  -> Tauri command/client boundary
-  -> Node sidecar
-  -> local runtime work
+  -> tauri-plugin-shell (scoped "system-node" alias)
+  -> host `node chrome-devtools-mcp.js`
+  -> attaches to an already-running Chrome over CDP
 ```
 
-Do not blur responsibilities by duplicating sidecar logic in the frontend or pushing UI concerns into the sidecar.
+## Core rules
 
-## Responsibilities
+- **Do not replace the sidecar with a hosted service** unless explicitly requested.
+- **chrome-devtools-mcp attaches to an existing Chrome.** Both connection modes
+  (`--auto-connect`, `--browser-url`) connect to a browser that is already running.
+  It never spawns its own Chrome, so there is no child process tree to clean up —
+  the single-PID kill on app exit is sufficient and correct.
+- **`resolve_node_path` must stay in Rust.** It runs an arbitrary user-supplied
+  Node path and probes login shells. The Tauri shell scope uses a fixed `cmd`
+  string and deliberately forbids wildcards (tauri-apps/tauri#5910), so this
+  discovery cannot move to the renderer without a functionality regression
+  (losing the user override) or a security regression (wildcard scope).
+- **Keep the boundary clear.** Do not duplicate sidecar/MCP logic in the frontend,
+  and do not push UI concerns into the sidecar.
 
-The sidecar may handle local runtime work that is awkward, unsafe, or impractical in the browser/frontend.
+## Where things live
 
-Good sidecar responsibilities:
+```text
+src/lib/mcp/
+  chrome-devtools-sidecar.ts   # Entrypoint resolution, Node env, connection args,
+                               # Command creation. REQUIRED_NODE_RANGE +
+                               # parseNodeVersion/checkNodeVersion (TS re-check).
+  chrome-devtools-tools.ts     # MCP Client, tool discovery, ToolSet wiring,
+                               # lazy lifecycle, reconnect-on-config-change.
+  tauri-stdio-transport.ts     # TauriStdioTransport: MCP over stdio, PID
+                               # register/unregister, stderr tail + crash logging.
 
-- Local process orchestration
-- Local filesystem-heavy operations
-- Long-running local jobs
-- Local tool execution
-- Runtime tasks needing Node APIs
-- Streaming local task output
-- Normalising local runtime responses
-- Isolating platform-specific behaviour
+src/lib/tauri-bridge.ts        # resolveNodePath, createSystemCommand,
+                               # registerSidecarPid/unregisterSidecarPid,
+                               # SidecarCommand / SidecarChild types.
 
-Avoid putting these in the sidecar:
+src/lib/settings-store.ts      # chromeMcpConnectionModeSchema (auto|browser-url),
+                               # webExtractionBackendSchema (tauri-webview|chrome-mcp).
 
-- React state management
-- UI formatting
-- Mantine/component concerns
-- User-facing copy decisions
-- Provider settings UI
-- Logic that already works cleanly in Tauri Rust
-- Logic that belongs in shared TypeScript domain modules
-
-## Before Editing
-
-Inspect the existing sidecar structure first.
-
-Check:
-
-- Where sidecar source lives
-- How it is built
-- How it is launched
-- How requests are sent
-- How responses are encoded
-- How errors are represented
-- How logs are collected
-- How paths are resolved
-- How shutdown is handled
-- How packaging includes the sidecar
-
-Do not assume the sidecar path or command. Verify from the repo.
-
-Likely places to inspect:
-
-```text id="u9qdd4"
-package.json
-src-tauri/tauri.conf.json
-src-tauri/capabilities/
-src-tauri/src/
-src/lib/
-src/sidecar/
-sidecar/
-node-sidecar/
+src-tauri/src/lib.rs           # resolve_node_path command, SidecarState PID,
+                               # RunEvent::Exit kill (SIGTERM unix / taskkill windows).
+src-tauri/capabilities/default.json  # shell scope: "system-node" alias + arg validators.
+src-tauri/tauri.conf.json      # resources: node_modules/chrome-devtools-mcp -> mcp/...
 ```
 
-## Interface Contract
+## Spawning and Node resolution
 
-Treat the sidecar interface as a real API boundary.
+1. `createChromeDevToolsMcpCommand` (`chrome-devtools-sidecar.ts`) calls
+   `getNodeEnvironment(nodePath)`, which calls Rust `resolve_node_path`.
+2. Rust (`lib.rs:resolve_node_path`) probes, in order: a user override path,
+   the login shell (`/bin/zsh -lic "command -v node"`, then `/bin/bash -lc`),
+   then common install locations (`/opt/homebrew/bin/node`, `/usr/local/bin/node`,
+   `Program Files\nodejs`, …). Each candidate is validated by running
+   `<node> --version` and checking `^20.19.0 || ^22.12.0 || >=23`.
+3. It returns `{ path, dir, version, env_path }`; `env_path` is a `PATH` that
+   makes a bare `node` resolve regardless of the GUI app's minimal PATH.
+4. The TS side re-checks the version (`checkNodeVersion`) defensively.
+5. The command is created via `createSystemCommand("system-node",
+   [entrypoint, ...connectionArgs], { env: { PATH: envPath } })`.
 
-For each sidecar call, understand:
+**Required Node range is duplicated in Rust and TS on purpose.** If you change it,
+update both: `REQUIRED_NODE_RANGE` in `chrome-devtools-sidecar.ts` and
+`lib.rs` (`REQUIRED_NODE_RANGE` + `node_version_satisfies`).
 
-- Request schema
-- Response schema
-- Error schema
-- Timeout behaviour
-- Cancellation behaviour
-- Streaming behaviour, if any
-- File/path handling
-- Whether the operation is idempotent
-- Whether the operation can run concurrently
+## Connection modes
 
-Use Zod or existing validation patterns at the boundary when practical.
+`resolveChromeDevToolsConnectionArgs` (`chrome-devtools-sidecar.ts`) emits exactly
+one flag:
 
-Do not trust raw sidecar responses without validation.
+- `"auto"` (default) → `--auto-connect`. Attaches to a Chrome whose remote
+  debugging was enabled from `chrome://inspect/#remote-debugging` (Chrome 144+),
+  discovered via the default profile's `DevToolsActivePort` file. Ignores any
+  browser URL.
+- `"browser-url"` → `--browser-url=<url>`. Connects over CDP to an already
+  debuggable instance (e.g. Chrome started with `--remote-debugging-port=9222`).
+  Requires a configured, valid browser URL.
 
-## Request/Response Rules
+If you add a mode or change the flag format, **update the arg validators** in
+`src-tauri/capabilities/default.json` (`shell:allow-spawn`, `shell:allow-stdin-write`,
+`shell:allow-kill`) — args are regex-checked and a mismatch silently blocks spawn.
 
-Sidecar calls should have predictable behaviour.
+## Lifecycle
 
-Good calls:
+- **Lazy start.** The client and ToolSet are created on first use and cached
+  (`clientPromise`/`toolsPromise` in `chrome-devtools-tools.ts`). MCP request
+  timeout is 30s (`MCP_REQUEST_TIMEOUT_MS`).
+- **Reconnect on config change.** A `connectionKey` (mode + browserUrl + nodePath)
+  is tracked; changing it triggers `shutdownChromeDevToolsMcp()` before re-spawn.
+- **PID tracking.** On spawn, `TauriStdioTransport` registers the PID via the
+  `register_sidecar_pid` Rust command; it unregisters on close/exit. Rust stores
+  it in `SidecarState`.
+- **Exit cleanup.** In `RunEvent::Exit`, Rust SIGTERMs (unix) / taskkills
+  (windows) the registered PID. This is the one lifecycle piece that must run in
+  Rust — the renderer is torn down before exit, so JS cannot reliably clean up.
+- **beforeunload** also calls `shutdownChromeDevToolsMcp()` for normal closes.
+- **Crash logging.** `TauriStdioTransport` keeps an 8KB stderr tail and, on
+  unexpected exit, writes it to `<appData>/sidecar-logs/sidecar-stderr-<ts>.log`.
 
-- Use explicit operation names
-- Have typed request payloads
-- Return typed response payloads
-- Return structured errors
-- Preserve useful diagnostic detail
-- Avoid leaking internal stack traces to the UI
-- Support cancellation for long-running work where practical
-- Avoid ambiguous `success: false` responses without a reason
+A sidecar-dependent feature must have a clear unavailable/error state. Do not let
+the UI hang waiting for it.
 
-Avoid:
+## Interface contract
 
-- Stringly typed ad-hoc commands
-- Unstructured JSON blobs
-- Silent failure
-- Swallowing stderr/stdout
-- Returning UI-ready prose from the sidecar
-- Mixing multiple unrelated operations in one endpoint
+The boundary is MCP JSON-RPC over stdio, wrapped by `@modelcontextprotocol/sdk`.
 
-## Process Lifecycle
+- Tool input schemas are normalized (`normalizeInputSchema`) and exposed as AI SDK
+  tools with `source: "chrome-devtools-mcp"` metadata.
+- Tool results are normalized (`normalizeToolCallResult`); on error the current
+  stderr tail is appended to the message to aid debugging.
+- Do not trust raw MCP output — keep the existing normalization/validation.
 
-When touching sidecar lifecycle, check:
+## Security
 
-- How the sidecar starts
-- Whether startup is lazy or eager
-- How readiness is detected
-- What happens if startup fails
-- What happens if the sidecar crashes
-- Whether restarts are supported
-- How shutdown happens when the app exits
-- Whether child processes are cleaned up
-- Whether multiple sidecar instances can be started accidentally
-- Whether ports, sockets, or handles can collide
-
-A sidecar-dependent feature should have a clear unavailable/error state.
-
-Do not let the UI hang forever waiting for the sidecar.
-
-## Paths and Filesystem
-
-Be careful with paths.
-
-Check:
-
-- App data directory
-- Temporary directory
-- User-selected paths
-- Bundled resource paths
-- Development vs production paths
-- macOS/Linux/Windows path differences
-- Spaces and special characters
-- Relative path assumptions
-- Symlink behaviour where relevant
-
-Do not hardcode development paths.
-
-Do not assume the current working directory is stable.
-
-Prefer explicit paths passed from Tauri/app configuration.
-
-## Security Rules
-
-The sidecar runs locally and may have more power than the frontend.
-
-Be conservative.
-
-Check for:
-
-- Command injection
-- Unsafe shell interpolation
-- Arbitrary file reads
-- Arbitrary file writes
-- Path traversal
-- Leaking API keys into logs
-- Leaking local paths into user-visible errors unnecessarily
-- Executing untrusted input
-- Over-broad filesystem access
-- Network calls that bypass Tauri policy expectations
-
-Prefer `spawn`/argument arrays over shell strings.
-
-Validate all user-controlled inputs before they reach process execution or filesystem operations.
-
-Never log secrets.
-
-## Concurrency
-
-For sidecar jobs, check whether multiple requests can run at once.
-
-Consider:
-
-- Shared mutable state
-- File write conflicts
-- Temp directory collisions
-- Duplicate job starts
-- Cancellation races
-- Shutdown during active work
-- Streaming output from concurrent jobs
-- Resource exhaustion
-
-If adding long-running jobs, consider job IDs and explicit lifecycle state.
-
-## Errors and Logging
-
-Sidecar errors should be useful to developers and safe for users.
-
-Good error shape:
-
-```ts id="xxo5qg"
-type SidecarError = {
-  code: string;
-  message: string;
-  details?: unknown;
-};
-```
-
-UI-facing messages should be clear but not overly internal.
-
-Developer logs may include more detail, but must not include secrets.
-
-When changing errors, check:
-
-- Frontend display behaviour
-- Tests expecting error codes/messages
-- Retry behaviour
-- Whether logs include enough debugging context
-- Whether sensitive details are excluded
-
-## Streaming and Long-Running Tasks
-
-For streaming sidecar work, check:
-
-- Start event
-- Progress events
-- Output events
-- Error event
-- Completion event
-- Cancellation event
-- Cleanup after completion
-- Cleanup after cancellation
-- Backpressure or large output handling
-
-Do not buffer unlimited output in memory.
-
-Do not make the frontend infer completion from silence.
-
-## Integration With Tauri
-
-When sidecar changes affect Tauri integration, inspect:
-
-```text id="ky5h4p"
-src-tauri/tauri.conf.json
-src-tauri/capabilities/default.json
-src-tauri/src/
-```
-
-Check whether the change affects:
-
-- Bundled sidecar configuration
-- Permissions/capabilities
-- Resource paths
-- App startup
-- Native commands
-- Development vs production behaviour
-- Platform packaging
-
-If external domains are added, update both CSP and capabilities as described in root `AGENTS.md`.
+- The shell scope is the primary guard. The renderer can only spawn the scoped
+  `system-node` alias with regex-validated args. Do **not** loosen it to allow
+  arbitrary binaries.
+- Never log secrets. Stderr is tailed and may be written to disk.
+- `resolve_node_path` executing a user-supplied path is intentional and validated
+  (existence + version range); do not remove that validation.
+- If a new external domain is needed, update both Tauri CSP
+  (`src-tauri/tauri.conf.json`) and capabilities per root `AGENTS.md`.
 
 ## Testing
 
-Use `.agents/testing.md` for full testing strategy.
+See `.agents/testing.md` for the full strategy. Verify the narrowest layer first:
 
-For sidecar changes, verify the narrowest useful layer first:
+1. Unit tests — `src/lib/mcp/__tests__/chrome-devtools-sidecar.test.ts` (command
+   building, connection args) and the Rust unit tests in `lib.rs`
+   (`node_version_parser_and_range`, content-type, IP blocking).
+2. Build/typecheck (`npm run build`).
+3. Targeted E2E **only** if real runtime startup/desktop integration changed —
+   delegate it to a subagent; never run E2E in the main agent context.
 
-1. Pure function/unit tests
-2. Sidecar API/client contract tests
-3. Frontend/Tauri caller tests
-4. Build/typecheck
-5. Targeted E2E only if real app runtime is involved
+Sidecar-specific cases to cover: Node not found / wrong version, startup failure,
+crash mid-call, config-change reconnect, missing browser URL for `browser-url`
+mode.
 
-Check sidecar-specific cases:
-
-- Sidecar unavailable
-- Sidecar startup failure
-- Sidecar crash mid-request
-- Invalid request
-- Invalid response
-- Timeout
-- Cancellation
-- Large output
-- Missing files
-- Permission denied
-- Platform path differences
-
-If the change affects real runtime startup or desktop integration, delegate targeted E2E to a subagent.
-
-Do not run E2E directly in the main agent context.
-
-## Subagent Usage
-
-Use subagents for broad sidecar discovery and expensive verification.
-
-Delegate:
-
-- Finding all sidecar callers
-- Inspecting packaging configuration
-- Searching for lifecycle handling
-- Searching for path assumptions
-- Checking process-spawn usage
-- Checking security-sensitive command execution
-- Running sidecar-related tests
-- Running targeted E2E
-- Comparing dev vs production config
-
-Subagent report format:
-
-```text id="t04985"
-Scope checked:
-Files inspected:
-Commands run:
-Findings:
-Risks:
-Recommended next step:
-```
-
-The main agent owns final implementation and risk judgment.
-
-## Common Change Checklist
-
-When changing sidecar behaviour, check:
-
-- Does the request/response contract change?
-- Are all callers updated?
-- Are types updated?
-- Is runtime validation updated?
-- Are errors still structured?
-- Is cancellation still correct?
-- Are logs useful and safe?
-- Are secrets excluded from logs?
-- Does the change work in dev and production?
-- Does packaging still include the sidecar?
-- Are platform-specific paths handled?
-- Are tests updated?
-- Is E2E needed?
-
-## Done Criteria
+## Done criteria
 
 Sidecar work is done when:
 
-- The sidecar change is implemented
-- The sidecar boundary remains clear
-- Request/response types are updated
-- Runtime validation is updated where useful
-- Errors are structured and safe
-- Startup, crash, timeout, and unavailable states are considered
-- Paths work in dev and production
-- Packaging impact was checked
-- Security-sensitive inputs were validated
-- Relevant tests passed
-- Targeted E2E was delegated if real runtime behaviour changed
-- The final summary says what changed, what was verified, and what risk remains
+- The change is implemented and the Rust↔TS contract stays consistent.
+- Connection-mode/arg changes are reflected in `capabilities/default.json`.
+- Required-Node-range changes are mirrored in Rust and TS.
+- Lifecycle (lazy start, reconnect, exit kill) still holds.
+- Relevant unit tests pass; E2E delegated if real runtime behaviour changed.
+- The final summary states what changed, what was verified, and remaining risk.

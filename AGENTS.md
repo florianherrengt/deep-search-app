@@ -6,7 +6,7 @@ Deep Search is a Tauri v2 desktop app for AI-powered research.
 
 - Frontend: React, TypeScript, Vite, Mantine
 - Backend: Tauri v2 Rust commands
-- Runtime sidecar: Node.js sidecar for local runtime tasks
+- Sidecar: chrome-devtools-mcp spawned via tauri-plugin-shell using the host's Node (resolved by the Rust `resolve_node_path` command). No bundled Node runtime.
 - No separate hosted server
 - LLM calls are made from the frontend through Vercel AI SDK provider packages
 
@@ -43,17 +43,16 @@ There is no dedicated lint command.
 src/
   lib/                         # Core frontend logic
     transport/                 # Chat transport, tool registry, guardrails
+    mcp/                       # chrome-devtools-mcp sidecar: stdio transport,
+                               # node resolution, MCP tool bindings
     system-prompt.md           # Imported as raw prompt text
   tools/                       # AI tool definitions
   components/                  # React UI components
-  sidecar/                     # Node sidecar client/integration code, if present
 
 src-tauri/
   src/
     lib.rs                     # Tauri commands
-    research_search/           # SQLite/sqlite-vec search, chunking, embeddings
-
-sidecar/ or node-sidecar/      # Node.js sidecar runtime, if present
+    main.rs                    # Entry point
 
 e2e-tests/                     # WebdriverIO e2e package
 
@@ -72,7 +71,7 @@ e2e-tests/                     # WebdriverIO e2e package
 - Guarded streaming is applied in `src/lib/transport/guarded-stream.ts`
 - Markdown prompts are imported with `?raw`
 - Zod v4 is used for validation
-- The Node sidecar is part of the local runtime; do not replace it with a hosted service unless explicitly requested
+- The chrome-devtools-mcp sidecar runs in-process via the host's Node; do not replace it with a hosted service unless explicitly requested
 
 ## External API Domains
 
@@ -111,7 +110,7 @@ Use subagents for:
 - Config and environment inspection
 - Security-sensitive path discovery
 - Rust/Tauri impact checks
-- Node sidecar impact checks
+- chrome-devtools-mcp sidecar impact checks
 - Expensive test runs
 - Large command output collection
 
@@ -235,7 +234,7 @@ Load the relevant file from `.agents/` when the task matches:
 
 - `.agents/ui.md` — Mantine, Storybook, screenshots, visual QA
 - `.agents/testing.md` — unit, Rust, e2e, verification strategy
-- `.agents/sidecar.md` — Node sidecar architecture, commands, boundaries
+- `.agents/sidecar.md` — chrome-devtools-mcp sidecar: spawning, Node resolution, connection modes, lifecycle, shell-scope/security boundaries
 - `.agents/research.md` — AI tools, search providers, extraction, research flow
 
 Do not load every workflow by default. Load only what is relevant to the task.

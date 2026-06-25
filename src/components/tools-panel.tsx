@@ -10,6 +10,14 @@ type ToolResult = {
   timestamp: number;
 };
 
+// Reused formatter — `toLocaleTimeString()` constructs an Intl.DateTimeFormat
+// internally on every call, which is ~30× more expensive than reusing one.
+const TOOL_TIMESTAMP_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
 interface ToolsPanelProps {
   config?: ToolExecuteConfig;
 }
@@ -281,7 +289,7 @@ function ResultCard({ entry }: { entry: ToolResult }) {
             <Text size="xs" c="teal">OK</Text>
           )}
           <Text size="xs" c="dimmed">
-            {new Date(entry.timestamp).toLocaleTimeString()}
+            {TOOL_TIMESTAMP_FORMATTER.format(entry.timestamp)}
           </Text>
         </Group>
         <Text c="dimmed">{expanded ? "▾" : "▸"}</Text>

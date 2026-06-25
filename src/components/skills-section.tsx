@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { PencilIcon, TrashIcon, PlusIcon, XIcon, CheckIcon } from "lucide-react";
 import { Button, TextInput, Textarea, Box, Text, Group, Paper, Stack, ScrollArea, ActionIcon } from "@mantine/core";
 import { useForm } from "@mantine/form";
@@ -82,7 +82,12 @@ export function SkillsSection() {
     [deleteSkill, editing, cancelEdit],
   );
 
-  const previewSlug = slugifySkillTitle(form.values.title);
+  // Memoized: slugify pulls in a regex-heavy npm package. Without useMemo it
+  // runs on every keystroke in the title field (form re-renders per char).
+  const previewSlug = useMemo(
+    () => slugifySkillTitle(form.values.title),
+    [form.values.title],
+  );
 
   return (
     <Box className="md-flex-col">

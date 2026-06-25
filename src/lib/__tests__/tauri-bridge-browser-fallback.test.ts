@@ -66,4 +66,48 @@ describe("tauri bridge browser fallback", () => {
       { name: "topic-a", isDirectory: true, isFile: false },
     ]);
   });
+
+  it("concurrent set+save calls on the same store do not lose writes", async () => {
+    // Regression: each loadStore() call used to snapshot localStorage into a
+    // private `state` object. Two concurrent set/save sequences captured the
+    // same snapshot, so the second save overwrote the first key.
+    const { loadStore } = await import("@/lib/tauri-bridge");
+
+    const store = await loadStore("concurrent.json", {
+      autoSave: false,
+      defaults: {},
+    });
+
+    // Interleave: both set+await save in parallel.
+    await Promise.all([
+      store.set("a", "1").then(() => store.save()),
+      store.set("b", "2").then(() => store.save()),
+    ]);
+
+    const reloaded = await loadStore("concurrent.json", {
+      autoSave: false,
+      defaults: {},
+    });
+    await expect(reloaded.get("a")).resolves.toBe("1");
+    await expect(reloaded.get("b")).resolves.toBe("2");
+  });
+
+  it("concurrent set on separate loaded instances does not lose writes", async () => {
+    // Regression: two separate loadStore() calls (e.g. createStore.set called
+    // twice in quick succession) each used to snapshot localStorage and stomp
+    // each other on save.
+    const { loadStore } = await import("@/lib/tauri-bridge");
+
+    const storeA = await loadStore("double.json", { autoSave: false, defaults: {} });
+    const storeB = await loadStore("double.json", { autoSave: false, defaults: {} });
+
+    await Promise.all([
+      storeA.set("k1", "v1").then(() => storeA.save()),
+      storeB.set("k2", "v2").then(() => storeB.save()),
+    ]);
+
+    const reader = await loadStore("double.json", { autoSave: false, defaults: {} });
+    await expect(reader.get("k1")).resolves.toBe("v1");
+    await expect(reader.get("k2")).resolves.toBe("v2");
+  });
 });

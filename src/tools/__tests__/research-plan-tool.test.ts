@@ -234,4 +234,33 @@ describe("createResearchPlanTool", () => {
     );
     expect(completeCalls).toHaveLength(0);
   });
+
+  it("emits a cancelled event (not an error) when the abort signal fires", async () => {
+    // Regression: previously abort surfaced as `type: "error"` with
+    // errorText "Cancelled", which made the sub-agent sidebar show a red
+    // error for user-initiated cancellation.
+    const model = makeModel();
+    const abortError = new DOMException("aborted", "AbortError");
+    aiMocks.streamText.mockImplementationOnce(() => {
+      throw abortError;
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
+    await expect(
+      t.execute({ query: "What is AI?" }, { abortSignal: controller.signal }),
+    ).rejects.toBe(abortError);
+
+    const cancelledCalls = emitterMocks.emitSubAgentEvent.mock.calls.filter(
+      (c: any[]) => c[0]?.type === "cancelled",
+    );
+    expect(cancelledCalls).toHaveLength(1);
+
+    const errorCalls = emitterMocks.emitSubAgentEvent.mock.calls.filter(
+      (c: any[]) => c[0]?.type === "error",
+    );
+    expect(errorCalls).toHaveLength(0);
+  });
 });

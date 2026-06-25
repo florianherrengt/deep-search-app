@@ -1,5 +1,14 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "references": {
+    "core": {
+      "path": "../deep-search-core",
+      "description": "Shared deep-search-core package: research orchestration, search providers, and page extraction. Use for implementation details of deep-search-core APIs and types consumed by this app."
+    }
+  },
+  "permission": {
+    "edit": { "/Users/florian/projects/deep-search-core/**": "allow" }
+  },
   "mcp": {
     "mantine": {
       "type": "local",

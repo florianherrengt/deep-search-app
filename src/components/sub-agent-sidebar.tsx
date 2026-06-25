@@ -1,4 +1,4 @@
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Box, Collapse, ScrollArea, Text, UnstyledButton } from "@mantine/core";
 import { BotIcon, ChevronDownIcon, XIcon } from "lucide-react";
 import { SubAgentTranscriptInline } from "@/components/sub-agent-transcript-inline";
@@ -10,6 +10,29 @@ interface SubAgentSidebarProps {
   chatId: string;
   onClose: () => void;
 }
+
+const SIDEBAR_CONTAINER_STYLE: CSSProperties = {
+  width: 420,
+  flexShrink: 0,
+  display: "flex",
+  flexDirection: "column",
+  borderLeft: "1px solid var(--mantine-color-default-border)",
+  backgroundColor: "var(--mantine-color-body)",
+  overflow: "hidden",
+};
+const SIDEBAR_HEADER_STYLE: CSSProperties = {
+  padding: "12px 16px",
+  borderBottom: "1px solid var(--mantine-color-default-border)",
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexShrink: 0,
+};
+const RUNS_LIST_STYLE: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+};
 
 export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   useSubAgentRenderCounter("SubAgentSidebar");
@@ -58,27 +81,8 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   );
 
   return (
-    <Box
-      style={{
-        width: 420,
-        flexShrink: 0,
-        display: "flex",
-        flexDirection: "column",
-        borderLeft: "1px solid var(--mantine-color-default-border)",
-        backgroundColor: "var(--mantine-color-body)",
-        overflow: "hidden",
-      }}
-    >
-      <Box
-        style={{
-          padding: "12px 16px",
-          borderBottom: "1px solid var(--mantine-color-default-border)",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          flexShrink: 0,
-        }}
-      >
+    <Box style={SIDEBAR_CONTAINER_STYLE}>
+      <Box style={SIDEBAR_HEADER_STYLE}>
         <Text size="sm" fw={600} style={{ flex: 1 }}>
           Sub-agents
         </Text>
@@ -88,7 +92,7 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
       </Box>
 
       <ScrollArea style={{ flex: 1 }} type="auto">
-        <Box p="sm" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <Box p="sm" style={RUNS_LIST_STYLE}>
           {visibleRuns.length === 0 ? (
             <Box p="sm">
               <Text size="sm" c="dimmed">
@@ -133,6 +137,35 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   );
 }
 
+// Hoisted: SubAgentRunCard re-renders on every streaming text-delta (the
+// custom memo comparator includes run.text). Static identity lets React skip
+// style diffing on these host nodes per token.
+const CARD_CONTAINER_STYLE: CSSProperties = { overflow: "hidden" };
+const HEADER_BUTTON_STYLE: CSSProperties = {
+  display: "flex",
+  width: "100%",
+  alignItems: "center",
+  gap: 8,
+  padding: "10px 12px",
+  textAlign: "left",
+};
+const NAME_BLOCK_STYLE: CSSProperties = { minWidth: 0, flex: 1 };
+const RUNNING_BADGE_STYLE: CSSProperties = {
+  width: 12,
+  height: 12,
+  borderRadius: "50%",
+  border: "2px solid var(--mantine-color-default-border)",
+  borderTopColor: "var(--mantine-color-blue-6)",
+  animation: "spin 1s linear infinite",
+  flexShrink: 0,
+};
+const STATUS_TEXT_STYLE: CSSProperties = { flexShrink: 0 };
+const CHEVRON_BASE_STYLE: CSSProperties = {
+  color: "var(--mantine-color-dimmed)",
+  transition: "transform 0.2s",
+  flexShrink: 0,
+};
+
 const SubAgentRunCard = memo(function SubAgentRunCard({
   run,
   opened,
@@ -146,21 +179,14 @@ const SubAgentRunCard = memo(function SubAgentRunCard({
   const status = getStatusMeta(run.status);
 
   return (
-    <Box className="md-surface md-card-sm" style={{ overflow: "hidden" }}>
+    <Box className="md-surface md-card-sm" style={CARD_CONTAINER_STYLE}>
       <UnstyledButton
         onClick={onToggle}
         aria-label={`${opened ? "Collapse" : "Expand"} ${run.name}`}
-        style={{
-          display: "flex",
-          width: "100%",
-          alignItems: "center",
-          gap: 8,
-          padding: "10px 12px",
-          textAlign: "left",
-        }}
+        style={HEADER_BUTTON_STYLE}
       >
         <BotIcon size={15} style={{ color: "var(--mantine-color-dimmed)" }} />
-        <Box style={{ minWidth: 0, flex: 1 }}>
+        <Box style={NAME_BLOCK_STYLE}>
           <Text size="sm" fw={600} truncate>
             {run.name}
           </Text>
@@ -171,31 +197,21 @@ const SubAgentRunCard = memo(function SubAgentRunCard({
         {(run.status === "running" || run.status === "streaming") ? (
           <span
             aria-label={run.status}
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: "50%",
-              border: "2px solid var(--mantine-color-default-border)",
-              borderTopColor: "var(--mantine-color-blue-6)",
-              animation: "spin 1s linear infinite",
-              flexShrink: 0,
-            }}
+            style={RUNNING_BADGE_STYLE}
           />
         ) : (
-          <Text size="xs" c={status.color} fw={600} style={{ flexShrink: 0 }}>
+          <Text size="xs" c={status.color} fw={600} style={STATUS_TEXT_STYLE}>
             {status.label}
           </Text>
         )}
-        <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+        <Text size="xs" c="dimmed" style={STATUS_TEXT_STYLE}>
           {getDuration(run)}
         </Text>
         <ChevronDownIcon
           size={14}
           style={{
-            color: "var(--mantine-color-dimmed)",
-            transition: "transform 0.2s",
+            ...CHEVRON_BASE_STYLE,
             transform: opened ? "rotate(180deg)" : "rotate(0deg)",
-            flexShrink: 0,
           }}
         />
       </UnstyledButton>
@@ -254,10 +270,13 @@ function getStatusMeta(status: SubAgentRun["status"]): {
 
 function getDuration(run: SubAgentRun): string {
   if (!run.startedAt) return "";
-  const start = new Date(run.startedAt).getTime();
-  const end = run.finishedAt
-    ? new Date(run.finishedAt).getTime()
-    : Date.now();
+  // Date.parse returns NaN for invalid input, matching the prior new Date()
+  // pattern but avoiding the Date object allocation. This runs inside every
+  // streaming SubAgentRunCard re-render (per-token), so the allocation cost
+  // compounds with the number of streaming sub-agents.
+  const start = Date.parse(run.startedAt);
+  if (Number.isNaN(start)) return "";
+  const end = run.finishedAt ? Date.parse(run.finishedAt) : Date.now();
   const ms = end - start;
   if (ms < 0) return "";
   if (ms < 1000) return `${ms}ms`;

@@ -187,6 +187,8 @@ export async function loadStore(
   get: <V>(key: string) => Promise<V | null>;
   set: (key: string, value: unknown) => Promise<void>;
   save: () => Promise<void>;
+  entries: () => Promise<Array<[string, unknown]>>;
+  clear: () => Promise<void>;
 }> {
   const mock = getBridgeMock("loadStore");
   if (mock) return mock(filename, options);
@@ -202,6 +204,13 @@ export async function loadStore(
     get: <V>(key: string) => store.get<V>(key) as Promise<V | null>,
     set: (key: string, value: unknown) => store.set(key, value),
     save: () => store.save(),
+    // entries() and clear() are single IPC round-trips. Exposing them lets
+    // callers avoid N+1 IPC patterns: createStore.get() reads all keys with
+    // one entries() call instead of one get() per key, and createStore.reset()
+    // can clear() then re-set defaults instead of deleting keys one by one.
+    entries: () =>
+      store.entries<unknown>() as Promise<Array<[string, unknown]>>,
+    clear: () => store.clear(),
   };
 }
 
@@ -485,6 +494,41 @@ interface BrowserFsSnapshot {
   dirs: string[];
 }
 
+/**
+ * Per-store shared state. All `loadBrowserStore` calls for the same filename
+ * MUST observe and mutate the same in-memory state — otherwise concurrent
+ * set+save sequences on separately-loaded instances each snapshot localStorage
+ * into a private copy and the second save silently overwrites the first.
+ *
+ * The state is initialized lazily on first load and reloaded from localStorage
+ * only when an external mutation is suspected (which never happens inside this
+ * process). Defaults are merged in on first load.
+ */
+interface BrowserStoreState {
+  value: Record<string, unknown>;
+  pendingWrites: number;
+}
+
+const browserStoreStates = new Map<string, BrowserStoreState>();
+
+function getBrowserStoreState(
+  storageKey: string,
+  defaults: Record<string, unknown>,
+): BrowserStoreState {
+  let existing = browserStoreStates.get(storageKey);
+  if (existing) return existing;
+
+  const stored = readBrowserJson<Record<string, unknown> | null>(storageKey, null);
+  const value =
+    stored && typeof stored === "object"
+      ? { ...defaults, ...(stored as Record<string, unknown>) }
+      : { ...defaults };
+
+  existing = { value, pendingWrites: 0 };
+  browserStoreStates.set(storageKey, existing);
+  return existing;
+}
+
 function hasBrowserStorage(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
@@ -514,20 +558,27 @@ async function loadBrowserStore(
   get: <V>(key: string) => Promise<V | null>;
   set: (key: string, value: unknown) => Promise<void>;
   save: () => Promise<void>;
+  entries: () => Promise<Array<[string, unknown]>>;
+  clear: () => Promise<void>;
 }> {
   const storageKey = `${BROWSER_STORE_PREFIX}${filename}`;
-  let state = readBrowserJson<Record<string, unknown>>(storageKey, {
-    ...(options.defaults ?? {}),
-  });
+  const defaults = options.defaults ?? {};
+  const state = getBrowserStoreState(storageKey, defaults);
 
   return {
-    get: async <V>(key: string) => (key in state ? (state[key] as V) : null),
+    get: async <V>(key: string) =>
+      key in state.value ? (state.value[key] as V) : null,
     set: async (key: string, value: unknown) => {
-      state = { ...state, [key]: value };
-      if (options.autoSave) writeBrowserJson(storageKey, state);
+      state.value = { ...state.value, [key]: value };
+      if (options.autoSave) writeBrowserJson(storageKey, state.value);
     },
     save: async () => {
-      writeBrowserJson(storageKey, state);
+      writeBrowserJson(storageKey, state.value);
+    },
+    entries: async () => Object.entries(state.value),
+    clear: async () => {
+      state.value = { ...defaults };
+      writeBrowserJson(storageKey, state.value);
     },
   };
 }
@@ -708,6 +759,8 @@ export type TauriBridgeMock = {
     get: <V>(key: string) => Promise<V | null>;
     set: (key: string, value: unknown) => Promise<void>;
     save: () => Promise<void>;
+    entries: () => Promise<Array<[string, unknown]>>;
+    clear: () => Promise<void>;
   }>;
   writeTextFile?: (path: string, content: string, opts?: { baseDir?: number; append?: boolean }) => Promise<void>;
   readTextFile?: (path: string, opts?: { baseDir: number }) => Promise<string>;

@@ -2,6 +2,7 @@ import { streamText, tool, zodSchema, type LanguageModel } from "ai";
 import { z } from "zod";
 import { createSubAgentId } from "@/lib/sub-agent-types";
 import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
+import { isAbortError } from "@/lib/abort";
 import RESEARCH_PLANNER_SYSTEM from "./research-planner-prompt.md?raw";
 
 export const researchPlanInputSchema = z.object({
@@ -55,8 +56,10 @@ export function createResearchPlanTool(model: LanguageModel) {
 
         return text;
       } catch (error) {
-        if (options?.abortSignal?.aborted) {
-          emitSubAgentEvent({ type: "error", id: saId, error: "Cancelled" });
+        // Emit a proper "cancelled" event on user abort so the sub-agent UI
+        // shows a cancelled state instead of a red error.
+        if (isAbortError(error) || options?.abortSignal?.aborted) {
+          emitSubAgentEvent({ type: "cancelled", id: saId });
         } else {
           emitSubAgentEvent({
             type: "error",

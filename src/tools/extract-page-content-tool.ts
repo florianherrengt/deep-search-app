@@ -17,22 +17,24 @@ import {
 import { tryParseJson } from "@/lib/json";
 import slugify from "slugify";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";
-import {
-  sanitizeHtml,
-  extractVisibleTextFromHtml,
-  createSearchExtractEngine,
-  RedditExtractor,
-  AmazonExtractor,
-  ShopifyExtractor,
-  isRedditChallengeHtml,
-  isAmazonChallengePage,
-  MIN_CONTENT_LENGTH,
-  fetchScrapeDoHtml,
-  type SearchExtractEngine,
-  type PageLoader,
+// Type-only imports for `deep-search-core/search-extract` — the runtime
+// values are loaded lazily via `loadCore()` on the first extraction call.
+// This keeps cheerio + parse5 + the extractors (hundreds of KB) out of the
+// main bundle so app startup and chat rendering don't pay for code that
+// only runs when a page extraction is invoked.
+import type {
+  SearchExtractEngine,
+  PageLoader,
 } from "deep-search-core/search-extract";
 import { createAppPageLoader, createChromeMcpPageLoader } from "./extraction-page-loader";
 import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
+
+type CoreModule = typeof import("deep-search-core/search-extract");
+let corePromise: Promise<CoreModule> | null = null;
+function loadCore(): Promise<CoreModule> {
+  if (!corePromise) corePromise = import("deep-search-core/search-extract");
+  return corePromise;
+}
 
 const DEFAULT_WEBVIEW_RETRY_INTERVAL_MS = 5_000;
 const DEFAULT_WEBVIEW_MAX_WAIT_MS = 5 * 60_000;
@@ -68,6 +70,7 @@ let _engine: SearchExtractEngine | null = null;
 let _engineKey: string | undefined;
 
 function getEngine(
+  core: CoreModule,
   chromeMcp?: {
     enabled: boolean;
     connectionMode?: ChromeMcpConnectionMode;
@@ -81,7 +84,7 @@ function getEngine(
   const backend = chromeMcp?.backend ?? "tauri-webview";
   // The "chrome" method forces the Chrome MCP loader when MCP is enabled,
   // regardless of the configured backend. Falls back to the configured loader
-  // when MCP is unavailable, so it never hard-errors.
+  // when MCP is unavailable, so it never hard errors.
   const forceChrome = method === "chrome";
   const shouldUseChromeMcp = Boolean(chromeMcp?.enabled) && (backend === "chrome-mcp" || forceChrome);
   const scrapeDoToken = scrapeDoApiKey?.trim() ?? "";
@@ -103,12 +106,12 @@ function getEngine(
       })
     : createAppPageLoader({ fetchHtml, extractViaWebview });
   const pageLoader = useScrapeDo
-    ? withScrapeDoFallback(basePageLoader, scrapeDoToken)
+    ? withScrapeDoFallback(core, basePageLoader, scrapeDoToken)
     : basePageLoader;
 
-  _engine = createSearchExtractEngine({
+  _engine = core.createSearchExtractEngine({
     pageLoader,
-    extractors: [new RedditExtractor(), new AmazonExtractor(), new ShopifyExtractor()],
+    extractors: [new core.RedditExtractor(), new core.AmazonExtractor(), new core.ShopifyExtractor(), new core.GithubExtractor()],
   });
   _engineKey = fullEngineKey;
   return _engine;
@@ -122,24 +125,25 @@ function hashSecret(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function hasUsefulContent(html: string | null): html is string {
+function hasUsefulContent(core: CoreModule, html: string | null): html is string {
   if (!html) return false;
-  return sanitizeHtml(html).length >= MIN_CONTENT_LENGTH;
+  return core.sanitizeHtml(html).length >= core.MIN_CONTENT_LENGTH;
 }
 
 function withScrapeDoFallback(
+  core: CoreModule,
   pageLoader: PageLoader,
   apiKey: string,
 ): PageLoader {
   return {
     ...pageLoader,
     renderHtml: async (url, options) => {
-      const remoteHtml = await fetchScrapeDoHtml(
+      const remoteHtml = await core.fetchScrapeDoHtml(
         url,
         { apiKey, fetch: bridgeFetch },
         options,
       );
-      if (hasUsefulContent(remoteHtml)) return remoteHtml;
+      if (hasUsefulContent(core, remoteHtml)) return remoteHtml;
       return pageLoader.renderHtml?.(url, options) ?? null;
     },
   };
@@ -304,20 +308,20 @@ function normalizeWebviewHtml(html: string): string {
   return html;
 }
 
-function getRetryOptions(url: string) {
+function getRetryOptions(core: CoreModule, url: string) {
   const isReddit = /\.?reddit\.com\//.test(url);
   const isAmazon = /\.?amazon\./.test(url) && /\/dp\//i.test(url);
 
   if (isReddit) {
     return {
-      shouldRetry: isRedditChallengeHtml,
+      shouldRetry: core.isRedditChallengeHtml,
       maxWaitMs: 5 * 60_000,
       retryIntervalMs: 5_000,
     };
   }
   if (isAmazon) {
     return {
-      shouldRetry: isAmazonChallengePage,
+      shouldRetry: core.isAmazonChallengePage,
       maxWaitMs: 3 * 60_000,
       retryIntervalMs: 3_000,
     };
@@ -332,6 +336,7 @@ async function extractViaWebview(
 ): Promise<string | null> {
   validateUrl(url);
   throwIfAborted(abortSignal);
+  const core = await loadCore();
 
   return runExclusiveWebviewExtraction(async () => {
     const id = createWebviewTabId();
@@ -350,7 +355,7 @@ async function extractViaWebview(
       await switchWebviewTab(id, abortSignal);
       const startedAt = Date.now();
 
-      const retryOptions = getRetryOptions(url);
+      const retryOptions = getRetryOptions(core, url);
 
       while (true) {
         throwIfAborted(abortSignal);
@@ -463,7 +468,9 @@ export async function extractPageContent(
     emitSubAgentEvent({ type: "text-delta", id: saId, delta: `Extracting content from ${url}...\n\n` });
   }
 
+  const core = await loadCore();
   const engine = getEngine(
+    core,
     options.chromeMcp,
     options.scrapeDoApiKey,
     forced,
@@ -611,8 +618,12 @@ export function createExtractPageContentTool(
         emitSubAgentEvent({ type: "complete", id: saId });
         return result;
       } catch (error) {
-        if (options?.abortSignal?.aborted) {
-          emitSubAgentEvent({ type: "error", id: saId, error: "Cancelled" });
+        // Distinguish cancellation from real failures so the sub-agent UI
+        // shows a "cancelled" state instead of an error when the user stops
+        // the run. The underlying error is still re-thrown so the abort
+        // propagates to the orchestrator.
+        if (isAbortError(error) || options?.abortSignal?.aborted) {
+          emitSubAgentEvent({ type: "cancelled", id: saId });
         } else {
           emitSubAgentEvent({
             type: "error",
@@ -625,5 +636,3 @@ export function createExtractPageContentTool(
     },
   });
 }
-
-export { sanitizeHtml, extractVisibleTextFromHtml };

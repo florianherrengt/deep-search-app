@@ -31,6 +31,23 @@ beforeAll(() => {
     configurable: true,
     value: vi.fn(),
   });
+
+  const storage = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      },
+      clear: () => {
+        storage.clear();
+      },
+    },
+  });
 });
 
 const SEARCHES = ["first query", "second query", "third query"];
@@ -57,6 +74,7 @@ function renderThread(previousSearches: string[] = []) {
 
 afterEach(() => {
   cleanup();
+  window.localStorage.removeItem("deep-search:composer-draft");
 });
 
 function getTextarea(): HTMLTextAreaElement {
@@ -161,5 +179,45 @@ describe("ComposerInput tab cycling", () => {
         expect(textarea.value).toBe(expected);
       });
     }
+  });
+});
+
+describe("ComposerInput draft persistence", () => {
+  it("restores an unsent draft from localStorage after remounting", async () => {
+    const { unmount } = renderThread([]);
+    const textarea = getTextarea();
+
+    fireEvent.change(textarea, { target: { value: "persist this draft" } });
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem("deep-search:composer-draft")).toBe(
+        "persist this draft",
+      );
+    });
+
+    unmount();
+    renderThread([]);
+
+    await waitFor(() => {
+      expect(getTextarea().value).toBe("persist this draft");
+    });
+  });
+
+  it("removes the saved draft when the composer text is cleared", async () => {
+    renderThread([]);
+    const textarea = getTextarea();
+
+    fireEvent.change(textarea, { target: { value: "temporary draft" } });
+    await waitFor(() => {
+      expect(window.localStorage.getItem("deep-search:composer-draft")).toBe(
+        "temporary draft",
+      );
+    });
+
+    fireEvent.change(textarea, { target: { value: "" } });
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem("deep-search:composer-draft")).toBeNull();
+    });
   });
 });
