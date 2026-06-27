@@ -15,6 +15,7 @@ Deep Search is a Tauri v2 desktop app for AI-powered research.
 ```bash
 npm run dev                    # Vite dev server only
 npm run tauri dev              # Full desktop app
+npm run lint                   # ESLint hook-order checks
 npm run build                  # Typecheck + Vite build
 npm test                       # Vitest unit tests
 npm run test:watch             # Vitest watch mode
@@ -34,8 +35,6 @@ E2E tests:
 ```bash
 npm run test:e2e
 ```
-
-There is no dedicated lint command.
 
 ## Architecture
 

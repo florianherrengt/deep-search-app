@@ -1,6 +1,6 @@
 import { isTauri } from "@/lib/tauri-bridge";
 import { isRecord } from "@/lib/json";
-import { jsonSchema, tool, type ToolSet } from "ai";
+import { jsonSchema, tool, type JSONSchema7, type ToolSet } from "ai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { TauriStdioTransport } from "./tauri-stdio-transport";
 import { createChromeDevToolsMcpCommand } from "./chrome-devtools-sidecar";
@@ -163,13 +163,13 @@ function describeMcpTool(mcpTool: { name: string; description?: string }) {
   return `${baseDescription}\n\nChrome DevTools MCP tool. Use only as a last resort when the internal webview/search/extraction tools cannot inspect the page well enough, or when the user explicitly asks you to control or debug their local Chrome session. Do not use for ordinary web research. Original MCP tool name: ${mcpTool.name}.`;
 }
 
-function normalizeInputSchema(inputSchema: unknown) {
+function normalizeInputSchema(inputSchema: unknown): JSONSchema7 {
   if (isRecord(inputSchema)) {
     return {
       type: "object",
       properties: {},
       ...inputSchema,
-    };
+    } as JSONSchema7;
   }
 
   return {

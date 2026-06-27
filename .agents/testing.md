@@ -59,6 +59,7 @@ exit $STATUS
 Frontend build:
 
 ```bash
+npm run lint
 npm run build
 ```
 
@@ -83,7 +84,11 @@ E2E tests:
 npm run test:e2e
 ```
 
-There is no dedicated lint command.
+Lint:
+
+```bash
+npm run lint
+```
 
 ## Expensive Command Policy
 

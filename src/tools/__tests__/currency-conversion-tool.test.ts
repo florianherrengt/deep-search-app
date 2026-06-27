@@ -103,7 +103,9 @@ describe("createCurrencyConversionTool", () => {
 
   it("has inputSchema with object type", () => {
     const t = createCurrencyConversionTool("USD");
-    const inputSchema = t.inputSchema as { jsonSchema: Record<string, unknown> };
+    const inputSchema = t.inputSchema as unknown as {
+      jsonSchema: Record<string, unknown>;
+    };
     expect(inputSchema.jsonSchema.type).toBe("object");
   });
 

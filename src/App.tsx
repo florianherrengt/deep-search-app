@@ -520,18 +520,6 @@ function AppInner() {
     [researchFolders, effectiveSelectedModelId, chatModelOptions],
   );
 
-  if (loading) return null;
-
-  if (settingsError) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem", gap: "0.5rem" }}>
-        <p style={{ fontSize: "1.125rem", fontWeight: 500 }}>Failed to load settings</p>
-        <p style={{ fontSize: "0.875rem", opacity: 0.6 }}>{settingsError.message}</p>
-        <button onClick={() => window.location.reload()} style={{ marginTop: "1rem", padding: "0.5rem 1rem" }}>Retry</button>
-      </div>
-    );
-  }
-
   // Tracks the most recently requested folder selection so that out-of-order
   // async resolutions don't clobber the user's latest click. Without this,
   // clicking folder A then folder B in quick succession could leave the app
@@ -763,6 +751,18 @@ function AppInner() {
       ),
     [chatSessions, activeSessionId],
   );
+
+  if (loading) return null;
+
+  if (settingsError) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem", gap: "0.5rem" }}>
+        <p style={{ fontSize: "1.125rem", fontWeight: 500 }}>Failed to load settings</p>
+        <p style={{ fontSize: "0.875rem", opacity: 0.6 }}>{settingsError.message}</p>
+        <button onClick={() => window.location.reload()} style={{ marginTop: "1rem", padding: "0.5rem 1rem" }}>Retry</button>
+      </div>
+    );
+  }
 
   return (
     <TabPanel
