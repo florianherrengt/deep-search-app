@@ -106,7 +106,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-13
+          - platform: macos-15-intel
             target: x86_64-apple-darwin
             args: --target x86_64-apple-darwin
           - platform: macos-latest
@@ -184,6 +184,5 @@ jobs:
         with:
           releaseId: ${{ needs.prepare-release.outputs.release_id }}
           tagName: ${{ needs.prepare-release.outputs.tag }}
-          uploadUpdaterJson: true
-          uploadUpdaterSignatures: true
+          includeUpdaterJson: true
           args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json --config src-tauri/updater-config.json
