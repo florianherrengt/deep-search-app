@@ -156,12 +156,13 @@ test.describe("Settings panel", () => {
     await expect(chatPage.getByRole("textbox", { name: "Exa API Key" })).toBeVisible();
   });
 
-  test("shows research index fields", async ({ chatPage }) => {
+  test("shows extraction settings fields", async ({ chatPage }) => {
     await chatPage.getByRole("button", { name: "Settings" }).click();
 
-    await expect(chatPage.getByText("Research Index")).toBeVisible();
-    await expect(chatPage.getByRole("textbox", { name: "Embedding Model" })).toBeVisible();
-    await expect(chatPage.getByRole("textbox", { name: "Reranker Model" })).toBeVisible();
+    await expect(chatPage.getByText("Extraction Services")).toBeVisible();
+    await expect(chatPage.getByRole("textbox", { name: "Scrape.do API Key" })).toBeVisible();
+    await expect(chatPage.getByText("Chrome DevTools MCP")).toBeVisible();
+    await expect(chatPage.getByText("Extraction backend")).toBeVisible();
   });
 
   test("search service fields still auto-save on blur", async ({ chatPage }) => {

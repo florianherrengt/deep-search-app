@@ -16,15 +16,6 @@ const TEST_SETTINGS = {
   zhipu_model: "glm-4.7-flash",
   currency: "USD",
   chrome_devtools_mcp_enabled: false,
-  embedding_api_key: "",
-  embedding_base_url: "https://openrouter.ai/api/v1",
-  embedding_model: "qwen/qwen3-embedding-4b",
-  embedding_dimensions: 1024,
-  embedding_query_prefix:
-    "Represent this sentence for searching relevant passages: ",
-  reranker_api_key: "",
-  reranker_base_url: "https://openrouter.ai/api/v1",
-  reranker_model: "cohere/rerank-4-pro",
 };
 
 type TestFixtures = {
