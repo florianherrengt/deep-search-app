@@ -162,7 +162,7 @@ test.describe("Settings panel", () => {
     await expect(chatPage.getByText("Extraction Services")).toBeVisible();
     await expect(chatPage.getByRole("textbox", { name: "Scrape.do API Key" })).toBeVisible();
     await expect(chatPage.getByText("Chrome DevTools MCP", { exact: true })).toBeVisible();
-    await expect(chatPage.getByText("Extraction backend")).toBeVisible();
+    await expect(chatPage.getByText("Extraction backend", { exact: true })).toBeVisible();
   });
 
   test("search service fields still auto-save on blur", async ({ chatPage }) => {
