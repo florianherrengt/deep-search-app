@@ -161,7 +161,7 @@ test.describe("Settings panel", () => {
 
     await expect(chatPage.getByText("Extraction Services")).toBeVisible();
     await expect(chatPage.getByRole("textbox", { name: "Scrape.do API Key" })).toBeVisible();
-    await expect(chatPage.getByText("Chrome DevTools MCP")).toBeVisible();
+    await expect(chatPage.getByText("Chrome DevTools MCP", { exact: true })).toBeVisible();
     await expect(chatPage.getByText("Extraction backend")).toBeVisible();
   });
 
