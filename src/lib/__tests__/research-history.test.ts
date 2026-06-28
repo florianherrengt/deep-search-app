@@ -110,6 +110,55 @@ describe("research history", () => {
     ]);
   });
 
+  it("keeps listing folders when one folder metadata read fails", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const directories = {
+      "search-results": [
+        directoryEntry("healthy-topic"),
+        directoryEntry("unreadable-topic"),
+      ],
+      "search-results/healthy-topic/chats": [fileEntry("index.json")],
+      "search-results/unreadable-topic/chats": [],
+    };
+
+    mockAppStorage({
+      directories,
+      files: {
+        "search-results/healthy-topic/chats/index.json": JSON.stringify({
+          version: 1,
+          chats: [
+            {
+              id: "2026-05-22T10-00-00.000Z",
+              title: "Healthy topic",
+              createdAt: "2026-05-22T10:00:00.000Z",
+              updatedAt: "2026-05-22T10:30:00.000Z",
+              messageCount: 2,
+            },
+          ],
+        }),
+      },
+    });
+    fsMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === "search-results/unreadable-topic/chats") {
+        throw new Error("Permission denied");
+      }
+      return directories[path as keyof typeof directories] ?? [];
+    });
+
+    await expect(listResearchFolders()).resolves.toEqual([
+      { name: "healthy-topic", updatedAt: "2026-05-22T10:30:00.000Z" },
+      { name: "unreadable-topic", updatedAt: null },
+    ]);
+    expect(consoleWarn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '[research-history] Failed to read update timestamp for "unreadable-topic":',
+      ),
+      expect.any(Error),
+    );
+
+    consoleWarn.mockRestore();
+  });
+
   it("lists saved research chats sorted by update date", async () => {
     const messages = [
       {

@@ -197,10 +197,20 @@ export async function listResearchFolders(): Promise<ResearchFolder[]> {
   });
 
   const summaries = await Promise.all(
-    folders.map(async (name) => ({
-      name,
-      updatedAt: await getResearchFolderUpdatedAt(name),
-    })),
+    folders.map(async (name) => {
+      try {
+        return {
+          name,
+          updatedAt: await getResearchFolderUpdatedAt(name),
+        };
+      } catch (error) {
+        console.warn(
+          `[research-history] Failed to read update timestamp for "${name}":`,
+          error,
+        );
+        return { name, updatedAt: null };
+      }
+    }),
   );
 
   return summaries.sort(compareResearchFolders);
