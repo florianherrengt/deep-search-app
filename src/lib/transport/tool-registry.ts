@@ -13,6 +13,7 @@ import { createExtractPageContentTool } from "@/tools/extract-page-content-tool"
 import { createCreateFileTool, createReadFileTool, createUpdateFileTool, createMoveFileTool, createDeleteFileTool, createListFilesTool } from "@/tools/file-tools";
 import { createLoadSkillTool } from "@/tools/load-skill-tool";
 import { createSearchResearchTool } from "@/tools/search-research-tool";
+import { createAggregateSearchTool } from "@/tools/aggregate-search-tool";
 import { createSwitchResearchFolderTool } from "@/tools/switch-research-folder-tool";
 import { createCurrencyConversionTool } from "@/tools/currency-conversion-tool";
 import { createFactsCheckTool } from "@/tools/facts-check-tool";
@@ -78,12 +79,17 @@ export async function createTools({
     : undefined;
 
   const searchTools = asAppToolSet(createSearchTools(pkgSearchKeys, bridgeFetch));
+  delete searchTools.aggregate_search;
+  const aggregateSearchTool = createAggregateSearchTool(pkgSearchKeys);
   const coreModel = model as unknown as CoreLanguageModel;
 
   const tools = {
     ask_questions: asAppTool(questionsTool),
     disambiguate: asAppTool(createDisambiguateTool(bridgeFetch)),
     ...searchTools,
+    ...(aggregateSearchTool
+      ? { aggregate_search: asAppTool(aggregateSearchTool) }
+      : {}),
     sequential_thinking: asAppTool(createSequentialThinkingTool()),
     create_research_plan: asAppTool(createResearchPlanTool(coreModel)),
     research_checkpoint: asAppTool(createResearchCheckpointTool(coreModel)),
@@ -110,7 +116,7 @@ export async function createTools({
     delete_file: createDeleteFileTool(getResearchFolder),
     list_files: createListFilesTool(getResearchFolder),
     load_skill: createLoadSkillTool(),
-    search_research: createSearchResearchTool(model),
+    search_research: createSearchResearchTool(model, getResearchFolder),
     switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
     currency_conversion: createCurrencyConversionTool(searchKeys?.currency ?? "USD"),
     ...chromeDevToolsTools,

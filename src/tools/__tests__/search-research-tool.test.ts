@@ -80,6 +80,33 @@ describe("createSearchResearchTool", () => {
     );
   });
 
+  it("excludes the current research folder from matching and results", async () => {
+    const tool = createSearchResearchTool(
+      mockModel(),
+      async () => "market-map",
+    ) as unknown as ExecutableSearchTool;
+    storageMocks.listAppSubfolders.mockResolvedValueOnce([
+      "market-map",
+      "competitors",
+      "hiking-spots",
+    ]);
+    folderSearchMocks.searchFoldersWithLLMSafe.mockResolvedValueOnce([
+      "market-map",
+      "competitors",
+    ]);
+
+    await expect(tool.execute({ query: "market size" })).resolves.toEqual([
+      { folder_name: "competitors", relevant_memories: [] },
+    ]);
+
+    expect(folderSearchMocks.searchFoldersWithLLMSafe).toHaveBeenCalledWith(
+      "market size",
+      ["competitors", "hiking-spots"],
+      expect.anything(),
+      undefined,
+    );
+  });
+
   it("returns empty when listing folders fails", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const tool = createSearchResearchTool(mockModel()) as unknown as ExecutableSearchTool;

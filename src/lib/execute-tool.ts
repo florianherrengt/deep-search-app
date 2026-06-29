@@ -26,6 +26,10 @@ import {
   searxngSearchInputSchema,
 } from "@/tools/searxng-search-tool";
 import {
+  aggregateSearchInputSchema,
+  createAggregateSearchTool,
+} from "@/tools/aggregate-search-tool";
+import {
   disambiguateInputSchema,
   disambiguateTool,
 } from "@/tools/disambiguate-tool";
@@ -125,6 +129,13 @@ export function getAvailableTools(
     searxngBaseUrl && isValidServiceUrl(searxngBaseUrl)
       ? createSearXNGSearchTool(searxngBaseUrl)
       : undefined;
+  const aggregateTool = createAggregateSearchTool({
+    braveApiKey,
+    exaApiKey,
+    serperApiKey,
+    tavilyApiKey,
+    searxngBaseUrl,
+  });
   const chromeMcpConfig = config?.chromeDevToolsMcpEnabled
     ? {
         enabled: true,
@@ -137,7 +148,9 @@ export function getAvailableTools(
   const extractTool = model && getResearchFolder
     ? createExtractPageContentTool(model, getResearchFolder, chromeMcpConfig, scrapeDoApiKey)
     : undefined;
-  const searchResearchTool = model ? createSearchResearchTool(model) : undefined;
+  const searchResearchTool = model
+    ? createSearchResearchTool(model, getResearchFolder)
+    : undefined;
   const createTool = getResearchFolder
     ? createCreateFileTool(getResearchFolder)
     : undefined;
@@ -171,6 +184,11 @@ export function getAvailableTools(
       TOOL_NAMES.searxng_search,
       searxngTool,
       searxngSearchInputSchema,
+    ),
+    describeOptionalTool(
+      TOOL_NAMES.aggregate_search,
+      aggregateTool,
+      aggregateSearchInputSchema,
     ),
 
     describeTool(
