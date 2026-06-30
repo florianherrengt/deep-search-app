@@ -1,25 +1,38 @@
 import "@assistant-ui/react-markdown/styles/dot.css";
 import {
-  MarkdownTextPrimitive,
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
+import { useMessagePartText } from "@assistant-ui/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { memo, type AnchorHTMLAttributes, type FC } from "react";
+import { memo, type AnchorHTMLAttributes, type CSSProperties, type FC } from "react";
 import { useClipboard } from "@mantine/hooks";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { openUrl } from "@/lib/tauri-bridge";
 
 const REMARK_PLUGINS = [remarkGfm];
+const STREAMING_TEXT_STYLE: CSSProperties = {
+  margin: 0,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  fontFamily: "inherit",
+};
 
 const MarkdownTextImpl = () => {
-  return (
-    <MarkdownTextPrimitive
-      remarkPlugins={REMARK_PLUGINS}
-      components={defaultComponents}
-    />
-  );
+  const { text, status } = useMessagePartText();
+
+  if (status.type === "running") {
+    if (text.length === 0) return null;
+
+    return (
+      <pre data-status={status.type} style={STREAMING_TEXT_STYLE}>
+        {text}
+      </pre>
+    );
+  }
+
+  return <MarkdownContent text={text} />;
 };
 export const MarkdownText = MarkdownTextImpl;
 

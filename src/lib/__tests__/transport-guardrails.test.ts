@@ -128,6 +128,50 @@ describe("createGuardedStream", () => {
     );
   });
 
+  it("keeps extract_page_content active after aggregate_search was called", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        callCount += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: toolCallChunks("extract_page_content", "call-extract", {
+              url: "https://example.com/pricing",
+            }),
+          }),
+        };
+      },
+    });
+
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      messages: [
+        userMessage("Find pricing"),
+        assistantToolMessage("aggregate_search"),
+      ],
+      abortSignal: undefined,
+      searchKeys: { braveApiKey: "test-key" },
+    });
+
+    expect(callCount).toBe(1);
+    expect(
+      chunks.some(
+        (chunk) => {
+          if (chunk.type !== "data-guardrail_event") return false;
+          const data = chunk.data as { kind?: unknown };
+          return data.kind === "tool_call_requirement";
+        },
+      ),
+    ).toBe(false);
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "tool-input-available",
+        toolName: "extract_page_content",
+      }),
+    );
+  });
+
   it("emits a visible guardrail event and retries plain-text questions with ask_questions forced", async () => {
     let callCount = 0;
     const model = new MockLanguageModelV3({
@@ -915,6 +959,22 @@ function userMessage(text: string): UIMessage {
     id: `user-${text}`,
     role: "user",
     parts: [{ type: "text", text }],
+  };
+}
+
+function assistantToolMessage(toolName: string): UIMessage {
+  return {
+    id: `assistant-${toolName}`,
+    role: "assistant",
+    parts: [
+      {
+        type: `tool-${toolName}`,
+        toolCallId: `call-${toolName}`,
+        state: "output-available",
+        input: {},
+        output: "ok",
+      } as UIMessage["parts"][number],
+    ],
   };
 }
 

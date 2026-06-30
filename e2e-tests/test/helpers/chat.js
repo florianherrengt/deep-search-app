@@ -1,7 +1,7 @@
-export async function ensureChatUI() {
+export async function ensureChatUI(settingsOverrides = {}) {
   await browser.refresh();
   await waitForText('Deep Search', 10000);
-  await browser.execute(() => {
+  await browser.execute((overrides) => {
     window.localStorage.setItem(
       'deep-search-test-settings',
       JSON.stringify({
@@ -18,10 +18,11 @@ export async function ensureChatUI() {
         default_model: 'openrouter/free',
         anthropic_model: 'claude-sonnet-4-5',
         zhipu_model: 'glm-4.7-flash',
+        ...overrides,
       }),
     );
 
-  });
+  }, settingsOverrides);
   await browser.refresh();
   await $('textarea').waitForExist({ timeout: 10000 });
   await browser.execute(() => {
@@ -35,6 +36,12 @@ export async function ensureChatUI() {
 export async function clearChatTestState() {
   await browser.execute(() => {
     window.localStorage.removeItem('deep-search-test-settings');
+    window.localStorage.removeItem('deep-search:composer-draft');
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith('deep-search:store:')) {
+        window.localStorage.removeItem(key);
+      }
+    }
     delete window.__deepSearchAppFileStorageMock;
     delete window.__deepSearchAppFileStorageLog;
     delete window.__deepSearchResearchSearchMock;
@@ -171,6 +178,12 @@ export async function installBridgeMockDefaults(initialFiles = null) {
         get: async (key) => (Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null),
         set: async (key, value) => {
           data[key] = value;
+        },
+        entries: async () => Object.entries(data),
+        clear: async () => {
+          for (const key of Object.keys(data)) {
+            delete data[key];
+          }
         },
         save: async () => undefined,
       };
@@ -419,6 +432,40 @@ export async function installAppFileStorageMock(initialFiles = {}) {
   }, initialFiles);
 }
 
+export async function installSearxngSearchMock(
+  results = [
+    {
+      title: 'Example result',
+      url: 'https://example.com/e2e-webview-tab',
+      content: 'Mock search result from SearXNG',
+    },
+  ],
+) {
+  await installBridgeMockDefaults();
+  await browser.execute((mockResults) => {
+    const existingBridgeMock = window.__deepSearchBridgeMock || {};
+    const existingFetch =
+      existingBridgeMock.fetch || ((input, init) => globalThis.fetch(input, init));
+
+    async function fetch(input, init) {
+      const href = typeof input === 'string' ? input : input?.url || String(input);
+      if (href.includes('localhost:8080')) {
+        return new Response(JSON.stringify({ results: mockResults }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      return existingFetch(input, init);
+    }
+
+    window.__deepSearchBridgeMock = {
+      ...existingBridgeMock,
+      fetch,
+    };
+  }, results);
+}
+
 export async function refreshResearchLibraryFromMock() {
   await browser.execute(() => {
     window.dispatchEvent(
@@ -443,6 +490,9 @@ export async function installTauriWebviewExtractionMock(html) {
           cmd: 'open_tab',
           args,
         });
+        await new Promise((resolve) => {
+          window.__deepSearchReleaseExtraction = resolve;
+        });
       },
       async switchTab(args) {
         window.__deepSearchWebviewExtractionLog.push({
@@ -454,9 +504,6 @@ export async function installTauriWebviewExtractionMock(html) {
         window.__deepSearchWebviewExtractionLog.push({
           cmd: 'extract_content',
           args,
-        });
-        await new Promise((resolve) => {
-          window.__deepSearchReleaseExtraction = resolve;
         });
         return mockHtml;
       },
@@ -470,14 +517,14 @@ export async function installTauriWebviewExtractionMock(html) {
   }, html);
 }
 
-export async function releaseTauriWebviewExtractionMock() {
+export async function releaseTauriWebviewExtractionMock(timeout = 20000) {
   await browser.waitUntil(
     async () =>
       browser.execute(
         () => typeof window.__deepSearchReleaseExtraction === 'function',
       ),
     {
-      timeout: 10000,
+      timeout,
       interval: 100,
       timeoutMsg: 'Expected mocked extraction to be waiting for release',
     },
@@ -594,7 +641,15 @@ export async function clickButtonWithText(text) {
       for (const btn of buttons) {
         if (!(await btn.isDisplayed())) continue;
         const btnText = await btn.getText();
-        if (btnText === text) {
+        const disabled = await btn.getAttribute('disabled');
+        const ariaDisabled = await btn.getAttribute('aria-disabled');
+        const enabled = await btn.isEnabled();
+        if (
+          btnText === text &&
+          enabled &&
+          disabled === null &&
+          ariaDisabled !== 'true'
+        ) {
           await btn.click();
           return true;
         }
@@ -637,7 +692,11 @@ export async function installOpenRouterMock(responses) {
   await browser.execute((mockResponses) => {
     window.__logs = [];
     window.__deepSearchOpenRouterReleases = {};
-    const originalFetch = window.fetch.bind(window);
+    const bridgeFetch = window.__deepSearchBridgeMock?.fetch;
+    const originalFetch =
+      typeof bridgeFetch === 'function'
+        ? bridgeFetch
+        : window.fetch.bind(window);
     let callIndex = 0;
     let streamResponseIndex = 0;
 
@@ -661,9 +720,27 @@ export async function installOpenRouterMock(responses) {
         return jsonTextResponse(content);
       }
 
-      const response =
+      const internalResponse = internalStreamResponse(requestBody);
+      if (internalResponse) {
+        window.__logs.push({
+          kind: 'openrouter',
+          callIndex,
+          responseType: internalResponse.type,
+          releaseKey: null,
+        });
+        return streamResponse(internalResponse, callIndex);
+      }
+
+      let response =
         mockResponses[Math.min(streamResponseIndex, mockResponses.length - 1)];
       streamResponseIndex += 1;
+      const forcedToolName = getForcedToolName(requestBody);
+      if (
+        forcedToolName &&
+        (response.type === 'text' || response.type === 'held-text')
+      ) {
+        response = forcedToolResponse(response, forcedToolName, requestBody);
+      }
       window.__logs.push({
         kind: 'openrouter',
         callIndex,
@@ -699,7 +776,10 @@ export async function installOpenRouterMock(responses) {
       const text = requestText(body);
       const serialized = JSON.stringify(body || {});
 
-      if (serialized.includes('You name research folders')) {
+      if (
+        serialized.includes('You name research folders') ||
+        serialized.includes('folder-naming tool')
+      ) {
         return slugifyFolderName(text);
       }
 
@@ -712,6 +792,39 @@ export async function installOpenRouterMock(responses) {
       }
 
       return 'OK';
+    }
+
+    function internalStreamResponse(body) {
+      const content = internalModelContent(body);
+      return content
+        ? { type: content.type, events: textResponseEvents(content.text, content.type) }
+        : null;
+    }
+
+    function internalModelContent(body) {
+      const text = requestText(body);
+      const serialized = JSON.stringify(body || {});
+
+      if (serialized.includes('folder-naming tool')) {
+        return { type: 'folder-name', text: slugifyFolderName(text) };
+      }
+
+      if (
+        serialized.includes('Memory Extraction Agent') ||
+        serialized.includes('memory extraction agent') ||
+        serialized.includes('existing memories stored about the user')
+      ) {
+        return { type: 'memory-json', text: '[]' };
+      }
+
+      if (serialized.includes('research checkpoint')) {
+        return {
+          type: 'checkpoint-guidance',
+          text: 'Continue researching if more evidence would materially improve the answer.',
+        };
+      }
+
+      return null;
     }
 
     function requestText(body) {
@@ -747,6 +860,136 @@ export async function installOpenRouterMock(responses) {
         .slice(0, 8);
 
       return words.join('-') || 'e2e-research';
+    }
+
+    function getForcedToolName(body) {
+      const choice = body?.tool_choice ?? body?.toolChoice;
+      if (!choice || choice === 'auto' || choice === 'none') return null;
+      if (choice === 'required') return 'research_checkpoint';
+      if (typeof choice === 'string') return null;
+
+      const functionName = choice.function?.name ?? choice.functionName;
+      if (typeof functionName === 'string' && functionName) {
+        return functionName;
+      }
+
+      const toolName = choice.toolName ?? choice.name;
+      return typeof toolName === 'string' && toolName ? toolName : null;
+    }
+
+    function forcedToolResponse(sourceResponse, toolName, requestBody) {
+      const response = {
+        ...toolCallResponseEvents(toolName, defaultToolArgs(toolName, requestBody)),
+        type: sourceResponse.releaseKey ? `held-${toolName}` : `forced-${toolName}`,
+        ...(sourceResponse.releaseKey
+          ? { releaseKey: sourceResponse.releaseKey }
+          : {}),
+        ...(Number.isInteger(sourceResponse.holdAfterEventIndex)
+          ? { holdAfterEventIndex: sourceResponse.holdAfterEventIndex }
+          : {}),
+        ...(sourceResponse.eventDelayMs
+          ? { eventDelayMs: sourceResponse.eventDelayMs }
+          : {}),
+      };
+
+      if (sourceResponse.releaseKey) {
+        delete sourceResponse.releaseKey;
+        delete sourceResponse.holdAfterEventIndex;
+        if (sourceResponse.type === 'held-text') {
+          sourceResponse.type = 'text';
+        }
+      }
+
+      return response;
+    }
+
+    function defaultToolArgs(toolName, requestBody) {
+      if (toolName === 'ask_questions') {
+        return {
+          questions: [
+            {
+              question: 'Which option should I use?',
+              candidates: [{ label: 'Default', value: 'default' }],
+            },
+          ],
+        };
+      }
+
+      if (toolName === 'research_checkpoint') {
+        return {
+          originalQuestion: requestText(requestBody),
+          searchesRun: [],
+          sourcesOpened: [],
+          claimsVerified: [],
+          unresolvedQuestions: ['E2E mock supplied checkpoint input.'],
+          confidence: 'low',
+          readyToAnswer: false,
+        };
+      }
+
+      return {};
+    }
+
+    function toolCallResponseEvents(name, args) {
+      return {
+        events: [
+          {
+            id: 'mock-tool',
+            object: 'chat.completion.chunk',
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  role: 'assistant',
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: `call_${name}`,
+                      type: 'function',
+                      function: {
+                        name,
+                        arguments: JSON.stringify(args),
+                      },
+                    },
+                  ],
+                },
+                finish_reason: null,
+              },
+            ],
+          },
+          {
+            id: 'mock-tool',
+            object: 'chat.completion.chunk',
+            choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+          },
+        ],
+      };
+    }
+
+    function textResponseEvents(content, id = 'mock-text') {
+      return [
+        {
+          id,
+          object: 'chat.completion.chunk',
+          choices: [
+            {
+              index: 0,
+              delta: { role: 'assistant', content: '' },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          id,
+          object: 'chat.completion.chunk',
+          choices: [{ index: 0, delta: { content }, finish_reason: null }],
+        },
+        {
+          id,
+          object: 'chat.completion.chunk',
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+        },
+      ];
     }
 
     function jsonTextResponse(content) {

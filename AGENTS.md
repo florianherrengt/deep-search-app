@@ -15,6 +15,7 @@ Deep Search is a Tauri v2 desktop app for AI-powered research.
 ```bash
 npm run dev                    # Vite dev server only
 npm run tauri dev              # Full desktop app
+npm run verify                 # Full local verification gate
 npm run lint                   # ESLint hook-order checks
 npm run build                  # Typecheck + Vite build
 npm test                       # Vitest unit tests
@@ -129,14 +130,14 @@ The main agent should merge findings, decide, then implement.
 
 ## Expensive Commands
 
-Never run these directly in the main agent context:
+Never run these directly in the main agent context, except through the required `npm run verify` gate:
 
 ```bash
 npm run test:e2e
 cd src-tauri && cargo test
 ```
 
-Always delegate them to a subagent.
+Always delegate them to a subagent when running them individually.
 
 Use targeted verification first, then broaden only after the focused check passes.
 
@@ -262,13 +263,34 @@ When fixing bugs:
 - Verify the narrowest relevant test first
 - Broaden verification only after targeted tests pass
 
+## Verification Gate
+
+Do not tell the user a code change is done until the final response can list the exact checks that ran and the exact checks that were skipped or impossible to run.
+
+For frontend, UI, chat, research-flow, performance, or interaction changes, the minimum gate is:
+
+- Run the focused unit tests for the changed files or behavior
+- Run `npm run lint`
+- Run `npm run build`
+- Start the app surface that exercises the change:
+  - Use `npm run dev` for browser-reachable frontend behavior
+  - Use `npm run tauri dev` when native Tauri commands, plugin permissions, stores, sidecars, filesystem access, or desktop-only behavior changed
+- Smoke test the changed behavior in a real app session using the browser or desktop UI
+- Check for visible runtime errors and browser console errors during the smoke test
+
+For research, streaming, background-session, or question-answering changes, also verify the closest realistic flow available in the current environment: start or resume a research run, switch sessions, type into the active composer, answer pending questions if available, and confirm the UI remains responsive. If provider keys, network access, or user credentials prevent that flow, say so explicitly in the final response and state which automated tests covered the gap.
+
+After any code, config, or documentation change, run `npm run verify` before saying the task is done. If it cannot run because of missing credentials, unavailable browsers, platform prerequisites, time constraints imposed by the user, or another real blocker, state that explicitly in the final response.
+
+`npm run verify` is the default full local gate. It intentionally excludes dev servers, watch mode, release/version scripts, and baseline-update scripts.
+
 ## Done Criteria
 
 A task is done when:
 
 - The code change is implemented
 - Relevant tests were added or updated where useful
-- Relevant verification has run
+- The Verification Gate above has passed, or every skipped item is explicitly justified
 - Expensive checks were delegated to subagents
 - UI changes have Storybook coverage or a clear reason they do not need it
 - Tauri CSP/capability changes are included for new external domains

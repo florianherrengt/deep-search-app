@@ -3,6 +3,7 @@ import {
   ensureChatUI,
   installAppFileStorageMock,
   installOpenRouterMock,
+  installSearxngSearchMock,
   installTauriWebviewExtractionMock,
   releaseTauriWebviewExtractionMock,
   sendMessage,
@@ -13,8 +14,9 @@ import {
 
 describe('Extraction Webview Tabs', () => {
   beforeEach(async () => {
-    await ensureChatUI();
+    await ensureChatUI({ searxng_url: 'http://localhost:8080' });
     await installAppFileStorageMock();
+    await installSearxngSearchMock();
   });
 
   afterEach(async () => {
@@ -36,6 +38,9 @@ describe('Extraction Webview Tabs', () => {
     `);
 
     await installOpenRouterMock([
+      toolCallResponse('searxng_search', {
+        query: 'example page',
+      }),
       toolCallResponse('extract_page_content', {
         url,
         summarize: false,

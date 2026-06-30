@@ -47,7 +47,7 @@ export const SelectedTool: Story = {
 };
 
 export const ResultAfterExecution: Story = {
-  tags: ["!snapshot"],
+  tags: ["skip-screenshot"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole("button", { name: "sequential_thinking" }));

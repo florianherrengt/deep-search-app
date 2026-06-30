@@ -28,7 +28,7 @@ describe('Questions Tool UI', () => {
   });
 
   it('should select a candidate and submit the answer', async () => {
-    await installQuestionMock();
+    await installQuestionMock([textResponse('Answer received')]);
 
     await sendMessage('Pick a color');
     await waitForText('Red');
@@ -39,7 +39,7 @@ describe('Questions Tool UI', () => {
   });
 
   it('should allow typing a custom answer', async () => {
-    await installQuestionMock();
+    await installQuestionMock([textResponse('Answer received')]);
 
     await sendMessage('Pick a color');
 

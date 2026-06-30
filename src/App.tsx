@@ -741,7 +741,7 @@ function AppInner() {
     () => getAttentionRequiredResearchChatIds(chatSessions),
     [chatSessions],
   );
-  const visibleChatSessions = useMemo(
+  const mountedChatSessions = useMemo(
     () =>
       chatSessions.filter(
         (session) =>
@@ -793,7 +793,7 @@ function AppInner() {
           />
           <div className="md-flex-fill" style={{ display: "flex" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              {visibleChatSessions.map((session) => (
+              {mountedChatSessions.map((session) => (
                 <div
                   key={session.sessionId}
                   style={{ height: "100%" }}
@@ -804,6 +804,7 @@ function AppInner() {
                       sessionId={session.sessionId}
                       runtimeChatId={session.runtimeChatId}
                       researchChatId={session.researchChatId}
+                      visible={session.sessionId === activeSessionId}
                       modelOptions={chatModelOptions}
                       defaultModelId={defaultChatModelId}
                       researchApiKey={settings.openrouter_api_key}

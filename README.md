@@ -81,6 +81,7 @@ npm run tauri dev
 | Command                        | What it does                    |
 | ------------------------------ | ------------------------------- |
 | `npm run dev`                  | Frontend only (Vite, port 1420) |
+| `npm run verify`               | Full local verification gate    |
 | `npm run build`                | TypeScript check + Vite build   |
 | `npm test`                     | Unit tests (Vitest)             |
 | `npm run test:e2e`             | E2e tests (WebdriverIO)         |

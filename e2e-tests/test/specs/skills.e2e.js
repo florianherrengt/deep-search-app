@@ -127,16 +127,18 @@ describe('Skills', () => {
     expect(editButtons.length).toBe(1);
     await editButtons[0].click();
 
-    const inputs = await $$('input');
-    const titleInput = inputs[0];
+    const titleInput = await $('input[placeholder="Skill title"]');
+    await titleInput.waitForDisplayed({ timeout: 5000 });
     await titleInput.clearValue();
     await titleInput.setValue('Renamed Skill');
 
-    const whenInput = inputs[1];
+    const whenInput = await $('input[placeholder="When should the AI load this skill?"]');
+    await whenInput.waitForDisplayed({ timeout: 5000 });
     await whenInput.clearValue();
     await whenInput.setValue('Updated trigger');
 
-    const textarea = await $('textarea');
+    const textarea = await $('textarea[placeholder="Skill instructions..."]');
+    await textarea.waitForDisplayed({ timeout: 5000 });
     await textarea.clearValue();
     await textarea.setValue('Updated content');
 

@@ -101,7 +101,7 @@ const streamingExtractRun: SubAgentRun = {
   toolName: "extract_page_content",
   status: "streaming",
   startedAt: new Date(now.getTime() - 3000).toISOString(),
-  finishedAt: null,
+  finishedAt: now.toISOString(),
   text: "Extracting content from https://example.com/espresso-review...\n\nThe Breville Barista Express is a standout choice for home baristas. It features an integrated conical burr grinder, precise espresso extraction with digital temperature control (PID), and a powerful steam wand for latte art.\n\nKey specs:\n- Grinder: Built-in conical burr\n- Boiler: Thermocoil with PID\n",
   chunksReceived: 14,
   toolCalls: [],
@@ -179,7 +179,7 @@ const runningMemoryRun: SubAgentRun = {
   toolName: "memory_agent",
   status: "running",
   startedAt: new Date(now.getTime() - 2000).toISOString(),
-  finishedAt: null,
+  finishedAt: now.toISOString(),
   text: "Analyzing conversation for memorable facts...",
   chunksReceived: 3,
   toolCalls: [],
@@ -235,7 +235,7 @@ export const StreamingPlan: Story = {
         id: "sa-stream-plan",
         chatId: "sa-stream-plan",
         status: "streaming",
-        finishedAt: null,
+        finishedAt: now.toISOString(),
         text: `## Research Plan: Best Espresso Machines 2024
 
 ### Pass 1 — Map the topic
@@ -414,6 +414,7 @@ function StreamingSimulator({ chatId }: { chatId: string }) {
 }
 
 export const LiveStreaming: Story = {
+  tags: ["skip-screenshot"],
   render: () => {
     const chatId = "live-chat";
     return (

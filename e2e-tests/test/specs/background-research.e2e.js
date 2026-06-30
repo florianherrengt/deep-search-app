@@ -87,14 +87,35 @@ async function switchToAppTab(tabId) {
 async function selectResearchFolder(folderName) {
   await browser.waitUntil(
     async () => {
-      const buttons = await $$('nav[aria-label="Previous searches"] button[title]');
-      for (const button of buttons) {
-        if ((await button.getAttribute('title')) === folderName) {
-          await button.click();
-          return true;
-        }
-      }
-      return false;
+      return browser.execute((targetFolderName) => {
+        const buttons = Array.from(
+          document.querySelectorAll('[data-testid="research-sidebar"] button[title]'),
+        );
+        const button = buttons.find(
+          (candidate) =>
+            candidate.getAttribute('title') === targetFolderName &&
+            candidate.getClientRects().length > 0,
+        );
+        if (!button) return false;
+
+        button.scrollIntoView({ block: 'nearest' });
+        button.dispatchEvent(
+          new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+          }),
+        );
+        button.dispatchEvent(
+          new MouseEvent('mouseup', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+          }),
+        );
+        button.click();
+        return true;
+      }, folderName);
     },
     {
       timeout: 10000,

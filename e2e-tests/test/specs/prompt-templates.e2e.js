@@ -46,6 +46,61 @@ async function addTemplate(name, text) {
   await waitForText(name, 5000);
 }
 
+async function selectPromptTemplate(name) {
+  await browser.waitUntil(
+    async () => {
+      const buttons = await $$('button[aria-label="Prompt templates"]');
+      for (const button of buttons) {
+        if (!(await button.isDisplayed())) continue;
+        await button.click();
+        return true;
+      }
+      return false;
+    },
+    { timeout: 5000, interval: 200 },
+  );
+
+  try {
+    await browser.waitUntil(
+      async () => {
+        return browser.execute((templateName) => {
+          const item = Array.from(document.querySelectorAll('[role="menuitem"]'))
+            .find(
+              (candidate) =>
+                candidate.textContent?.trim() === templateName &&
+                candidate.getClientRects().length > 0,
+            );
+          if (!item) return false;
+          item.click();
+          return true;
+        }, name);
+      },
+      { timeout: 5000, interval: 200 },
+    );
+  } catch (error) {
+    const debug = await browser.execute(() => ({
+      buttons: Array.from(
+        document.querySelectorAll('button[aria-label="Prompt templates"]'),
+      ).map((button) => ({
+        text: button.textContent?.trim() ?? '',
+        visible: button.getClientRects().length > 0,
+        ariaExpanded: button.getAttribute('aria-expanded'),
+      })),
+      menuItems: Array.from(document.querySelectorAll('[role="menuitem"]')).map(
+        (item) => ({
+          text: item.textContent?.trim() ?? '',
+          visible: item.getClientRects().length > 0,
+        }),
+      ),
+      promptStore: window.__deepSearchStoreMockData?.['prompt-templates.json'],
+    }));
+    throw new Error(
+      `Expected prompt template menu item "${name}". Debug: ${JSON.stringify(debug)}`,
+      { cause: error },
+    );
+  }
+}
+
 async function deleteAllVisibleTemplates() {
   let attempts = 0;
   while (attempts < 20) {
@@ -86,7 +141,7 @@ describe('Prompt Templates', () => {
     expect(bodyText).toContain('This is a test prompt');
   });
 
-  it('should add a template and show it in the chat template button', async () => {
+  it('should add a template and show it in the chat template dropdown', async () => {
     await ensureChatUI();
     await switchToPromptsTab();
 
@@ -94,7 +149,12 @@ describe('Prompt Templates', () => {
 
     await switchToChatTab();
 
-    await waitForText('Quick Search', 5000);
+    await selectPromptTemplate('Quick Search');
+
+    const textarea = await $('textarea[placeholder="Ask something..."]');
+    await textarea.waitForExist({ timeout: 5000 });
+    const value = await textarea.getValue();
+    expect(value).toBe('Search for information about');
   });
 
   it('should populate composer when selecting a template from the dropdown', async () => {
@@ -104,26 +164,7 @@ describe('Prompt Templates', () => {
     await addTemplate('Summarize', 'Summarize the following text');
 
     await switchToChatTab();
-    await waitForText('Summarize', 5000);
-
-    const templateButtons = await $$('button[aria-label="Prompt templates"]');
-    expect(templateButtons.length).toBeGreaterThan(0);
-    await templateButtons[0].click();
-
-    await browser.waitUntil(
-      async () => {
-        const items = await $$('[role="menuitem"]');
-        for (const item of items) {
-          const text = await item.getText();
-          if (text === 'Summarize') {
-            await item.click();
-            return true;
-          }
-        }
-        return false;
-      },
-      { timeout: 5000, interval: 200 },
-    );
+    await selectPromptTemplate('Summarize');
 
     const textarea = await $('textarea[placeholder="Ask something..."]');
     await textarea.waitForExist({ timeout: 5000 });
@@ -140,30 +181,14 @@ describe('Prompt Templates', () => {
     await addTemplate('Hello', 'Say hello world');
 
     await switchToChatTab();
-    await waitForText('Hello', 5000);
 
     await installOpenRouterMock([textResponse('Hello world response')]);
 
-    const templateButtons = await $$('button[aria-label="Prompt templates"]');
-    expect(templateButtons.length).toBeGreaterThan(0);
-    await templateButtons[0].click();
+    await selectPromptTemplate('Hello');
 
-    await browser.waitUntil(
-      async () => {
-        const items = await $$('[role="menuitem"]');
-        for (const item of items) {
-          const text = await item.getText();
-          if (text === 'Hello') {
-            await item.click();
-            return true;
-          }
-        }
-        return false;
-      },
-      { timeout: 5000, interval: 200 },
-    );
-
-    await waitForText('Say hello world', 5000);
+    const textarea = await $('textarea[placeholder="Ask something..."]');
+    await textarea.waitForExist({ timeout: 5000 });
+    expect(await textarea.getValue()).toBe('Say hello world');
 
     await clickButtonWithText('Send');
     await waitForText('Hello world response', 10000);
@@ -210,12 +235,13 @@ describe('Prompt Templates', () => {
     );
     await editButton.click();
 
-    const nameInput = await $('input');
-    await nameInput.waitForExist({ timeout: 5000 });
+    const nameInput = await $('input[placeholder="Template name"]');
+    await nameInput.waitForDisplayed({ timeout: 5000 });
     await nameInput.clearValue();
     await nameInput.setValue('Renamed');
 
-    const textarea = await $('textarea');
+    const textarea = await $('textarea[placeholder="Enter prompt text..."]');
+    await textarea.waitForDisplayed({ timeout: 5000 });
     await textarea.clearValue();
     await textarea.setValue('Updated text');
 

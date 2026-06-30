@@ -14,6 +14,7 @@ import type { SubAgentEvent } from "@/lib/sub-agent-types";
 import { createGuardedStream } from "./guarded-stream";
 import type { SearchToolKeys } from "./tool-registry";
 import {
+  deleteResearchFolder,
   initializeResearchFolder,
   moveResearchChatToFolder,
   saveResearchChatMessages,
@@ -148,6 +149,7 @@ export interface ResearchFolderChangeOptions {
 
 export class DirectTransport implements ChatTransport<UIMessage> {
   private researchFolder: string | null = null;
+  private autoCreatedResearchFolder: string | null = null;
   private processedMemoryMessageIds = new Set<string>();
 
   constructor(
@@ -166,9 +168,18 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   }
 
   setResearchFolder(researchFolder: string | null) {
-    this.researchFolder = researchFolder
+    const parsedResearchFolder = researchFolder
       ? SafePathSegmentSchema.parse(researchFolder)
       : null;
+    this.researchFolder = parsedResearchFolder;
+
+    if (
+      !parsedResearchFolder ||
+      (this.autoCreatedResearchFolder &&
+        this.autoCreatedResearchFolder !== parsedResearchFolder)
+    ) {
+      this.autoCreatedResearchFolder = null;
+    }
   }
 
   async sendMessages({
@@ -224,6 +235,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
               );
 
               transport.researchFolder = folderName;
+              transport.autoCreatedResearchFolder = folderName;
               transport.onResearchFolderChange?.(folderName, {});
             } else {
               throw new Error(
@@ -238,7 +250,13 @@ export class DirectTransport implements ChatTransport<UIMessage> {
 
             const previousResearchChoice = getPreviousResearchChoice(messages);
             if (previousResearchChoice.type === "continue") {
-              await transport.switchResearchFolder(previousResearchChoice.folder, messages);
+              await transport.switchResearchFolder(
+                previousResearchChoice.folder,
+                messages,
+                { deleteAutoCreatedPreviousFolder: true },
+              );
+            } else {
+              transport.autoCreatedResearchFolder = null;
             }
           }
 
@@ -329,9 +347,15 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   private async switchResearchFolder(
     folderName: string,
     messages: UIMessage[],
+    options?: { deleteAutoCreatedPreviousFolder?: boolean },
   ) {
     const parsedFolderName = SafePathSegmentSchema.parse(folderName);
     const previousFolderName = this.researchFolder;
+    const shouldDeletePreviousFolder =
+      options?.deleteAutoCreatedPreviousFolder === true &&
+      previousFolderName !== null &&
+      previousFolderName === this.autoCreatedResearchFolder &&
+      previousFolderName !== parsedFolderName;
 
     if (previousFolderName && previousFolderName !== parsedFolderName) {
       await moveResearchChatToFolder({
@@ -343,6 +367,19 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     }
 
     this.researchFolder = parsedFolderName;
+    this.autoCreatedResearchFolder = null;
+
+    if (shouldDeletePreviousFolder && previousFolderName) {
+      try {
+        await deleteResearchFolder(previousFolderName);
+      } catch (error) {
+        console.warn(
+          `[transport] Failed to delete auto-created research folder "${previousFolderName}" after switching to "${parsedFolderName}":`,
+          error,
+        );
+      }
+    }
+
     this.onResearchFolderChange?.(parsedFolderName, {
       ...(previousFolderName && previousFolderName !== parsedFolderName
         ? { previousFolderName }

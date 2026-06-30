@@ -249,18 +249,18 @@ async function updateBaselines(stories, baseUrl, options) {
   await fs.mkdir(options.baselineDir, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    colorScheme: options.colorScheme,
-    deviceScaleFactor: 1,
-    viewport: options.viewport,
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(30_000);
-
   let updated = 0;
 
   try {
     for (const story of stories) {
+      const context = await browser.newContext({
+        colorScheme: options.colorScheme,
+        deviceScaleFactor: 1,
+        viewport: options.viewport,
+      });
+      const page = await context.newPage();
+      page.setDefaultTimeout(30_000);
+
       try {
         const buffer = await capturePage(page, story, baseUrl, options);
         const outputPath = path.join(options.baselineDir, storyFilename(story.id));
@@ -269,6 +269,8 @@ async function updateBaselines(stories, baseUrl, options) {
         updated += 1;
       } catch (error) {
         console.error(`  failed   ${story.id}: ${error instanceof Error ? error.message : error}`);
+      } finally {
+        await context.close();
       }
     }
   } finally {
@@ -283,13 +285,6 @@ async function compareSnapshots(stories, baseUrl, options) {
   await fs.mkdir(diffDir, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    colorScheme: options.colorScheme,
-    deviceScaleFactor: 1,
-    viewport: options.viewport,
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(30_000);
 
   const results = [];
 
@@ -297,6 +292,13 @@ async function compareSnapshots(stories, baseUrl, options) {
     for (const story of stories) {
       const filename = storyFilename(story.id);
       const baselinePath = path.join(options.baselineDir, filename);
+      const context = await browser.newContext({
+        colorScheme: options.colorScheme,
+        deviceScaleFactor: 1,
+        viewport: options.viewport,
+      });
+      const page = await context.newPage();
+      page.setDefaultTimeout(30_000);
 
       try {
         const actualBuffer = await capturePage(page, story, baseUrl, options);
@@ -335,6 +337,8 @@ async function compareSnapshots(stories, baseUrl, options) {
         const message = error instanceof Error ? error.message : String(error);
         results.push({ id: story.id, status: "error", filename, error: message });
         console.error(`  error    ${filename}: ${message}`);
+      } finally {
+        await context.close();
       }
     }
   } finally {

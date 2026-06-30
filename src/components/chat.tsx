@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useChat } from "@ai-sdk/react";
+import { useChat, type UseChatHelpers } from "@ai-sdk/react";
 import { useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { Box, Alert } from "@mantine/core";
@@ -37,26 +37,7 @@ const CHAT_WRAPPER_STYLE = {
 } as const;
 const THREAD_CONTAINER_STYLE = { flex: 1, minHeight: 0 };
 
-export function Chat({
-  sessionId,
-  modelOptions,
-  defaultModelId,
-  researchApiKey,
-  runtimeChatId,
-  researchChatId,
-  researchFolder,
-  selectedModelId,
-  initialMessages = [],
-  onResearchFolderChange,
-  onResearchChatSaved,
-  onRunStateChange,
-  onAttentionStateChange,
-  onSelectedModelIdChange,
-  onModelChange,
-  onConfigure,
-  searchKeys,
-  currency,
-}: {
+interface ChatProps {
   sessionId: string;
   modelOptions: ConfiguredChatModelOption[];
   defaultModelId: string;
@@ -65,6 +46,7 @@ export function Chat({
   researchChatId: string;
   researchFolder: string | null;
   selectedModelId: string;
+  visible?: boolean;
   initialMessages?: UIMessage[];
   onResearchFolderChange?: (
     sessionId: string,
@@ -78,8 +60,181 @@ export function Chat({
   onConfigure?: () => void;
   searchKeys: SearchToolKeys;
   currency: Currency;
-}) {
+}
+
+export function Chat({
+  sessionId,
+  modelOptions,
+  defaultModelId,
+  runtimeChatId,
+  researchChatId,
+  researchFolder,
+  selectedModelId,
+  visible = true,
+  initialMessages = [],
+  onResearchFolderChange,
+  onResearchChatSaved,
+  onRunStateChange,
+  onAttentionStateChange,
+  onSelectedModelIdChange,
+  onModelChange,
+  onConfigure,
+  searchKeys,
+  currency,
+}: ChatProps) {
   useSubAgentRenderCounter("Chat");
+
+  const modelOptionsRef = useRef(modelOptions);
+  modelOptionsRef.current = modelOptions;
+
+  const selectedModelIdRef = useRef(selectedModelId);
+  selectedModelIdRef.current = selectedModelId;
+
+  const onSelectedModelIdChangeRef = useRef(onSelectedModelIdChange);
+  onSelectedModelIdChangeRef.current = onSelectedModelIdChange;
+
+  const onModelChangeRef = useRef(onModelChange);
+  onModelChangeRef.current = onModelChange;
+
+  const effectiveSearchKeys = useMemo(
+    () => ({ ...searchKeys, currency }),
+    [currency, searchKeys],
+  );
+
+  const searchKeysRef = useRef(effectiveSearchKeys);
+  searchKeysRef.current = effectiveSearchKeys;
+
+  const researchFolderRef = useRef(researchFolder);
+  researchFolderRef.current = researchFolder;
+
+  const researchChatIdRef = useRef(researchChatId);
+  researchChatIdRef.current = researchChatId;
+
+  const onResearchChatSavedRef = useRef(onResearchChatSaved);
+  onResearchChatSavedRef.current = onResearchChatSaved;
+
+  const onResearchFolderChangeRef = useRef(onResearchFolderChange);
+  onResearchFolderChangeRef.current = onResearchFolderChange;
+
+  function getSelectedChatModel(): ChatModelConfig | null {
+    const selected = modelOptionsRef.current.find(
+      (option) => option.id === selectedModelIdRef.current,
+    );
+    if (!selected || selected.disabled) return null;
+
+    return {
+      provider: selected.provider,
+      apiKey: selected.apiKey,
+      model: selected.model,
+      baseURL: selected.baseURL,
+    };
+  }
+
+  const transportRef = useRef(
+    new DirectTransport(
+      getSelectedChatModel,
+      () => searchKeysRef.current,
+      researchChatId,
+      researchFolder,
+      (folderName: string) => {
+        researchFolderRef.current = folderName;
+        onResearchFolderChangeRef.current?.(sessionId, folderName);
+      },
+    ),
+  );
+
+  useEffect(() => {
+    transportRef.current.setResearchFolder(researchFolder);
+    researchFolderRef.current = researchFolder;
+  }, [researchFolder]);
+
+  const chat = useChat({
+    id: runtimeChatId,
+    messages: initialMessages,
+    transport: transportRef.current,
+    sendAutomaticallyWhen: shouldContinueAfterToolResult,
+    onError: (error) => {
+      console.error("[chat] Transport error:", error);
+    },
+    onFinish: ({ messages }) => {
+      const folderName = researchFolderRef.current;
+      if (!folderName) return;
+
+      const savedChatId = researchChatIdRef.current;
+      void saveResearchChatMessages(folderName, savedChatId, messages).then(
+        () => {
+          onResearchChatSavedRef.current?.(folderName, savedChatId);
+        },
+      ).catch((err) => {
+        console.error("[chat] Failed to save research chat messages:", err);
+      });
+    },
+  });
+
+  const isRunning = chat.status === "submitted" || chat.status === "streaming";
+  useEffect(() => {
+    onRunStateChange?.(sessionId, isRunning);
+  }, [isRunning, onRunStateChange, sessionId]);
+
+  const needsAttention = useMemo(
+    () => hasPendingQuestionTool(chat.messages),
+    [chat.messages],
+  );
+  useEffect(() => {
+    onAttentionStateChange?.(sessionId, needsAttention);
+  }, [needsAttention, onAttentionStateChange, sessionId]);
+
+  return (
+    <>
+      <SubAgentEventBridge
+        initialMessages={initialMessages}
+        messages={chat.messages}
+        researchChatId={researchChatId}
+      />
+      <SubAgentRunsLoader
+        researchChatId={researchChatId}
+        researchFolder={researchFolder}
+      />
+      <SubAgentRunsPersistence
+        researchChatId={researchChatId}
+        researchFolder={researchFolder}
+      />
+      {visible && (
+        <ChatVisibleView
+          chat={chat}
+          modelOptions={modelOptions}
+          defaultModelId={defaultModelId}
+          selectedModelId={selectedModelId}
+          onSelectedModelIdChange={onSelectedModelIdChangeRef.current}
+          onModelChange={onModelChangeRef.current}
+          onConfigure={onConfigure}
+          researchChatId={researchChatId}
+        />
+      )}
+    </>
+  );
+}
+
+function ChatVisibleView({
+  chat,
+  modelOptions,
+  defaultModelId,
+  selectedModelId,
+  onSelectedModelIdChange,
+  onModelChange,
+  onConfigure,
+  researchChatId,
+}: {
+  chat: UseChatHelpers<UIMessage>;
+  modelOptions: ConfiguredChatModelOption[];
+  defaultModelId: string;
+  selectedModelId: string;
+  onSelectedModelIdChange: (modelId: string) => void;
+  onModelChange?: (model: ConfiguredChatModelOption) => void;
+  onConfigure?: () => void;
+  researchChatId: string;
+}) {
+  useSubAgentRenderCounter("ChatVisibleView");
 
   const enabledModels = useMemo(
     () => modelOptions.filter((option) => !option.disabled),
@@ -173,51 +328,11 @@ export function Chat({
   const modelOptionsRef = useRef(modelOptions);
   modelOptionsRef.current = modelOptions;
 
-  const selectedModelIdRef = useRef(selectedModelId);
-  selectedModelIdRef.current = selectedModelId;
-
   const onSelectedModelIdChangeRef = useRef(onSelectedModelIdChange);
   onSelectedModelIdChangeRef.current = onSelectedModelIdChange;
 
   const onModelChangeRef = useRef(onModelChange);
   onModelChangeRef.current = onModelChange;
-
-  const researchApiKeyRef = useRef(researchApiKey);
-  researchApiKeyRef.current = researchApiKey;
-
-  const effectiveSearchKeys = useMemo(
-    () => ({ ...searchKeys, currency }),
-    [currency, searchKeys],
-  );
-
-  const searchKeysRef = useRef(effectiveSearchKeys);
-  searchKeysRef.current = effectiveSearchKeys;
-
-  const researchFolderRef = useRef(researchFolder);
-  researchFolderRef.current = researchFolder;
-
-  const researchChatIdRef = useRef(researchChatId);
-  researchChatIdRef.current = researchChatId;
-
-  const onResearchChatSavedRef = useRef(onResearchChatSaved);
-  onResearchChatSavedRef.current = onResearchChatSaved;
-
-  const onResearchFolderChangeRef = useRef(onResearchFolderChange);
-  onResearchFolderChangeRef.current = onResearchFolderChange;
-
-  function getSelectedChatModel(): ChatModelConfig | null {
-    const selected = modelOptionsRef.current.find(
-      (option) => option.id === selectedModelIdRef.current,
-    );
-    if (!selected || selected.disabled) return null;
-
-    return {
-      provider: selected.provider,
-      apiKey: selected.apiKey,
-      model: selected.model,
-      baseURL: selected.baseURL,
-    };
-  }
 
   // useCallback + refs so the handler identity is stable across streaming
   // re-renders. Without this, ModelSelector (React.memo) re-renders on every
@@ -231,60 +346,6 @@ export function Chat({
     onSelectedModelIdChangeRef.current(modelId);
     onModelChangeRef.current?.(selected);
   }, []);
-
-  const transportRef = useRef(
-    new DirectTransport(
-      getSelectedChatModel,
-      () => searchKeysRef.current,
-      researchChatId,
-      researchFolder,
-      (folderName: string) => {
-        researchFolderRef.current = folderName;
-        onResearchFolderChangeRef.current?.(sessionId, folderName);
-      },
-    ),
-  );
-
-  useEffect(() => {
-    transportRef.current.setResearchFolder(researchFolder);
-    researchFolderRef.current = researchFolder;
-  }, [researchFolder]);
-
-  const chat = useChat({
-    id: runtimeChatId,
-    messages: initialMessages,
-    transport: transportRef.current,
-    sendAutomaticallyWhen: shouldContinueAfterToolResult,
-    onError: (error) => {
-      console.error("[chat] Transport error:", error);
-    },
-    onFinish: ({ messages }) => {
-      const folderName = researchFolderRef.current;
-      if (!folderName) return;
-
-      const savedChatId = researchChatIdRef.current;
-      void saveResearchChatMessages(folderName, savedChatId, messages).then(
-        () => {
-          onResearchChatSavedRef.current?.(folderName, savedChatId);
-        },
-      ).catch((err) => {
-        console.error("[chat] Failed to save research chat messages:", err);
-      });
-    },
-  });
-
-  const isRunning = chat.status === "submitted" || chat.status === "streaming";
-  useEffect(() => {
-    onRunStateChange?.(sessionId, isRunning);
-  }, [isRunning, onRunStateChange, sessionId]);
-
-  const needsAttention = useMemo(
-    () => hasPendingQuestionTool(chat.messages),
-    [chat.messages],
-  );
-  useEffect(() => {
-    onAttentionStateChange?.(sessionId, needsAttention);
-  }, [needsAttention, onAttentionStateChange, sessionId]);
 
   const runtime = useAISDKRuntime(chat);
   // Deps intentionally NOT `[chat.messages]`: that array is a new reference on
@@ -321,19 +382,6 @@ export function Chat({
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <SubAgentEventBridge
-        initialMessages={initialMessages}
-        messages={chat.messages}
-        researchChatId={researchChatId}
-      />
-      <SubAgentRunsLoader
-        researchChatId={researchChatId}
-        researchFolder={researchFolder}
-      />
-      <SubAgentRunsPersistence
-        researchChatId={researchChatId}
-        researchFolder={researchFolder}
-      />
       <QuestionsToolUI />
       <Box style={CHAT_WRAPPER_STYLE}>
         {chat.error && (

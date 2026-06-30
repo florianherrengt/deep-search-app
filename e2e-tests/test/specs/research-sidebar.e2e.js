@@ -54,7 +54,7 @@ describe('Research Sidebar', () => {
     await browser.waitUntil(
       async () => {
         await refreshResearchLibraryFromMock();
-        const sidebar = await $('nav[aria-label="Previous searches"]');
+        const sidebar = await $('[data-testid="research-sidebar"]');
         const text = await sidebar.getText();
         return text.includes('No searches yet');
       },
@@ -93,7 +93,7 @@ describe('Research Sidebar', () => {
 
     await browser.waitUntil(
       async () => {
-        const sidebar = await $('nav[aria-label="Previous searches"]');
+        const sidebar = await $('[data-testid="research-sidebar"]');
         const text = await sidebar.getText();
         return text.includes(folderName);
       },
@@ -120,7 +120,7 @@ async function sidebarFolderTitles() {
   return browser.execute(() =>
     Array.from(
       document.querySelectorAll(
-        'nav[aria-label="Previous searches"] button[title]',
+        '[data-testid="research-sidebar"] button[title]',
       ),
     ).map((button) => button.getAttribute('title')),
   );

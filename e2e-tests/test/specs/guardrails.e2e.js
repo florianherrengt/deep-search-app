@@ -42,7 +42,15 @@ describe('Visible Agent Guardrails', () => {
     await waitForText('Blue');
 
     const logs = await browser.execute(() => window.__logs || []);
-    expect(logs.filter((entry) => entry.kind === 'openrouter')).toHaveLength(3);
+    const userFacingCalls = logs.filter(
+      (entry) =>
+        entry.kind === 'openrouter' &&
+        !['folder-name', 'memory-json'].includes(entry.responseType),
+    );
+    expect(userFacingCalls.map((entry) => entry.responseType)).toEqual([
+      'text',
+      'tool',
+    ]);
   });
 
   it('shows a visible research-depth reminder and checkpoint guidance path', async () => {

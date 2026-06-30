@@ -215,7 +215,15 @@ function waitForBrowserPaint(): Promise<void> {
   }
 
   return new Promise((resolve) => {
-    window.requestAnimationFrame(() => resolve());
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
+    window.requestAnimationFrame(finish);
+    window.setTimeout(finish, 100);
   });
 }
 

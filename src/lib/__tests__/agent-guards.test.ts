@@ -222,6 +222,25 @@ describe("evaluateAssistantStep", () => {
     });
   });
 
+  it("retries extract_page_content with a generic web search prerequisite", () => {
+    const decision = evaluateAssistantStep({
+      messages: [userMessage("Research the market")],
+      responseMessage: assistantWithExtractTool(),
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "tool_call_requirement",
+      toolChoice: "required",
+      event: {
+        message: "Prompted the agent to call a web search tool before extract_page_content.",
+      },
+    });
+    expect(decision.action === "retry" && decision.event.message).not.toContain(
+      "brave_search",
+    );
+  });
+
   it("accepts prerequisite-gated tools after all required tools were called", () => {
     const decision = evaluateAssistantStep({
       messages: [
@@ -229,6 +248,18 @@ describe("evaluateAssistantStep", () => {
         assistantWithQuestionTool(),
       ],
       responseMessage: assistantWithResearchPlanTool(),
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+  });
+
+  it("accepts extract_page_content after aggregate_search was called", () => {
+    const decision = evaluateAssistantStep({
+      messages: [
+        userMessage("Research the market"),
+        assistantWithAggregateSearchTool(),
+      ],
+      responseMessage: assistantWithExtractTool(),
     });
 
     expect(decision).toMatchObject({ action: "accept" });
@@ -555,6 +586,47 @@ function assistantWithResearchPlanTool(): UIMessage {
         state: "input-available",
         input: {
           query: "Research the market",
+        },
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantWithAggregateSearchTool(): UIMessage {
+  return {
+    id: "assistant-aggregate-search",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-aggregate_search",
+        toolCallId: "aggregate-search-1",
+        state: "output-available",
+        input: { query: "market research" },
+        output: {
+          results: [
+            {
+              title: "Market",
+              url: "https://example.com/market",
+              description: "Market page",
+            },
+          ],
+        },
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantWithExtractTool(): UIMessage {
+  return {
+    id: "assistant-extract",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-extract_page_content",
+        toolCallId: "extract-1",
+        state: "input-available",
+        input: {
+          url: "https://example.com/market",
         },
       } as UIMessage["parts"][number],
     ],

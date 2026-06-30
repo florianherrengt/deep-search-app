@@ -256,7 +256,7 @@ describe("DirectTransport research folder lifecycle", () => {
     );
   });
 
-  it("moves the chat to an existing folder when user chooses continue", async () => {
+  it("moves the chat to an existing folder and deletes the initial folder when user chooses continue", async () => {
     tauriMocks.invoke.mockImplementation(async (command: string) => {
       if (command === "search_research") {
         return [
@@ -309,7 +309,7 @@ describe("DirectTransport research folder lifecycle", () => {
     expect(fsMocks.remove).toHaveBeenCalledWith(
       "search-results/earnings-research/chats/2026-05-22T10-11-12.123Z.json",
     );
-    expect(fsMocks.remove).not.toHaveBeenCalledWith(
+    expect(fsMocks.remove).toHaveBeenCalledWith(
       "search-results/earnings-research",
       { recursive: true },
     );

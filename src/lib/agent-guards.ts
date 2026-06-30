@@ -10,7 +10,11 @@ import { CURRENCIES, type Currency } from "@/lib/settings-store";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import getSymbolFromCurrency from "currency-symbol-map";
 import {
-  evaluateAssistantStep as pkgEvaluateAssistantStep,
+  evaluateToolCallRequirementForResponse,
+  WEB_SEARCH_TOOL_NAMES,
+  type ToolCallRequirementViolation,
+} from "@/lib/tool-call-requirements";
+import {
   asksUserForInput as pkgAsksUserForInput,
   isResearchLikeRequest as pkgIsResearchLikeRequest,
   reviewResearchCheckpoint as pkgReviewResearchCheckpoint,
@@ -136,6 +140,13 @@ const CURRENCY_NAME_MATCHERS: Array<{
   codes,
 }));
 
+const RESEARCH_TOOL_NAMES = new Set<string>([
+  ...WEB_SEARCH_TOOL_NAMES,
+  TOOL_NAMES.extract_page_content,
+]);
+
+const RESEARCH_CHECKPOINT_TOOL = TOOL_NAMES.research_checkpoint;
+
 function currencySymbolPattern(symbol: string): RegExp | null {
   if (/^[A-Za-z]$/.test(symbol)) return null;
 
@@ -207,6 +218,17 @@ function hasToolCall(message: UIMessage, toolName: string) {
   return message.parts.some((part) => getToolNameFromPart(part) === toolName);
 }
 
+function hasDeepResearchToolCall(message: UIMessage) {
+  return message.parts.some((part) => {
+    const name = getToolNameFromPart(part);
+    return name ? RESEARCH_TOOL_NAMES.has(name) : false;
+  });
+}
+
+function hasResearchCheckpoint(message: UIMessage) {
+  return hasToolCall(message, RESEARCH_CHECKPOINT_TOOL);
+}
+
 function getMessageText(message: UIMessage | undefined): string {
   if (!message) return "";
   return message.parts
@@ -218,6 +240,14 @@ function getMessageText(message: UIMessage | undefined): string {
     .map((part) => part.text)
     .join("\n")
     .trim();
+}
+
+function getLatestUserText(messages: UIMessage[]): string {
+  const latestUserMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+
+  return getMessageText(latestUserMessage);
 }
 
 function getCurrentTurnMessages(
@@ -233,6 +263,63 @@ function getCurrentTurnMessages(
     ...(latestUserIndex === -1 ? messages : messages.slice(latestUserIndex)),
     responseMessage,
   ];
+}
+
+function shouldContinueFromLatestTool(message: UIMessage) {
+  const lastToolIndex = message.parts.reduce(
+    (latest, part, index) => (isToolUIPart(part) ? index : latest),
+    -1,
+  );
+  if (lastToolIndex === -1) return false;
+
+  return !message.parts
+    .slice(lastToolIndex + 1)
+    .some(
+      (part) =>
+        part.type === "text" &&
+        part.text.trim().length > 0 &&
+        !isSubAgentOutputTextPart(part),
+    );
+}
+
+function toolRequirementRetry<TOOLS extends ToolSet>(
+  violation: ToolCallRequirementViolation,
+): GuardDecision<TOOLS> {
+  if (violation.missingAnyOfTools && violation.missingAnyOfTools.length > 0) {
+    const label = violation.prerequisiteLabel ?? "a required tool";
+    return {
+      action: "retry",
+      guard: "tool_call_requirement",
+      event: {
+        kind: "tool_call_requirement",
+        status: "retrying",
+        title: "Tool prerequisite enforced",
+        message: `Prompted the agent to call ${label} before ${violation.toolName}.`,
+        reason: `The agent tried to call ${violation.toolName} before ${label}. Valid options: ${violation.missingAnyOfTools.join(", ")}.`,
+      },
+      retryInstruction: `Your previous response tried to call ${violation.toolName} too early. ${violation.instruction}`,
+      toolChoice: "required" as ToolChoice<TOOLS>,
+    };
+  }
+
+  const missingTools = violation.missingPreviousTools ?? [];
+  const nextTool = missingTools[0];
+  return {
+    action: "retry",
+    guard: "tool_call_requirement",
+    event: {
+      kind: "tool_call_requirement",
+      status: "retrying",
+      title: "Tool prerequisite enforced",
+      message: `Prompted the agent to call ${nextTool} before ${violation.toolName}.`,
+      reason: `The agent tried to call ${violation.toolName} before required previous tool calls: ${missingTools.join(", ")}.`,
+    },
+    retryInstruction: `Your previous response tried to call ${violation.toolName} too early. ${violation.instruction}`,
+    toolChoice: {
+      type: "tool",
+      toolName: nextTool,
+    } as ToolChoice<TOOLS>,
+  };
 }
 
 // ─── Wrapped evaluation ───
@@ -276,13 +363,85 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
     }
   }
 
-  return pkgEvaluateAssistantStep({
-    messages: messages as unknown as Parameters<typeof pkgEvaluateAssistantStep>[0]["messages"],
-    responseMessage: responseMessage as unknown as Parameters<
-      typeof pkgEvaluateAssistantStep
-    >[0]["responseMessage"],
-    isHiddenText: isSubAgentOutputTextPart as unknown as Parameters<
-      typeof pkgEvaluateAssistantStep
-    >[0]["isHiddenText"],
-  }) as unknown as GuardDecision<TOOLS>;
+  const toolRequirementViolation = evaluateToolCallRequirementForResponse({
+    messages,
+    responseMessage,
+  });
+  if (toolRequirementViolation) {
+    return toolRequirementRetry(toolRequirementViolation);
+  }
+
+  const text = getMessageText(responseMessage);
+  if (!text) return { action: "accept" };
+  const userText = getLatestUserText(messages);
+  const currentTurnMessages = getCurrentTurnMessages(messages, responseMessage);
+
+  if (
+    !hasToolCall(responseMessage, TOOL_NAMES.ask_questions) &&
+    pkgAsksUserForInput(text)
+  ) {
+    return {
+      action: "retry",
+      guard: "question_tool",
+      event: {
+        kind: "question_tool",
+        status: "retrying",
+        title: "Question tool enforced",
+        message: "Prompted the agent to ask this with the question tool.",
+        reason: "The agent asked for user input in plain text.",
+      },
+      retryInstruction:
+        "Your previous response asked the user for input in plain text. Convert that request into an ask_questions tool call now. Do not answer in plain text.",
+      toolChoice: {
+        type: "tool",
+        toolName: TOOL_NAMES.ask_questions,
+      } as ToolChoice<TOOLS>,
+    };
+  }
+
+  if (shouldContinueFromLatestTool(responseMessage)) {
+    return { action: "accept" };
+  }
+
+  if (!pkgIsResearchLikeRequest(userText)) return { action: "accept" };
+
+  if (currentTurnMessages.some(hasResearchCheckpoint)) {
+    return { action: "accept" };
+  }
+
+  if (!currentTurnMessages.some(hasDeepResearchToolCall)) {
+    return {
+      action: "retry",
+      guard: "research_checkpoint",
+      event: {
+        kind: "research_checkpoint",
+        status: "retrying",
+        title: "Research depth reminder",
+        message:
+          "Prompted the agent to consider whether more research is needed.",
+        reason: "The answer did not show enough research tool use.",
+      },
+      retryInstruction:
+        "Your previous response answered a research-like request without showing research. Reconsider whether you searched deeply enough. If more evidence would materially improve the answer, use search and page-reading tools before answering. You may call research_checkpoint for plain-text guidance when ready.",
+      toolChoice: "required" as ToolChoice<TOOLS>,
+    };
+  }
+
+  return {
+    action: "retry",
+    guard: "research_checkpoint",
+    event: {
+      kind: "research_checkpoint",
+      status: "retrying",
+      title: "Research checkpoint guidance",
+      message: "Prompted the agent to get advisory checkpoint guidance.",
+      reason: "The answer did not include a research checkpoint.",
+    },
+    retryInstruction:
+      "Before finalizing this research answer, call research_checkpoint once for plain-text guidance. Use the guidance to decide whether further research would materially improve the answer; do not wait for an approval status.",
+    toolChoice: {
+      type: "tool",
+      toolName: RESEARCH_CHECKPOINT_TOOL,
+    } as ToolChoice<TOOLS>,
+  };
 }

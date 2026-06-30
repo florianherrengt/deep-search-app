@@ -8,6 +8,7 @@
     "lint": "eslint .",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "verify": "npm run lint && npm test && npm run build && npm run build-storybook && npm run test:browser && cargo test --manifest-path src-tauri/Cargo.toml && npm run test:e2e && npm run test:e2e:tauri && npm run test:visual && npm run benchmark:subagents",
     "release:set-version": "node scripts/set-release-version.mjs",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
