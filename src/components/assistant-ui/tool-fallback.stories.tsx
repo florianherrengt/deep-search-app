@@ -1,5 +1,8 @@
+import { useLayoutEffect, type ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import { ToolFallback } from "./tool-fallback";
+import { useSubAgentActions } from "@/lib/sub-agent-store";
 
 const meta = {
   title: "Assistant UI/ToolFallback",
@@ -74,5 +77,52 @@ export const LongJson: Story = {
           "Long extracted content is wrapped inside the fallback details panel so tool output remains inspectable without breaking the chat layout.",
       })),
     },
+  },
+};
+
+function StreamingSubAgentToolFallback(
+  args: ComponentProps<typeof ToolFallback>,
+) {
+  const { processEvent } = useSubAgentActions();
+
+  useLayoutEffect(() => {
+    processEvent("storybook-chat", {
+      type: "start",
+      id: "storybook-plan-agent",
+      source: "sub-agent",
+      name: "Research Plan",
+      toolName: "create_research_plan",
+      parentMessageId: "storybook-message",
+      displayTarget: {
+        type: "toolCall",
+        toolCallId: "storybook-plan-call",
+      },
+    });
+    processEvent("storybook-chat", {
+      type: "text-delta",
+      id: "storybook-plan-agent",
+      delta:
+        "# Research plan\n\n- Check official docs\n- Compare release notes\n- Verify open issues",
+    });
+  }, [processEvent]);
+
+  return <ToolFallback {...args} />;
+}
+
+export const ExpandedWithStreamingSubAgent: Story = {
+  args: {
+    toolName: "create_research_plan",
+    status: "running",
+    args: { query: "Compare current AI browser automation tools" },
+    result: undefined,
+    chatId: "storybook-chat",
+    toolCallId: "storybook-plan-call",
+  },
+  render: (args) => <StreamingSubAgentToolFallback {...args} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByLabelText(/expand.*create_research_plan/i),
+    );
   },
 };

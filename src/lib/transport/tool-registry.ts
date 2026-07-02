@@ -4,7 +4,6 @@ import {
   createDisambiguateTool,
   createSearchTools,
   createSequentialThinkingTool,
-  createResearchPlanTool,
   createResearchCheckpointTool,
   type SearchKeys as PkgSearchKeys,
 } from "deep-search-core/research-orchestrator";
@@ -17,6 +16,7 @@ import { createAggregateSearchTool } from "@/tools/aggregate-search-tool";
 import { createSwitchResearchFolderTool } from "@/tools/switch-research-folder-tool";
 import { createCurrencyConversionTool } from "@/tools/currency-conversion-tool";
 import { createFactsCheckTool } from "@/tools/facts-check-tool";
+import { createResearchPlanTool } from "@/tools/research-plan-tool";
 import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
 import type { Currency, ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 import { createChromeDevToolsMcpTools } from "@/lib/mcp/chrome-devtools-tools";

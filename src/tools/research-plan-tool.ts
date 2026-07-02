@@ -19,6 +19,7 @@ export function createResearchPlanTool(model: LanguageModel) {
     inputSchema: zodSchema(researchPlanInputSchema),
     execute: async ({ query }, options) => {
       const saId = createSubAgentId();
+      const toolCallId = options?.toolCallId;
 
       emitSubAgentEvent({
         type: "start",
@@ -27,6 +28,9 @@ export function createResearchPlanTool(model: LanguageModel) {
         name: "Research Plan",
         toolName: "create_research_plan",
         parentMessageId: "tool",
+        displayTarget: toolCallId
+          ? { type: "toolCall", toolCallId }
+          : { type: "sidebar" },
       });
 
       try {

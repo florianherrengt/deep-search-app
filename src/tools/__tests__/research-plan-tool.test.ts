@@ -161,6 +161,25 @@ describe("createResearchPlanTool", () => {
     );
   });
 
+  it("targets the main-chat tool call when toolCallId is available", async () => {
+    const model = makeModel();
+    aiMocks.streamText.mockReturnValueOnce(mockStreamText(["chunk"]));
+
+    const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
+    await t.execute(
+      { query: "test" },
+      { toolCallId: "plan-call-1", messages: [] },
+    );
+
+    expect(emitterMocks.emitSubAgentEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "start",
+        id: "sa-test-1",
+        displayTarget: { type: "toolCall", toolCallId: "plan-call-1" },
+      }),
+    );
+  });
+
   it("propagates abort signal to streamText", async () => {
     const model = makeModel();
     aiMocks.streamText.mockReturnValueOnce(mockStreamText(["ok"]));

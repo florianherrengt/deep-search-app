@@ -38,6 +38,17 @@ const CHEVRON_STYLE: CSSProperties = {
   transition: "transform 0.2s",
 };
 
+type ToolFallbackStatus = "running" | "complete" | "error";
+
+interface ToolFallbackProps {
+  toolName: string;
+  args?: unknown;
+  result?: unknown;
+  status: ToolFallbackStatus;
+  chatId?: string;
+  toolCallId?: string;
+}
+
 export function ToolFallback({
   toolName,
   args,
@@ -45,39 +56,8 @@ export function ToolFallback({
   status,
   chatId,
   toolCallId,
-}: {
-  toolName: string;
-  args?: unknown;
-  result?: unknown;
-  status: "running" | "complete" | "error";
-  chatId?: string;
-  toolCallId?: string;
-}) {
+}: ToolFallbackProps) {
   const [opened, setOpened] = useState(false);
-  const { getRuns } = useSubAgentReaders();
-
-  const allRuns = getRuns(chatId ?? "");
-  const deferredRuns = useDeferredValue(allRuns);
-  const matchingRuns = useMemo(
-    () => {
-      if (!chatId || !toolCallId) return [];
-      return deferredRuns.filter(
-        r => r.displayTarget?.type === "toolCall" && r.displayTarget.toolCallId === toolCallId
-      );
-    },
-    [deferredRuns, chatId, toolCallId],
-  );
-
-  const formattedDetails = useMemo(() => {
-    if (!opened) {
-      return { args: undefined, result: undefined };
-    }
-
-    return {
-      args: formatValue(args),
-      result: formatValue(result),
-    };
-  }, [args, opened, result]);
 
   return (
     <Box my={8} className="md-surface md-card-sm">
@@ -106,37 +86,77 @@ export function ToolFallback({
       </UnstyledButton>
       <Collapse in={opened}>
         {opened && (
-          <Box className="md-divider-top" p="8px 12px">
-            {formattedDetails.args && (
-              <Box mb="xs">
-                <Text size="xs" fw={500} c="dimmed" mb={4}>Input</Text>
-                <pre className="md-code-bg md-code-block">
-                  {formattedDetails.args}
-                </pre>
-              </Box>
-            )}
-            {formattedDetails.result && (
-              <Box>
-                <Text size="xs" fw={500} c="dimmed" mb={4}>Result</Text>
-                <pre className="md-code-bg md-code-block">
-                  {formattedDetails.result}
-                </pre>
-              </Box>
-            )}
-            {opened && matchingRuns.length > 0 && matchingRuns.map((run) => (
-              <Box key={run.id} mt="md" className="md-divider-top" p="8px 12px">
-                <SubAgentTranscriptInline
-                  text={run.text}
-                  status={run.status}
-                  error={run.error}
-                  report={run.report}
-                  toolCalls={run.toolCalls}
-                />
-              </Box>
-            ))}
-          </Box>
+          <ToolFallbackExpandedDetails
+            args={args}
+            result={result}
+            chatId={chatId}
+            toolCallId={toolCallId}
+          />
         )}
       </Collapse>
+    </Box>
+  );
+}
+
+function ToolFallbackExpandedDetails({
+  args,
+  result,
+  chatId,
+  toolCallId,
+}: Pick<ToolFallbackProps, "args" | "result" | "chatId" | "toolCallId">) {
+  const { getRuns } = useSubAgentReaders();
+
+  const allRuns = getRuns(chatId ?? "");
+  const deferredRuns = useDeferredValue(allRuns);
+  const matchingRuns = useMemo(
+    () => {
+      if (!chatId || !toolCallId) return [];
+      return deferredRuns.filter(
+        (run) =>
+          run.displayTarget?.type === "toolCall" &&
+          run.displayTarget.toolCallId === toolCallId,
+      );
+    },
+    [deferredRuns, chatId, toolCallId],
+  );
+
+  const formattedDetails = useMemo(
+    () => ({
+      args: formatValue(args),
+      result: formatValue(result),
+    }),
+    [args, result],
+  );
+
+  return (
+    <Box className="md-divider-top" p="8px 12px">
+      {formattedDetails.args && (
+        <Box mb="xs">
+          <Text size="xs" fw={500} c="dimmed" mb={4}>Input</Text>
+          <pre className="md-code-bg md-code-block">
+            {formattedDetails.args}
+          </pre>
+        </Box>
+      )}
+      {formattedDetails.result && (
+        <Box>
+          <Text size="xs" fw={500} c="dimmed" mb={4}>Result</Text>
+          <pre className="md-code-bg md-code-block">
+            {formattedDetails.result}
+          </pre>
+        </Box>
+      )}
+      {matchingRuns.map((run) => (
+        <Box key={run.id} mt="md" className="md-divider-top" p="8px 12px">
+          <SubAgentTranscriptInline
+            text={run.text}
+            status={run.status}
+            error={run.error}
+            report={run.report}
+            toolCalls={run.toolCalls}
+          />
+        </Box>
+      ))}
     </Box>
   );
 }
