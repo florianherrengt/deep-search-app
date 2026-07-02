@@ -67,6 +67,45 @@ async function runGuardedStream(options: RunGuardedStreamOptions): Promise<UIMes
 }
 
 describe("createGuardedStream", () => {
+  it("drops interrupted tool-call history before sending the next model request", async () => {
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({ chunks: textChunks("Recovered.") }),
+      }),
+    });
+
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      messages: [
+        userMessage("Find pricing"),
+        interruptedAssistantToolMessage("brave_search"),
+        userMessage("Try again with another model"),
+      ],
+      abortSignal: undefined,
+      searchKeys: { braveApiKey: "test-key" },
+    });
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "data-agent_diagnostic",
+        data: expect.objectContaining({
+          kind: "interrupted_tool_repair",
+          toolCallCount: 1,
+        }),
+      }),
+    );
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "text-delta",
+        delta: "Recovered.",
+      }),
+    );
+    expect(lastChunk(chunks)).toEqual(
+      expect.objectContaining({ type: "finish", finishReason: "stop" }),
+    );
+  });
+
   it("retries when a provider calls a gated tool before its prerequisite", async () => {
     let callCount = 0;
     const model = new MockLanguageModelV3({
@@ -973,6 +1012,22 @@ function assistantToolMessage(toolName: string): UIMessage {
         state: "output-available",
         input: {},
         output: "ok",
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function interruptedAssistantToolMessage(toolName: string): UIMessage {
+  return {
+    id: `assistant-interrupted-${toolName}`,
+    role: "assistant",
+    parts: [
+      {
+        type: `tool-${toolName}`,
+        toolCallId: `call-${toolName}`,
+        state: "input-available",
+        input: { query: "pricing" },
+        providerExecuted: false,
       } as UIMessage["parts"][number],
     ],
   };

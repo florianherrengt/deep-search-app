@@ -25,6 +25,10 @@ import type { SubAgentEvent, SubAgentRun } from "@/lib/sub-agent-types";
 import { setDirectEventHandler } from "@/lib/sub-agent-emitter";
 import { isRecord } from "@/lib/json";
 import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
+import {
+  logInterruptedToolCallRepair,
+  repairInterruptedToolCallMessages,
+} from "@/lib/tool-call-repair";
 
 const EMPTY_SUB_AGENT_RUNS: SubAgentRun[] = [];
 
@@ -161,7 +165,15 @@ export function Chat({
       if (!folderName) return;
 
       const savedChatId = researchChatIdRef.current;
-      void saveResearchChatMessages(folderName, savedChatId, messages).then(
+      const repair = repairInterruptedToolCallMessages(messages, {
+        onlyWhenFollowedByUserMessage: true,
+      });
+      if (repair.repaired) {
+        logInterruptedToolCallRepair("chat-finish-before-save", repair);
+      }
+      const messagesToSave = repair.repaired ? repair.messages : messages;
+
+      void saveResearchChatMessages(folderName, savedChatId, messagesToSave).then(
         () => {
           onResearchChatSavedRef.current?.(folderName, savedChatId);
         },
@@ -175,6 +187,30 @@ export function Chat({
   useEffect(() => {
     onRunStateChange?.(sessionId, isRunning);
   }, [isRunning, onRunStateChange, sessionId]);
+
+  useEffect(() => {
+    if (chat.status === "submitted" || chat.status === "streaming") return;
+
+    const repair = repairInterruptedToolCallMessages(chat.messages, {
+      onlyWhenFollowedByUserMessage: true,
+    });
+    if (!repair.repaired) return;
+
+    logInterruptedToolCallRepair("chat-state-repair", repair);
+    chat.setMessages(repair.messages);
+
+    const folderName = researchFolderRef.current;
+    if (!folderName) return;
+
+    const savedChatId = researchChatIdRef.current;
+    void saveResearchChatMessages(folderName, savedChatId, repair.messages).then(
+      () => {
+        onResearchChatSavedRef.current?.(folderName, savedChatId);
+      },
+    ).catch((err) => {
+      console.error("[chat] Failed to save repaired research chat messages:", err);
+    });
+  }, [chat.messages, chat.setMessages, chat.status]);
 
   const needsAttention = useMemo(
     () => hasPendingQuestionTool(chat.messages),

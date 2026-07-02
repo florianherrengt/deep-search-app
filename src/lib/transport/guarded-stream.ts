@@ -22,6 +22,12 @@ import { getActiveToolNamesForMessages } from "@/lib/tool-call-requirements";
 import { createTools, type SearchToolKeys } from "./tool-registry";
 import { skillsStore } from "@/lib/skills-store";
 import systemPrompt from "../system-prompt.md?raw";
+import type { AgentDiagnosticEvent } from "@/lib/agent-diagnostics";
+import {
+  createInterruptedToolRepairDiagnostic,
+  logInterruptedToolCallRepair,
+  repairInterruptedToolCallMessages,
+} from "@/lib/tool-call-repair";
 
 const MAX_GUARD_RETRIES = 2;
 
@@ -78,6 +84,15 @@ export function createGuardedStream({
 
       const skillsData = await skillsStore.get();
       const effectiveSystemPrompt = buildSystemPrompt(skillsData.skills);
+      const repair = repairInterruptedToolCallMessages(messages);
+      const effectiveMessages = repair.repaired ? repair.messages : messages;
+      if (repair.repaired) {
+        logInterruptedToolCallRepair("guarded-stream-before-convert", repair);
+        writeAgentDiagnosticEvent(
+          controller,
+          createInterruptedToolRepairDiagnostic(repair),
+        );
+      }
 
       const getProviderOptions = ({
         model: streamModel,
@@ -106,7 +121,7 @@ export function createGuardedStream({
 
       await runGuardedLoop({
         model,
-        messages,
+        messages: effectiveMessages,
         abortSignal,
         tools,
         systemPrompt: effectiveSystemPrompt,
@@ -409,16 +424,6 @@ function writeGuardrailEvent(
     id: `guardrail-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     data: event,
   });
-}
-
-interface AgentDiagnosticEvent {
-  kind: string;
-  status: string;
-  title: string;
-  message: string;
-  reason: string;
-  finishReason?: string;
-  toolCallCount?: number;
 }
 
 function writeAgentDiagnosticEvent(

@@ -9,6 +9,7 @@ import {
   sendMessage,
   textResponse,
   toolCallResponse,
+  waitForTauriWebviewExtractionMock,
   waitForText,
 } from '../helpers/chat.js';
 
@@ -50,8 +51,9 @@ describe('Extraction Webview Tabs', () => {
     ]);
 
     await sendMessage('Extract the example page');
+    await waitForTauriWebviewExtractionMock();
 
-    await browser.waitUntil(async () => browserTabExists(url), {
+    await waitForBrowserTab(url, true, {
       timeout: 15000,
       interval: 250,
       timeoutMsg: 'Expected extraction tab to appear while webview is open',
@@ -67,7 +69,7 @@ describe('Extraction Webview Tabs', () => {
 
     await releaseTauriWebviewExtractionMock();
 
-    await browser.waitUntil(async () => !(await browserTabExists(url)), {
+    await waitForBrowserTab(url, false, {
       timeout: 15000,
       interval: 250,
       timeoutMsg: 'Expected extraction tab to close after webview extraction',
@@ -94,4 +96,38 @@ async function browserTabExists(url) {
       ),
     url,
   );
+}
+
+async function waitForBrowserTab(url, expected, options) {
+  try {
+    await browser.waitUntil(
+      async () => (await browserTabExists(url)) === expected,
+      options,
+    );
+  } catch (error) {
+    const debug = await browser.execute((targetUrl) => ({
+      appTabs: Array.from(document.querySelectorAll('[data-testid="app-tab"]'))
+        .map((tab) => ({
+          id: tab.getAttribute('data-tab-id'),
+          text: tab.textContent?.trim() ?? '',
+          variant: tab.getAttribute('data-variant'),
+        })),
+      browserTabs: Array.from(
+        document.querySelectorAll('[data-testid="browser-tab"]'),
+      ).map((tab) => ({
+        id: tab.getAttribute('data-tab-id'),
+        url: tab.getAttribute('data-tab-url'),
+        text: tab.textContent?.trim() ?? '',
+        variant: tab.getAttribute('data-variant'),
+      })),
+      extractionLog: window.__deepSearchWebviewExtractionLog || [],
+      browserErrors: window.__deepSearchBrowserErrors || [],
+      bodyText: (document.body?.innerText || '').slice(0, 1000),
+      targetUrl,
+    }), url);
+    throw new Error(
+      `${options.timeoutMsg}. Debug: ${JSON.stringify(debug)}`,
+      { cause: error },
+    );
+  }
 }

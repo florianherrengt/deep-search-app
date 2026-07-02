@@ -1,6 +1,7 @@
 import {
   clearChatTestState,
   ensureChatUI,
+  getComposerInput,
   installOpenRouterMock,
   sendMessage,
   textResponse,
@@ -24,8 +25,7 @@ describe('Chat Flow', () => {
   it('should have a composer with input and send button', async () => {
     await ensureChatUI();
 
-    const textarea = await $('textarea');
-    await textarea.waitForExist({ timeout: 5000 });
+    const textarea = await getComposerInput();
     const placeholder = await textarea.getAttribute('placeholder');
     expect(placeholder).toBe('Ask something...');
 
@@ -37,8 +37,7 @@ describe('Chat Flow', () => {
 
     const sidebar = await $('[data-testid="research-sidebar"]');
     await sidebar.waitForExist({ timeout: 5000 });
-    const textarea = await $('textarea');
-    await textarea.waitForExist({ timeout: 5000 });
+    const textarea = await getComposerInput();
 
     const sidebarBox = await getElementRect(sidebar);
     const textareaBox = await getElementRect(textarea);

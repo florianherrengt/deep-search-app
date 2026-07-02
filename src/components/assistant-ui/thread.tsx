@@ -217,7 +217,10 @@ export function Thread({
         >
           <ArrowDownIcon style={{ width: 16, height: 16 }} />
         </ThreadPrimitive.ScrollToBottom>
-        <ComposerPrimitive.Root style={COMPOSER_ROOT_STYLE}>
+        <ComposerPrimitive.Root
+          data-testid="chat-composer"
+          style={COMPOSER_ROOT_STYLE}
+        >
           <ComposerInput previousSearches={previousSearches} />
           <div style={COMPOSER_ROW_STYLE}>
             <div style={COMPOSER_ROW_LEFT_STYLE}>
@@ -246,7 +249,7 @@ export function Thread({
                 <PromptTemplateButton />
               </AuiIf>
               <AuiIf condition={(s) => !s.thread.isRunning}>
-                <ComposerPrimitive.Send disabled={!hasEnabledModel} aria-label="Send message" style={{ ...SEND_BUTTON_BASE_STYLE, backgroundColor: hasEnabledModel ? "var(--mantine-color-blue-filled)" : "var(--mantine-color-disabled)", cursor: hasEnabledModel ? "pointer" : "not-allowed" }}>
+                <ComposerPrimitive.Send disabled={!hasEnabledModel} aria-label="Send message" data-testid="chat-send-button" style={{ ...SEND_BUTTON_BASE_STYLE, backgroundColor: hasEnabledModel ? "var(--mantine-color-blue-filled)" : "var(--mantine-color-disabled)", cursor: hasEnabledModel ? "pointer" : "not-allowed" }}>
                   Send
                 </ComposerPrimitive.Send>
               </AuiIf>
@@ -341,6 +344,7 @@ function ComposerInput({ previousSearches }: { previousSearches: string[] }) {
   return (
     <ComposerPrimitive.Input
       ref={setInputRef}
+      data-testid="chat-composer-input"
       placeholder="Ask something..."
       minRows={1}
       maxRows={8}

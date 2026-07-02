@@ -1,5 +1,6 @@
 import {
   clearChatTestState,
+  clickAppTab,
   clickButtonWithText,
   ensureChatUI,
   heldTextResponse,
@@ -35,13 +36,13 @@ describe('Background Research', () => {
     await sendMessage('Alpha background research');
     await waitForHeldOpenRouterResponse(releaseKey);
 
-    await switchToAppTab('prompts');
+    await clickAppTab('prompts');
     await releaseHeldOpenRouterResponse(releaseKey);
 
     await waitForOpenRouterStreamEvent(releaseKey, 'completed');
     expect(await streamWasCancelled(releaseKey)).toBe(false);
 
-    await switchToAppTab('main');
+    await clickAppTab('main');
     await waitForText(finalText);
   });
 
@@ -77,12 +78,6 @@ describe('Background Research', () => {
     await waitForText(firstFinalText);
   });
 });
-
-async function switchToAppTab(tabId) {
-  const tab = await $(`[data-testid="app-tab"][data-tab-id="${tabId}"]`);
-  await tab.waitForExist({ timeout: 5000 });
-  await tab.click();
-}
 
 async function selectResearchFolder(folderName) {
   await browser.waitUntil(

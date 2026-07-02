@@ -1,33 +1,10 @@
 import {
   clearChatTestState,
+  clickAppTab,
   ensureChatUI,
   waitForText,
   clickButtonWithText,
 } from '../helpers/chat.js';
-
-async function switchToSkillsTab() {
-  const tabs = await $$('[data-testid="app-tab"]');
-  for (const tab of tabs) {
-    const tabId = await tab.getAttribute('data-tab-id');
-    if (tabId === 'skills') {
-      await tab.click();
-      return;
-    }
-  }
-  throw new Error('Skills tab not found');
-}
-
-async function switchToChatTab() {
-  const tabs = await $$('[data-testid="app-tab"]');
-  for (const tab of tabs) {
-    const tabId = await tab.getAttribute('data-tab-id');
-    if (tabId === 'main') {
-      await tab.click();
-      return;
-    }
-  }
-  throw new Error('Chat tab not found');
-}
 
 async function addSkill(title, whenToUse, content) {
   await clickButtonWithText('Add');
@@ -64,14 +41,14 @@ describe('Skills', () => {
 
   it('should show empty state when no skills exist', async () => {
     await ensureChatUI();
-    await switchToSkillsTab();
+    await clickAppTab('skills');
 
     await waitForText('No skills yet', 5000);
   });
 
   it('should add a skill and show it in the list', async () => {
     await ensureChatUI();
-    await switchToSkillsTab();
+    await clickAppTab('skills');
 
     await addSkill(
       'Expert Presenter',
@@ -87,7 +64,7 @@ describe('Skills', () => {
 
   it('should show the auto-generated slug while editing', async () => {
     await ensureChatUI();
-    await switchToSkillsTab();
+    await clickAppTab('skills');
 
     await clickButtonWithText('Add');
 
@@ -100,7 +77,7 @@ describe('Skills', () => {
 
   it('should delete a skill', async () => {
     await ensureChatUI();
-    await switchToSkillsTab();
+    await clickAppTab('skills');
 
     await addSkill('ToDelete', 'When to delete', 'Delete this skill');
 
@@ -119,7 +96,7 @@ describe('Skills', () => {
 
   it('should edit a skill', async () => {
     await ensureChatUI();
-    await switchToSkillsTab();
+    await clickAppTab('skills');
 
     await addSkill('Original', 'Original when to use', 'Original content');
 
@@ -153,7 +130,7 @@ describe('Skills', () => {
 
   it('should validate required fields', async () => {
     await ensureChatUI();
-    await switchToSkillsTab();
+    await clickAppTab('skills');
 
     await clickButtonWithText('Add');
 
@@ -167,7 +144,7 @@ describe('Skills', () => {
 
   it('should cancel adding a skill', async () => {
     await ensureChatUI();
-    await switchToSkillsTab();
+    await clickAppTab('skills');
 
     await clickButtonWithText('Add');
 
@@ -183,12 +160,12 @@ describe('Skills', () => {
 
   it('should persist skills after navigating away and back', async () => {
     await ensureChatUI();
-    await switchToSkillsTab();
+    await clickAppTab('skills');
 
     await addSkill('Persistent', 'Always available', 'This skill persists');
 
-    await switchToChatTab();
-    await switchToSkillsTab();
+    await clickAppTab('main');
+    await clickAppTab('skills');
 
     await waitForText('Persistent', 5000);
     const bodyText = await $('body').getText();

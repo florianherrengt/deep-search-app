@@ -1,36 +1,14 @@
 import {
   clearChatTestState,
+  clickAppTab,
   ensureChatUI,
+  getComposerInput,
   installOpenRouterMock,
-  sendMessage,
   textResponse,
   waitForText,
   clickButtonWithText,
+  clickComposerSend,
 } from '../helpers/chat.js';
-
-async function switchToPromptsTab() {
-  const tabs = await $$('[data-testid="app-tab"]');
-  for (const tab of tabs) {
-    const tabId = await tab.getAttribute('data-tab-id');
-    if (tabId === 'prompts') {
-      await tab.click();
-      return;
-    }
-  }
-  throw new Error('Prompts tab not found');
-}
-
-async function switchToChatTab() {
-  const tabs = await $$('[data-testid="app-tab"]');
-  for (const tab of tabs) {
-    const tabId = await tab.getAttribute('data-tab-id');
-    if (tabId === 'main') {
-      await tab.click();
-      return;
-    }
-  }
-  throw new Error('Chat tab not found');
-}
 
 async function addTemplate(name, text) {
   await clickButtonWithText('Add');
@@ -132,7 +110,7 @@ describe('Prompt Templates', () => {
 
   it('should add a template and show it in the list', async () => {
     await ensureChatUI();
-    await switchToPromptsTab();
+    await clickAppTab('prompts');
 
     await addTemplate('Test Prompt', 'This is a test prompt');
 
@@ -143,60 +121,57 @@ describe('Prompt Templates', () => {
 
   it('should add a template and show it in the chat template dropdown', async () => {
     await ensureChatUI();
-    await switchToPromptsTab();
+    await clickAppTab('prompts');
 
     await addTemplate('Quick Search', 'Search for information about');
 
-    await switchToChatTab();
+    await clickAppTab('main');
 
     await selectPromptTemplate('Quick Search');
 
-    const textarea = await $('textarea[placeholder="Ask something..."]');
-    await textarea.waitForExist({ timeout: 5000 });
+    const textarea = await getComposerInput();
     const value = await textarea.getValue();
     expect(value).toBe('Search for information about');
   });
 
   it('should populate composer when selecting a template from the dropdown', async () => {
     await ensureChatUI();
-    await switchToPromptsTab();
+    await clickAppTab('prompts');
 
     await addTemplate('Summarize', 'Summarize the following text');
 
-    await switchToChatTab();
+    await clickAppTab('main');
     await selectPromptTemplate('Summarize');
 
-    const textarea = await $('textarea[placeholder="Ask something..."]');
-    await textarea.waitForExist({ timeout: 5000 });
+    const textarea = await getComposerInput();
     const value = await textarea.getValue();
     expect(value).toBe('Summarize the following text');
   });
 
   it('should send template via main button click', async () => {
     await ensureChatUI();
-    await switchToPromptsTab();
+    await clickAppTab('prompts');
     await deleteAllVisibleTemplates();
     await browser.pause(500);
 
     await addTemplate('Hello', 'Say hello world');
 
-    await switchToChatTab();
+    await clickAppTab('main');
 
     await installOpenRouterMock([textResponse('Hello world response')]);
 
     await selectPromptTemplate('Hello');
 
-    const textarea = await $('textarea[placeholder="Ask something..."]');
-    await textarea.waitForExist({ timeout: 5000 });
+    const textarea = await getComposerInput();
     expect(await textarea.getValue()).toBe('Say hello world');
 
-    await clickButtonWithText('Send');
+    await clickComposerSend();
     await waitForText('Hello world response', 10000);
   });
 
   it('should delete a template', async () => {
     await ensureChatUI();
-    await switchToPromptsTab();
+    await clickAppTab('prompts');
 
     await addTemplate('ToDelete', 'This will be deleted');
 
@@ -215,7 +190,7 @@ describe('Prompt Templates', () => {
 
   it('should edit a template', async () => {
     await ensureChatUI();
-    await switchToPromptsTab();
+    await clickAppTab('prompts');
     await deleteAllVisibleTemplates();
     await browser.pause(500);
 
@@ -255,7 +230,7 @@ describe('Prompt Templates', () => {
 
   it('should show empty state when no templates exist', async () => {
     await ensureChatUI();
-    await switchToPromptsTab();
+    await clickAppTab('prompts');
     await deleteAllVisibleTemplates();
     await browser.pause(500);
 

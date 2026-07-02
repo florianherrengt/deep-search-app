@@ -23,6 +23,11 @@ import { extractAndStoreMemories } from "@/lib/memory-agent";
 import { isRecord } from "@/lib/json";
 import { generateFolderSlug } from "./folder-namer";
 import { slugifyFolderName } from "./research-folder";
+import {
+  createInterruptedToolRepairDiagnostic,
+  logInterruptedToolCallRepair,
+  repairInterruptedToolCallMessages,
+} from "@/lib/tool-call-repair";
 
 export { createGuardedStream } from "./guarded-stream";
 export type { SearchToolKeys } from "./tool-registry";
@@ -204,7 +209,13 @@ export class DirectTransport implements ChatTransport<UIMessage> {
     }
 
     const model = createChatLanguageModel(chatModel);
-    const firstMessage = getFirstUserMessage(messages);
+    const repair = repairInterruptedToolCallMessages(messages);
+    const effectiveMessages = repair.repaired ? repair.messages : messages;
+    if (repair.repaired) {
+      logInterruptedToolCallRepair("direct-transport-before-send", repair);
+    }
+
+    const firstMessage = getFirstUserMessage(effectiveMessages);
     const transport = this;
 
     return new ReadableStream<UIMessageChunk>({
@@ -230,7 +241,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
               await saveInitialResearchChatOrThrow(
                 folderName,
                 transport.researchChatId,
-                messages,
+                effectiveMessages,
                 { title: chatTitle || undefined },
               );
 
@@ -248,11 +259,11 @@ export class DirectTransport implements ChatTransport<UIMessage> {
               "initialized",
             );
 
-            const previousResearchChoice = getPreviousResearchChoice(messages);
+            const previousResearchChoice = getPreviousResearchChoice(effectiveMessages);
             if (previousResearchChoice.type === "continue") {
               await transport.switchResearchFolder(
                 previousResearchChoice.folder,
-                messages,
+                effectiveMessages,
                 { deleteAutoCreatedPreviousFolder: true },
               );
             } else {
@@ -263,7 +274,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
           if (transport.researchFolder && trigger === "submit-message") {
             const correlationId = crypto.randomUUID();
 
-            const candidates = collectMemoryCandidates(messages);
+            const candidates = collectMemoryCandidates(effectiveMessages);
 
             if (candidates.length === 0) {
               console.debug("[memory-extraction]", {
@@ -305,14 +316,22 @@ export class DirectTransport implements ChatTransport<UIMessage> {
             }
           }
 
+          if (repair.repaired) {
+            controller.enqueue({
+              type: "data-agent_diagnostic",
+              id: `agent-diagnostic-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              data: createInterruptedToolRepairDiagnostic(repair),
+            });
+          }
+
           await createGuardedStream({
             model,
             researchFolder: transport.researchFolder,
-            messages,
+            messages: effectiveMessages,
             abortSignal,
             searchKeys: transport.getSearchKeys(),
             onResearchFolderChange: async (folderName) => {
-              await transport.switchResearchFolder(folderName, messages);
+              await transport.switchResearchFolder(folderName, effectiveMessages);
             },
             controller,
           });

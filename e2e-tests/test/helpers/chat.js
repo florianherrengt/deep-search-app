@@ -1,30 +1,39 @@
+const CHAT_COMPOSER_INPUT_SELECTOR = '[data-testid="chat-composer-input"]';
+const CHAT_SEND_BUTTON_SELECTOR = '[data-testid="chat-send-button"]';
+
 export async function ensureChatUI(settingsOverrides = {}) {
   await browser.refresh();
   await waitForText('Deep Search', 10000);
-  await browser.execute((overrides) => {
+  const testSettings = {
+    chat_provider: 'openrouter',
+    openrouter_api_key: 'test-key-123',
+    anthropic_api_key: '',
+    zhipu_api_key: '',
+    zhipu_base_url: '',
+    searxng_url: '',
+    brave_api_key: '',
+    exa_api_key: '',
+    serper_api_key: '',
+    tavily_api_key: '',
+    default_model: 'openrouter/free',
+    anthropic_model: 'claude-sonnet-4-5',
+    zhipu_model: 'glm-4.7-flash',
+    ...settingsOverrides,
+  };
+  const reloadMarker = `settings-reload-${Date.now()}-${Math.random()}`;
+
+  await browser.execute(({ settings, marker }) => {
     window.localStorage.setItem(
       'deep-search-test-settings',
-      JSON.stringify({
-        chat_provider: 'openrouter',
-        openrouter_api_key: 'test-key-123',
-        anthropic_api_key: '',
-        zhipu_api_key: '',
-        zhipu_base_url: '',
-        searxng_url: '',
-        brave_api_key: '',
-        exa_api_key: '',
-        serper_api_key: '',
-        tavily_api_key: '',
-        default_model: 'openrouter/free',
-        anthropic_model: 'claude-sonnet-4-5',
-        zhipu_model: 'glm-4.7-flash',
-        ...overrides,
-      }),
+      JSON.stringify(settings),
     );
+    window.__deepSearchBeforeSettingsReload = marker;
 
-  }, settingsOverrides);
+  }, { settings: testSettings, marker: reloadMarker });
   await browser.refresh();
-  await $('textarea').waitForExist({ timeout: 10000 });
+  await waitForPostRefreshDocument(reloadMarker);
+  await waitForStoredTestSettings(testSettings);
+  await waitForAppReady();
   await browser.execute(() => {
     window.__deepSearchDisambiguateMock = async () => 'mocked disambiguation result';
     window.__deepSearchCurrencyMock = async (_from, _to, amount) => (amount * 1.1).toFixed(2);
@@ -518,21 +527,47 @@ export async function installTauriWebviewExtractionMock(html) {
 }
 
 export async function releaseTauriWebviewExtractionMock(timeout = 20000) {
-  await browser.waitUntil(
-    async () =>
-      browser.execute(
-        () => typeof window.__deepSearchReleaseExtraction === 'function',
-      ),
-    {
-      timeout,
-      interval: 100,
-      timeoutMsg: 'Expected mocked extraction to be waiting for release',
-    },
-  );
+  await waitForTauriWebviewExtractionMock(timeout);
 
   await browser.execute(() => {
     window.__deepSearchReleaseExtraction();
   });
+}
+
+export async function waitForTauriWebviewExtractionMock(timeout = 20000) {
+  try {
+    await browser.waitUntil(
+      async () =>
+        browser.execute(
+          () => typeof window.__deepSearchReleaseExtraction === 'function',
+        ),
+      {
+        timeout,
+        interval: 100,
+        timeoutMsg: 'Expected mocked extraction to be waiting for release',
+      },
+    );
+  } catch (error) {
+    const debug = await browser.execute(() => ({
+      openRouterLogs: window.__logs || [],
+      extractionLog: window.__deepSearchWebviewExtractionLog || [],
+      browserErrors: window.__deepSearchBrowserErrors || [],
+      bodyText: (document.body?.innerText || '').slice(0, 1000),
+      testSettings: (() => {
+        try {
+          return JSON.parse(
+            window.localStorage.getItem('deep-search-test-settings') || 'null',
+          );
+        } catch {
+          return null;
+        }
+      })(),
+    }));
+    throw new Error(
+      `Expected mocked extraction to be waiting for release. Debug: ${JSON.stringify(debug)}`,
+      { cause: error },
+    );
+  }
 }
 
 export async function waitForHeldOpenRouterResponse(releaseKey = 'default') {
@@ -585,77 +620,199 @@ export async function waitForOpenRouterStreamEvent(
 }
 
 export async function sendMessage(text) {
-  const textarea = await findVisibleTextarea();
+  const textarea = await getComposerInput();
   await textarea.setValue(text);
+  await clickComposerSend();
+}
 
+export async function getComposerInput(timeout = 10000) {
+  const input = await $(CHAT_COMPOSER_INPUT_SELECTOR);
+  await input.waitForDisplayed({
+    timeout,
+    timeoutMsg: 'Expected the visible chat composer input',
+  });
+  return input;
+}
+
+export async function clickComposerSend(timeout = 10000) {
+  const button = await $(CHAT_SEND_BUTTON_SELECTOR);
+  await button.waitForDisplayed({
+    timeout,
+    timeoutMsg: 'Expected the visible chat send button',
+  });
+  await button.waitForEnabled({
+    timeout,
+    timeoutMsg: 'Expected the chat send button to be enabled',
+  });
+  await button.click();
+}
+
+export async function waitForAppReady(timeout = 10000) {
+  await waitForAppTab('main', timeout);
+  await waitForAppTab('prompts', timeout);
   await browser.waitUntil(
-    async () => {
-      const buttons = await $$('button');
-      for (const btn of buttons) {
-        if (!(await btn.isDisplayed())) continue;
-        const btnText = await btn.getText();
-        const disabled = await btn.getAttribute('disabled');
-        if (btnText === 'Send' && disabled === null) {
-          await btn.click();
-          return true;
-        }
-      }
-      return false;
+    async () =>
+      browser.execute(
+        ({ inputSelector, sendSelector }) => {
+          const input = document.querySelector(inputSelector);
+          const send = document.querySelector(sendSelector);
+          return isVisible(input) && isVisible(send);
+
+          function isVisible(element) {
+            if (!element) return false;
+            const style = window.getComputedStyle(element);
+            return (
+              element.getClientRects().length > 0 &&
+              style.visibility !== 'hidden' &&
+              style.display !== 'none'
+            );
+          }
+        },
+        {
+          inputSelector: CHAT_COMPOSER_INPUT_SELECTOR,
+          sendSelector: CHAT_SEND_BUTTON_SELECTOR,
+        },
+      ),
+    {
+      timeout,
+      interval: 100,
+      timeoutMsg: 'Expected the chat composer while waiting for app readiness',
     },
-    { timeout: 5000, interval: 200 },
   );
 }
 
-async function findVisibleTextarea() {
+async function waitForPostRefreshDocument(marker, timeout = 10000) {
   await browser.waitUntil(
-    async () => {
-      const textareas = await $$('textarea');
-      for (const textarea of textareas) {
-        if (await textarea.isDisplayed()) {
-          return true;
-        }
-      }
-      return false;
-    },
+    async () =>
+      browser.execute(
+        (expectedMarker) =>
+          document.readyState === 'complete' &&
+          window.__deepSearchBeforeSettingsReload !== expectedMarker,
+        marker,
+      ),
     {
-      timeout: 5000,
-      interval: 100,
-      timeoutMsg: 'Expected a visible chat composer textarea',
+      timeout,
+      interval: 50,
+      timeoutMsg: 'Expected browser refresh to load a new document',
     },
   );
+}
 
-  const textareas = await $$('textarea');
-  for (const textarea of textareas) {
-    if (await textarea.isDisplayed()) {
-      return textarea;
-    }
-  }
+async function waitForStoredTestSettings(settings, timeout = 10000) {
+  await browser.waitUntil(
+    async () =>
+      browser.execute((expected) => {
+        try {
+          const stored = JSON.parse(
+            window.localStorage.getItem('deep-search-test-settings') || 'null',
+          );
+          return Object.entries(expected).every(
+            ([key, value]) => stored?.[key] === value,
+          );
+        } catch {
+          return false;
+        }
+      }, settings),
+    {
+      timeout,
+      interval: 100,
+      timeoutMsg: 'Expected dev test settings in post-refresh localStorage',
+    },
+  );
+}
 
-  throw new Error('Visible chat composer textarea not found');
+export async function waitForAppTab(tabId, timeout = 10000) {
+  const selector = `[data-testid="app-tab"][data-tab-id="${tabId}"]`;
+  await browser.waitUntil(
+    async () =>
+      browser.execute((id) => {
+        const tab = findAppTab(id);
+        if (!tab) return false;
+        const style = window.getComputedStyle(tab);
+        return (
+          tab.getClientRects().length > 0 &&
+          style.visibility !== 'hidden' &&
+          style.display !== 'none'
+        );
+
+        function findAppTab(tabId) {
+          return Array.from(document.querySelectorAll('[data-testid="app-tab"]'))
+            .find((candidate) => candidate.getAttribute('data-tab-id') === tabId);
+        }
+      }, tabId),
+    {
+      timeout,
+      interval: 100,
+      timeoutMsg: `Expected app tab "${tabId}" to be displayed`,
+    },
+  );
+  return $(selector);
+}
+
+export async function clickAppTab(tabId, timeout = 10000) {
+  await browser.waitUntil(
+    async () =>
+      browser.execute((id) => {
+        const tab = Array.from(document.querySelectorAll('[data-testid="app-tab"]'))
+          .find((candidate) => candidate.getAttribute('data-tab-id') === id);
+        if (!tab) return false;
+
+        const style = window.getComputedStyle(tab);
+        const visible =
+          tab.getClientRects().length > 0 &&
+          style.visibility !== 'hidden' &&
+          style.display !== 'none';
+        if (!visible) return false;
+
+        tab.click();
+        return true;
+      }, tabId),
+    {
+      timeout,
+      interval: 100,
+      timeoutMsg: `Expected app tab "${tabId}" to be clickable`,
+    },
+  );
+  await browser.waitUntil(
+    async () =>
+      browser.execute(
+        (id) => {
+          const tab = Array.from(document.querySelectorAll('[data-testid="app-tab"]'))
+            .find((candidate) => candidate.getAttribute('data-tab-id') === id);
+          return tab?.getAttribute('data-variant') === 'light';
+        },
+        tabId,
+      ),
+    {
+      timeout,
+      interval: 100,
+      timeoutMsg: `Expected app tab "${tabId}" to become active`,
+    },
+  );
 }
 
 export async function clickButtonWithText(text) {
   await browser.waitUntil(
-    async () => {
-      const buttons = await $$('button');
-      for (const btn of buttons) {
-        if (!(await btn.isDisplayed())) continue;
-        const btnText = await btn.getText();
-        const disabled = await btn.getAttribute('disabled');
-        const ariaDisabled = await btn.getAttribute('aria-disabled');
-        const enabled = await btn.isEnabled();
-        if (
-          btnText === text &&
-          enabled &&
-          disabled === null &&
-          ariaDisabled !== 'true'
-        ) {
-          await btn.click();
-          return true;
-        }
-      }
-      return false;
-    },
+    async () =>
+      browser.execute((targetText) => {
+        const buttons = Array.from(document.querySelectorAll('button'));
+        const button = buttons.find((candidate) => {
+          const style = window.getComputedStyle(candidate);
+          const visible =
+            candidate.getClientRects().length > 0 &&
+            style.visibility !== 'hidden' &&
+            style.display !== 'none';
+          return (
+            visible &&
+            !candidate.disabled &&
+            candidate.getAttribute('aria-disabled') !== 'true' &&
+            candidate.textContent?.trim() === targetText
+          );
+        });
+        if (!button) return false;
+        button.click();
+        return true;
+      }, text),
     { timeout: 5000, interval: 200 },
   );
 }
