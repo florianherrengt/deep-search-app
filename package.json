@@ -23,7 +23,7 @@
     "test:browser": "vitest run --project storybook",
     "test:all": "vitest run",
     "test:watch": "vitest --project unit",
-    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e": "node scripts/with-e2e-lock.mjs -- playwright test --config e2e/playwright.config.ts",
     "test:e2e:tauri": "npm test --prefix e2e-tests",
     "test:visual": "npm run build-storybook && node scripts/visual-snapshot-test.mjs",
     "test:visual:update": "npm run build-storybook && node scripts/visual-snapshot-test.mjs -- --update",

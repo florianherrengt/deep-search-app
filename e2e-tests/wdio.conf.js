@@ -3,6 +3,8 @@ import { spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const devServerUrl = 'http://localhost:1420';
+const webdriverPort = 4445;
 
 let app;
 let vite;
@@ -22,7 +24,7 @@ async function waitForUrl(url, timeout = 30000) {
 
 export const config = {
   host: '127.0.0.1',
-  port: 4445,
+  port: webdriverPort,
   path: '/',
   specs: ['./test/specs/**/*.js'],
   maxInstances: 1,
@@ -37,7 +39,7 @@ export const config = {
   },
 
   onPrepare: async () => {
-    vite = spawn('npm', ['run', 'dev'], {
+    vite = spawn('npm', ['run', 'dev', '--', '--strictPort'], {
       cwd: path.resolve(__dirname, '..'),
       stdio: [null, process.stdout, process.stderr],
       shell: true,
@@ -54,7 +56,7 @@ export const config = {
       }
     });
 
-    await waitForUrl('http://localhost:1420');
+    await waitForUrl(devServerUrl);
 
     spawnSync('cargo', ['build', '--manifest-path', 'src-tauri/Cargo.toml'], {
       cwd: path.resolve(__dirname, '..'),
@@ -74,7 +76,13 @@ export const config = {
         'deep-search-app'
       ),
       [],
-      { stdio: [null, process.stdout, process.stderr] }
+      {
+        env: {
+          ...process.env,
+          TAURI_WEBDRIVER_PORT: String(webdriverPort),
+        },
+        stdio: [null, process.stdout, process.stderr],
+      }
     );
 
     app.on('error', (error) => {

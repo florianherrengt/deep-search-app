@@ -17,7 +17,7 @@ export default defineConfig({
   webServer: {
     command: "npm run dev",
     port: 1420,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: process.env.DEEP_SEARCH_E2E_REUSE_SERVER === "1",
     timeout: 30000,
   },
 });

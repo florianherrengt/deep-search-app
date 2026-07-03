@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
 import { useScrollLock } from "@assistant-ui/react";
 import { UnstyledButton, Box } from "@mantine/core";
@@ -66,6 +66,45 @@ function ReasoningRoot({
   );
 }
 
+type AutoCollapsingReasoningRootProps = Omit<
+  ReasoningRootProps,
+  "defaultOpen" | "onOpenChange" | "open"
+> & {
+  active?: boolean;
+};
+
+function AutoCollapsingReasoningRoot({
+  active = false,
+  children,
+  ...props
+}: AutoCollapsingReasoningRootProps) {
+  const [completedOpen, setCompletedOpen] = useState(false);
+
+  useEffect(() => {
+    if (active) {
+      setCompletedOpen(false);
+    }
+  }, [active]);
+
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      if (active) return;
+      setCompletedOpen(open);
+    },
+    [active],
+  );
+
+  return (
+    <ReasoningRoot
+      {...props}
+      open={active || completedOpen}
+      onOpenChange={handleOpenChange}
+    >
+      {children}
+    </ReasoningRoot>
+  );
+}
+
 function ReasoningTrigger({
   active,
   duration,
@@ -117,6 +156,7 @@ function ReasoningText({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 export {
+  AutoCollapsingReasoningRoot,
   ReasoningRoot,
   ReasoningTrigger,
   ReasoningContent,

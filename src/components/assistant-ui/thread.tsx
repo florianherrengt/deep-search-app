@@ -30,7 +30,7 @@ import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { GuardrailCard } from "@/components/assistant-ui/guardrail-card";
 import { AgentDiagnosticCard } from "@/components/assistant-ui/agent-diagnostic-card";
 import {
-  ReasoningRoot,
+  AutoCollapsingReasoningRoot,
   ReasoningTrigger,
   ReasoningContent,
   ReasoningText,
@@ -447,7 +447,7 @@ function ThreadMessage({ chatId }: { chatId?: string }) {
                     "type" in part.status &&
                     (part.status as { type: string }).type === "running";
                   return (
-                    <ReasoningRoot defaultOpen={!!running}>
+                    <AutoCollapsingReasoningRoot active={!!running}>
                       {({ open, onToggle }) => (
                         <>
                           <ReasoningTrigger
@@ -460,7 +460,7 @@ function ThreadMessage({ chatId }: { chatId?: string }) {
                           </ReasoningContent>
                         </>
                       )}
-                    </ReasoningRoot>
+                    </AutoCollapsingReasoningRoot>
                   );
                 }
                 case "reasoning":
