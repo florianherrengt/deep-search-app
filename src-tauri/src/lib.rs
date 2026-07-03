@@ -44,6 +44,7 @@ struct McpBridgeInfo {
     port: u16,
     token: String,
     config_path: String,
+    proxy_path: String,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -53,9 +54,11 @@ struct McpBridgeRequestPayload {
 }
 
 const MCP_BRIDGE_CONFIG_FILENAME: &str = "mcp-bridge.json";
+const MCP_BRIDGE_PROXY_FILENAME: &str = "deep-search-mcp.mjs";
 const MCP_BRIDGE_REQUEST_EVENT: &str = "deep-search:mcp-request";
 const MCP_BRIDGE_MAX_BODY_BYTES: usize = 1024 * 1024;
 const MCP_BRIDGE_RENDERER_TIMEOUT_SECS: u64 = 120;
+const MCP_BRIDGE_PROXY_SCRIPT: &str = include_str!("../../scripts/deep-search-mcp.mjs");
 
 #[tauri::command]
 async fn open_tab(app: AppHandle, url: String, id: String) -> Result<(), String> {
@@ -438,11 +441,14 @@ fn start_mcp_bridge(
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&app_data).map_err(|e| e.to_string())?;
     let config_path = app_data.join(MCP_BRIDGE_CONFIG_FILENAME);
+    let proxy_path = app_data.join(MCP_BRIDGE_PROXY_FILENAME);
+    write_mcp_bridge_proxy_script(&proxy_path)?;
 
     let info = McpBridgeInfo {
         port,
         token: token.clone(),
         config_path: config_path.to_string_lossy().into_owned(),
+        proxy_path: proxy_path.to_string_lossy().into_owned(),
     };
     let config = serde_json::to_string_pretty(&info).map_err(|e| e.to_string())?;
     std::fs::write(&config_path, config).map_err(|e| {
@@ -500,6 +506,29 @@ fn respond_mcp_bridge_request(
     sender
         .send(response.to_string())
         .map_err(|e| format!("Failed to send MCP bridge response: {}", e))
+}
+
+fn write_mcp_bridge_proxy_script(path: &std::path::Path) -> Result<(), String> {
+    std::fs::write(path, MCP_BRIDGE_PROXY_SCRIPT).map_err(|e| {
+        format!(
+            "Failed to write MCP proxy script at {}: {}",
+            path.to_string_lossy(),
+            e
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(path)
+            .map_err(|e| format!("Failed to read MCP proxy script metadata: {}", e))?
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions)
+            .map_err(|e| format!("Failed to mark MCP proxy script executable: {}", e))?;
+    }
+
+    Ok(())
 }
 
 fn handle_mcp_bridge_stream(

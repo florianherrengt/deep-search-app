@@ -101,6 +101,13 @@ describe("SettingsFields", () => {
     expect(screen.getByLabelText("Scrape.do API Key")).toBeTruthy();
   });
 
+  it("renders the Deep Search MCP setup section", () => {
+    renderSettingsFields();
+
+    expect(screen.getByText("Deep Search MCP")).toBeTruthy();
+    expect(screen.getByLabelText("MCP proxy path")).toBeTruthy();
+  });
+
   it("does not save provider fields on blur, only on Save button click", async () => {
     const updateSetting = vi.fn().mockResolvedValue(undefined);
     renderSettingsFields({ updateSetting: updateSetting as never });

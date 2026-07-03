@@ -56,17 +56,35 @@ Deep Search includes a stdio MCP proxy for coding agents. The proxy talks to the
 
 1. Open the Deep Search desktop app.
 2. Configure a chat model and at least one search provider in Settings.
-3. In your coding agent's MCP config, run the proxy from this repo:
+3. In Settings, copy the path shown under Deep Search MCP.
+4. In your coding agent's MCP config, use that path as the server command:
 
-```sh
-npm run mcp
+```json
+{
+  "mcpServers": {
+    "deep-search": {
+      "command": "/Users/you/Library/Application Support/com.deep-search-app.app/deep-search-mcp.mjs"
+    }
+  }
+}
 ```
 
-If your MCP client runs from a different working directory, use an absolute project path, for example:
+If your MCP client does not execute shebang scripts directly, use Node with the
+same file path:
 
-```sh
-npm --prefix /path/to/deep-search-app run mcp
+```json
+{
+  "mcpServers": {
+    "deep-search": {
+      "command": "node",
+      "args": ["/Users/you/Library/Application Support/com.deep-search-app.app/deep-search-mcp.mjs"]
+    }
+  }
+}
 ```
+
+You do not need to run `npm run mcp` manually. MCP clients start the configured
+command when they need the server.
 
 The MCP exposes:
 
@@ -150,7 +168,7 @@ npm run tauri dev
 | Command                        | What it does                    |
 | ------------------------------ | ------------------------------- |
 | `npm run dev`                  | Frontend only (Vite, port 1420) |
-| `npm run mcp`                  | Stdio MCP proxy for coding agents |
+| `npm run mcp`                  | Dev smoke command for the MCP proxy |
 | `npm run verify`               | Full local verification gate    |
 | `npm run build`                | TypeScript check + Vite build   |
 | `npm test`                     | Unit tests (Vitest)             |

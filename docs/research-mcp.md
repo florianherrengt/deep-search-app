@@ -80,11 +80,36 @@ Answer pending questions:
 No folder name, chat id, source list, artifact paths, or debug metadata is
 required in the request. Those are app internals.
 
-Run the stdio MCP proxy with:
+The desktop app writes a stdio MCP proxy into its app data directory. Users
+should copy the path from Settings under Deep Search MCP, then reference that
+file directly in their MCP client config:
 
-```sh
-npm run mcp
+```json
+{
+  "mcpServers": {
+    "deep-search": {
+      "command": "/Users/you/Library/Application Support/com.deep-search-app.app/deep-search-mcp.mjs"
+    }
+  }
+}
 ```
+
+If the MCP client does not execute shebang scripts directly, use Node with the
+same proxy file:
+
+```json
+{
+  "mcpServers": {
+    "deep-search": {
+      "command": "node",
+      "args": ["/Users/you/Library/Application Support/com.deep-search-app.app/deep-search-mcp.mjs"]
+    }
+  }
+}
+```
+
+`npm run mcp` remains available as a development smoke command, but it is not
+required in MCP client configuration.
 
 The desktop app must already be running. On startup, the app writes
 `mcp-bridge.json` into its app data directory with a localhost port and bearer
@@ -92,8 +117,17 @@ token. The proxy reads that file and forwards MCP calls to the running app.
 
 If the proxy cannot find the config file automatically, set:
 
-```sh
-DEEP_SEARCH_MCP_BRIDGE_CONFIG=/absolute/path/to/mcp-bridge.json npm run mcp
+```json
+{
+  "mcpServers": {
+    "deep-search": {
+      "command": "/Users/you/Library/Application Support/com.deep-search-app.app/deep-search-mcp.mjs",
+      "env": {
+        "DEEP_SEARCH_MCP_BRIDGE_CONFIG": "/absolute/path/to/mcp-bridge.json"
+      }
+    }
+  }
+}
 ```
 
 ---

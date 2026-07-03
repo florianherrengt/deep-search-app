@@ -2,59 +2,151 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import { fileURLToPath } from "node:url";
 
 const CONFIG_ENV = "DEEP_SEARCH_MCP_BRIDGE_CONFIG";
+const LATEST_PROTOCOL_VERSION = "2025-11-25";
+const SUPPORTED_PROTOCOL_VERSIONS = new Set([
+  LATEST_PROTOCOL_VERSION,
+  "2025-06-18",
+  "2025-03-26",
+  "2024-11-05",
+  "2024-10-07",
+]);
 
-const deepSearchInputSchema = z
-  .object({
-    question: z.string().min(1).optional(),
-    session_id: z.string().min(1).optional(),
-    answers: z.array(z.string()).optional(),
-  })
-  .refine((value) => Boolean(value.question || value.session_id), {
-    message: "Provide either question or session_id.",
-  });
-
-const cancelInputSchema = z.object({
-  session_id: z.string().min(1),
-});
-
-const server = new McpServer({
-  name: "deep-search",
-  version: "0.1.0",
-});
-
-server.registerTool(
-  "deep_search",
+const TOOLS = [
   {
+    name: "deep_search",
     title: "Deep Search",
     description:
       "Run or resume a Deep Search app research session. Use { question } to start, { session_id } to poll, or { session_id, answers } to answer pending questions.",
-    inputSchema: deepSearchInputSchema,
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: { type: "string", minLength: 1 },
+        session_id: { type: "string", minLength: 1 },
+        answers: {
+          type: "array",
+          items: { type: "string" },
+        },
+      },
+      additionalProperties: false,
+    },
   },
-  async (input) => {
-    const response = await callAppBridge(input);
-    return toolJson(response);
-  },
-);
-
-server.registerTool(
-  "deep_search_cancel",
   {
+    name: "deep_search_cancel",
     title: "Cancel Deep Search",
     description: "Cancel a running Deep Search app research session.",
-    inputSchema: cancelInputSchema,
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: { type: "string", minLength: 1 },
+      },
+      required: ["session_id"],
+      additionalProperties: false,
+    },
   },
-  async (input) => {
-    const response = await callAppBridge({ ...input, cancel: true });
-    return toolJson(response);
-  },
-);
+];
 
-await server.connect(new StdioServerTransport());
+let inputBuffer = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  inputBuffer += chunk;
+  processInputBuffer();
+});
+process.stdin.on("error", (error) => {
+  logError(error);
+});
+
+function processInputBuffer() {
+  while (true) {
+    const newlineIndex = inputBuffer.indexOf("\n");
+    if (newlineIndex === -1) return;
+
+    const line = inputBuffer.slice(0, newlineIndex).replace(/\r$/, "");
+    inputBuffer = inputBuffer.slice(newlineIndex + 1);
+    if (!line.trim()) continue;
+
+    void handleLine(line);
+  }
+}
+
+async function handleLine(line) {
+  let message;
+  try {
+    message = JSON.parse(line);
+  } catch (error) {
+    writeError(null, -32700, `Parse error: ${errorMessage(error)}`);
+    return;
+  }
+
+  if (!isJsonRpcMessage(message)) {
+    writeError(null, -32600, "Invalid JSON-RPC message.");
+    return;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(message, "id")) {
+    await handleNotification(message);
+    return;
+  }
+
+  try {
+    const result = await handleRequest(message);
+    writeMessage({ jsonrpc: "2.0", id: message.id, result });
+  } catch (error) {
+    writeError(
+      message.id,
+      error && typeof error === "object" && "code" in error
+        ? Number(error.code)
+        : -32000,
+      errorMessage(error),
+    );
+  }
+}
+
+async function handleNotification(message) {
+  if (message.method === "notifications/initialized") return;
+}
+
+async function handleRequest(message) {
+  switch (message.method) {
+    case "initialize": {
+      const requested = message.params?.protocolVersion;
+      return {
+        protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.has(requested)
+          ? requested
+          : LATEST_PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: { name: "deep-search", version: "0.1.0" },
+      };
+    }
+    case "ping":
+      return {};
+    case "tools/list":
+      return { tools: TOOLS };
+    case "tools/call":
+      return callTool(message.params);
+    default:
+      throw rpcError(-32601, `Method not found: ${message.method}`);
+  }
+}
+
+async function callTool(params) {
+  const name = params?.name;
+  const args = isRecord(params?.arguments) ? params.arguments : {};
+
+  if (name === "deep_search") {
+    validateDeepSearchInput(args);
+    return toolJson(await callAppBridge(args));
+  }
+
+  if (name === "deep_search_cancel") {
+    validateCancelInput(args);
+    return toolJson(await callAppBridge({ ...args, cancel: true }));
+  }
+
+  throw rpcError(-32602, `Unknown tool: ${String(name)}`);
+}
 
 async function callAppBridge(body) {
   const config = readBridgeConfig();
@@ -77,6 +169,17 @@ async function callAppBridge(body) {
     throw new Error(message);
   }
   return parsed ?? { status: "failed", error: "Deep Search returned invalid JSON." };
+}
+
+function validateDeepSearchInput(input) {
+  if (typeof input.question === "string" && input.question.trim()) return;
+  if (typeof input.session_id === "string" && input.session_id.trim()) return;
+  throw rpcError(-32602, "Provide either question or session_id.");
+}
+
+function validateCancelInput(input) {
+  if (typeof input.session_id === "string" && input.session_id.trim()) return;
+  throw rpcError(-32602, "session_id is required.");
 }
 
 function readBridgeConfig() {
@@ -104,8 +207,10 @@ function readBridgeConfig() {
 function bridgeConfigCandidates() {
   const explicit = process.env[CONFIG_ENV];
   const candidates = explicit ? [explicit] : [];
-  const home = os.homedir();
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  candidates.push(path.join(scriptDir, "mcp-bridge.json"));
 
+  const home = os.homedir();
   if (process.platform === "darwin") {
     candidates.push(
       path.join(
@@ -146,8 +251,38 @@ function toolJson(value) {
   const text = JSON.stringify(value);
   return {
     content: [{ type: "text", text }],
-    structuredContent: value,
+    structuredContent: isRecord(value) ? value : { value },
   };
+}
+
+function writeMessage(message) {
+  process.stdout.write(`${JSON.stringify(message)}\n`);
+}
+
+function writeError(id, code, message) {
+  writeMessage({
+    jsonrpc: "2.0",
+    id,
+    error: { code, message },
+  });
+}
+
+function isJsonRpcMessage(value) {
+  return isRecord(value) && value.jsonrpc === "2.0" && typeof value.method === "string";
+}
+
+function rpcError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function logError(error) {
+  process.stderr.write(`[deep-search-mcp] ${errorMessage(error)}\n`);
 }
 
 function parseJson(text) {
@@ -156,4 +291,8 @@ function parseJson(text) {
   } catch {
     return null;
   }
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

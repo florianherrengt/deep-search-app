@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
-import { CheckIcon, Loader2, RefreshCw } from "lucide-react";
+import { useClipboard } from "@mantine/hooks";
+import { CheckIcon, CopyIcon, Loader2, RefreshCw } from "lucide-react";
 import { Button, TextInput, Select, SegmentedControl, Box, Stack, Text, Group, Checkbox, Paper, Progress } from "@mantine/core";
 import { generateText } from "ai";
 import {
@@ -18,6 +19,7 @@ import {
 import { resolveNodePath, isTauri } from "@/lib/tauri-bridge";
 import type { Settings } from "@/hooks/use-settings";
 import { useAppUpdate } from "@/hooks/use-app-update";
+import { getDeepSearchMcpBridgeInfo } from "@/lib/mcp/deep-search-app-bridge";
 
 interface SettingsFieldsProps {
   settings: Settings;
@@ -189,6 +191,8 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
         data={CURRENCIES.map((code) => ({ value: code, label: code }))}
       />
 
+      <DeepSearchMcpSection />
+
       <Paper withBorder p="sm">
         <Checkbox
           id={`${fieldIdPrefix}-chrome-devtools-mcp`}
@@ -304,6 +308,83 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
         </Stack>
       </Paper>
     </Stack>
+  );
+}
+
+function DeepSearchMcpSection() {
+  const clipboard = useClipboard({ timeout: 2000 });
+  const [proxyPath, setProxyPath] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let cancelled = false;
+    setLoadError(null);
+    getDeepSearchMcpBridgeInfo()
+      .then((info) => {
+        if (!cancelled) setProxyPath(info?.proxy_path ?? null);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error.message : String(error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const canCopy = Boolean(proxyPath);
+
+  return (
+    <Paper withBorder p="sm">
+      <Stack gap="xs">
+        <Group justify="space-between" align="flex-start" gap="sm">
+          <Box>
+            <Text size="sm" fw={500}>Deep Search MCP</Text>
+            <Text size="xs" c="dimmed">
+              Use this path as the command in your coding agent MCP config.
+            </Text>
+          </Box>
+          <Button
+            size="xs"
+            variant="light"
+            leftSection={
+              clipboard.copied ? (
+                <CheckIcon size={14} />
+              ) : (
+                <CopyIcon size={14} />
+              )
+            }
+            disabled={!canCopy}
+            onClick={() => proxyPath && clipboard.copy(proxyPath)}
+          >
+            {clipboard.copied ? "Copied" : "Copy"}
+          </Button>
+        </Group>
+
+        <TextInput
+          label="MCP proxy path"
+          value={proxyPath ?? ""}
+          placeholder={
+            isTauri()
+              ? "Preparing MCP proxy path..."
+              : "Available in the desktop app"
+          }
+          readOnly
+        />
+
+        {loadError ? (
+          <Text size="xs" c="red">{loadError}</Text>
+        ) : proxyPath ? (
+          <Text size="xs" c="dimmed">
+            Keep Deep Search open while external agents use this MCP server.
+          </Text>
+        ) : null}
+      </Stack>
+    </Paper>
   );
 }
 

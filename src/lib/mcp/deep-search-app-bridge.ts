@@ -6,6 +6,7 @@ export interface DeepSearchMcpBridgeInfo {
   port: number;
   token: string;
   config_path: string;
+  proxy_path: string;
 }
 
 interface DeepSearchMcpBridgeRequest {
@@ -41,6 +42,11 @@ export async function startDeepSearchMcpBridge(
   return () => {
     unlisten();
   };
+}
+
+export async function getDeepSearchMcpBridgeInfo(): Promise<DeepSearchMcpBridgeInfo | null> {
+  if (!isTauri()) return null;
+  return invoke<DeepSearchMcpBridgeInfo>("start_mcp_bridge");
 }
 
 async function respondDeepSearchMcpBridgeRequest(
