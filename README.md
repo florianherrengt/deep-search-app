@@ -88,7 +88,7 @@ command when they need the server.
 
 The MCP exposes:
 
-- `deep_search` - start, poll, or resume a research session.
+- `deep_search` - start, poll, resume, or follow up on a research session.
 - `deep_search_cancel` - cancel a running research session.
 
 Use `deep_search` with one of these inputs:
@@ -105,6 +105,13 @@ Use `deep_search` with one of these inputs:
 {
   "session_id": "mcp-session-id",
   "answers": ["migration plan"]
+}
+```
+
+```json
+{
+  "session_id": "mcp-session-id",
+  "question": "Now compare that with the Vue migration risk."
 }
 ```
 
@@ -135,7 +142,16 @@ Responses are one of:
 }
 ```
 
-When `status` is `questions`, ask the user and call `deep_search` again with `session_id` and `answers`. When `status` is `running`, call `deep_search` again later with only `session_id`.
+When `status` is `running`, the research is still active. Call `deep_search`
+again with only `session_id` until it returns `done`, `questions`, `failed`, or
+`cancelled`. Do not treat `running` as the final answer.
+
+When `status` is `questions`, ask the user and call `deep_search` again with
+`session_id` and `answers`.
+
+After `status` is `done`, ask a follow-up by calling `deep_search` again with
+the same `session_id` and a new `question`. Deep Search appends that message to
+the same saved research chat.
 
 ## Providers
 

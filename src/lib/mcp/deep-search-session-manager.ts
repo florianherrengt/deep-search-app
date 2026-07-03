@@ -76,13 +76,20 @@ export class DeepSearchSessionManager {
       return this.cancel(request.session_id ?? "");
     }
 
-    if (request.question) {
+    if (request.question && !request.session_id) {
       const session = this.createSession(request.question);
       this.ensureRunning(session);
       return this.waitAndDescribe(session);
     }
 
     const session = this.requireSession(request.session_id);
+
+    if (request.question) {
+      this.appendFollowUpQuestion(session, request.question);
+      await this.saveSession(session);
+      this.ensureRunning(session);
+      return this.waitAndDescribe(session);
+    }
 
     if (request.answers) {
       if (session.status !== "questions") {
@@ -145,6 +152,33 @@ export class DeepSearchSessionManager {
 
     this.sessions.set(sessionId, session);
     return session;
+  }
+
+  private appendFollowUpQuestion(session: DeepSearchSession, question: string) {
+    if (session.status === "running") {
+      throw new Error("This research session is still running.");
+    }
+
+    if (session.status === "questions") {
+      throw new Error(
+        "This research session is waiting for answers. Answer the pending questions before sending a follow-up.",
+      );
+    }
+
+    if (session.status === "cancelled") {
+      throw new Error("This research session was cancelled.");
+    }
+
+    if (session.status === "failed") {
+      throw new Error("This research session failed.");
+    }
+
+    session.messages = [...session.messages, createUserMessage(question)];
+    session.abortController = new AbortController();
+    session.status = "running";
+    session.result = undefined;
+    session.error = undefined;
+    this.notify(session);
   }
 
   private requireSession(sessionId: string | undefined): DeepSearchSession {

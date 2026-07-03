@@ -54,7 +54,8 @@ Optional:
 deep_search_cancel
 ```
 
-`deep_search` handles start, poll, and question answers based on the input shape.
+`deep_search` handles start, poll, question answers, and follow-up questions
+based on the input shape.
 
 Start new research:
 
@@ -74,6 +75,15 @@ Answer pending questions:
 {
   "session_id": "abc",
   "answers": ["migration plan"]
+}
+```
+
+Ask a follow-up after a completed answer:
+
+```json
+{
+  "session_id": "abc",
+  "question": "Now compare that with the Vue migration risk."
 }
 ```
 
@@ -145,6 +155,10 @@ Running:
 }
 ```
 
+`running` is not a terminal response. The caller must call `deep_search` again
+with the same `session_id` until the response is `done`, `questions`, `failed`,
+or `cancelled`.
+
 Questions:
 
 ```json
@@ -182,6 +196,10 @@ Failed:
 
 Question answers are matched by order. If the app asks multiple questions, the
 caller returns one answer per question.
+
+After `done`, a follow-up uses the same `session_id` plus a new `question`. The
+app appends the question to the same chat history and starts another research
+turn in the same saved session.
 
 ---
 
@@ -221,6 +239,7 @@ DeepSearchSessionManager
   handle({ question })
   handle({ session_id })
   handle({ session_id, answers })
+  handle({ session_id, question })
   cancel(session_id)
 ```
 
@@ -232,6 +251,7 @@ The runner must preserve these behaviours:
 - Save chat messages with `saveResearchChatMessages`.
 - Run the existing guarded stream and tool registry.
 - Keep `ask_questions` as the structured pause point.
+- Append follow-up questions to the same saved chat after a completed answer.
 - Save extracted HTML, cleaned text, and summaries into the research folder.
 - Use the configured extraction backend: fetch, webview, Scrape.do, or Chrome.
 - Emit and persist sub-agent events as normal.
@@ -297,7 +317,7 @@ If a research run is still working after the MCP call's wait window, return:
 }
 ```
 
-The coding agent can call `deep_search` again with the same `session_id`.
+The coding agent must call `deep_search` again with the same `session_id`.
 
 ---
 

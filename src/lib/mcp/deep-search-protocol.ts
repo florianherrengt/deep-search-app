@@ -12,6 +12,9 @@ export const deepSearchRequestSchema = z
   })
   .refine((value) => Boolean(value.question || value.session_id), {
     message: "Provide either question or session_id.",
+  })
+  .refine((value) => !(value.question && value.answers), {
+    message: "Provide question or answers, not both.",
   });
 
 export type DeepSearchRequest = z.infer<typeof deepSearchRequestSchema>;

@@ -19,7 +19,7 @@ const TOOLS = [
     name: "deep_search",
     title: "Deep Search",
     description:
-      "Run or resume a Deep Search app research session. Use { question } to start, { session_id } to poll, or { session_id, answers } to answer pending questions.",
+      "Run or resume a Deep Search app research session. Use { question } to start, { session_id } to poll, { session_id, answers } to answer pending questions, or { session_id, question } after done to ask a follow-up. If the response status is running, call this tool again with the same session_id until it returns done, questions, failed, or cancelled.",
     inputSchema: {
       type: "object",
       properties: {
@@ -172,6 +172,13 @@ async function callAppBridge(body) {
 }
 
 function validateDeepSearchInput(input) {
+  if (
+    typeof input.question === "string" &&
+    input.question.trim() &&
+    Array.isArray(input.answers)
+  ) {
+    throw rpcError(-32602, "Provide question or answers, not both.");
+  }
   if (typeof input.question === "string" && input.question.trim()) return;
   if (typeof input.session_id === "string" && input.session_id.trim()) return;
   throw rpcError(-32602, "Provide either question or session_id.");
@@ -248,11 +255,55 @@ function bridgeConfigCandidates() {
 }
 
 function toolJson(value) {
-  const text = JSON.stringify(value);
   return {
-    content: [{ type: "text", text }],
+    content: [{ type: "text", text: formatToolResultText(value) }],
     structuredContent: isRecord(value) ? value : { value },
   };
+}
+
+function formatToolResultText(value) {
+  const json = JSON.stringify(value);
+  if (!isRecord(value) || typeof value.status !== "string") return json;
+
+  const sessionId =
+    typeof value.session_id === "string" ? value.session_id : "<session_id>";
+
+  if (value.status === "running") {
+    return [
+      "Deep Search is still running.",
+      `Next step: call deep_search again with {"session_id":"${sessionId}"} until status is done, questions, failed, or cancelled.`,
+      "",
+      json,
+    ].join("\n");
+  }
+
+  if (value.status === "questions") {
+    return [
+      "Deep Search is waiting for user answers.",
+      `Next step: ask the user the returned questions, then call deep_search with {"session_id":"${sessionId}","answers":["..."]}.`,
+      "",
+      json,
+    ].join("\n");
+  }
+
+  if (value.status === "done") {
+    return [
+      "Deep Search is done.",
+      `Follow-up: call deep_search with {"session_id":"${sessionId}","question":"..."}.`,
+      "",
+      json,
+    ].join("\n");
+  }
+
+  if (value.status === "failed") {
+    return ["Deep Search failed.", "", json].join("\n");
+  }
+
+  if (value.status === "cancelled") {
+    return ["Deep Search was cancelled.", "", json].join("\n");
+  }
+
+  return json;
 }
 
 function writeMessage(message) {

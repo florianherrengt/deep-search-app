@@ -2,12 +2,35 @@ import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import {
   answerPendingDeepSearchQuestions,
+  deepSearchRequestSchema,
   getDeepSearchResultText,
   getPendingDeepSearchQuestions,
 } from "@/lib/mcp/deep-search-protocol";
 import { SUB_AGENT_TEXT_PROVIDER_METADATA } from "@/lib/sub-agent-stream";
 
 describe("deep search MCP protocol helpers", () => {
+  it("accepts follow-up questions on an existing session", () => {
+    expect(
+      deepSearchRequestSchema.parse({
+        session_id: "abc",
+        question: "Compare with Vue.",
+      }),
+    ).toEqual({
+      session_id: "abc",
+      question: "Compare with Vue.",
+    });
+  });
+
+  it("rejects mixed follow-up questions and question answers", () => {
+    expect(
+      deepSearchRequestSchema.safeParse({
+        session_id: "abc",
+        question: "Compare with Vue.",
+        answers: ["migration plan"],
+      }).success,
+    ).toBe(false);
+  });
+
   it("extracts pending questions with option values", () => {
     expect(getPendingDeepSearchQuestions([pendingQuestionMessage()])).toEqual([
       {
