@@ -5,9 +5,16 @@ import {
   PredefinedMenuItem,
 } from "@tauri-apps/api/menu";
 
+export interface ZoomActions {
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onResetZoom: () => void;
+}
+
 export async function setupMenu(
   onPreferences: () => void,
   onNewChat: () => void,
+  zoom: ZoomActions,
 ) {
   const newChat = await MenuItem.new({
     id: "new-chat",
@@ -49,9 +56,33 @@ export async function setupMenu(
     ],
   });
 
+  const viewSubmenu = await Submenu.new({
+    text: "View",
+    items: [
+      await MenuItem.new({
+        id: "zoom-in",
+        text: "Zoom In",
+        accelerator: "CmdOrCtrl+=",
+        action: zoom.onZoomIn,
+      }),
+      await MenuItem.new({
+        id: "zoom-out",
+        text: "Zoom Out",
+        accelerator: "CmdOrCtrl+-",
+        action: zoom.onZoomOut,
+      }),
+      await MenuItem.new({
+        id: "zoom-actual-size",
+        text: "Actual Size",
+        accelerator: "CmdOrCtrl+0",
+        action: zoom.onResetZoom,
+      }),
+    ],
+  });
+
   const menu = await Menu.new({
     id: "app-menu",
-    items: [appSubmenu, editSubmenu],
+    items: [appSubmenu, editSubmenu, viewSubmenu],
   });
 
   await menu.setAsAppMenu();

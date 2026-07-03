@@ -27,6 +27,7 @@ import { TabPanel } from "@/components/tab-panel";
 import { AppUpdateButton } from "@/components/app-update-button";
 import { useBrowserTabs } from "@/hooks/use-browser-tabs";
 import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
+import { useWebviewZoom } from "@/hooks/use-webview-zoom";
 import { ResearchSidebar } from "@/components/research-sidebar";
 import { SubAgentProvider } from "@/lib/sub-agent-store";
 import { SubAgentSidebar } from "@/components/sub-agent-sidebar";
@@ -326,12 +327,19 @@ function AppInner() {
     }
   }, []);
 
+  const { zoomIn, zoomOut, resetZoom } = useWebviewZoom(
+    settings.zoom_level,
+    updateSetting,
+    !loading,
+  );
+
   useEffect(() => {
     setupMenu(
       () => switchToTab("settings"),
       handleNewChat,
+      { onZoomIn: zoomIn, onZoomOut: zoomOut, onResetZoom: resetZoom },
     );
-  }, [switchToTab, handleNewChat]);
+  }, [switchToTab, handleNewChat, zoomIn, zoomOut, resetZoom]);
 
   useEffect(() => {
     void refreshResearchFolders({ showLoading: true });

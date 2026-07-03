@@ -83,6 +83,7 @@ vi.mock("@/lib/sub-agent-profiler", () => ({
 vi.mock("@/lib/tauri-bridge", () => ({
   fetch: appMocks.fetch,
   setupMenu: appMocks.setupMenu,
+  isTauri: () => false,
 }));
 
 vi.mock("@/lib/research-library-events", () => ({

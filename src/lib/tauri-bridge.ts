@@ -277,9 +277,10 @@ export async function openPath(path: string): Promise<void> {
 export async function setupMenu(
   onPreferences: () => void,
   onNewChat: () => void,
+  zoom: { onZoomIn: () => void; onZoomOut: () => void; onResetZoom: () => void },
 ): Promise<void> {
   const mock = getBridgeMock("setupMenu");
-  if (mock) return mock(onPreferences, onNewChat);
+  if (mock) return mock(onPreferences, onNewChat, zoom);
 
   if (!isTauri()) {
     return;
@@ -287,7 +288,7 @@ export async function setupMenu(
 
   requireTauri();
   const { setupMenu: fn } = await import("@/lib/setup-menu-impl");
-  return fn(onPreferences, onNewChat);
+  return fn(onPreferences, onNewChat, zoom);
 }
 
 export async function isNotificationPermissionGranted(): Promise<boolean> {
@@ -776,6 +777,7 @@ export type TauriBridgeMock = {
   setupMenu?: (
     onPreferences: () => void,
     onNewChat: () => void,
+    zoom: { onZoomIn: () => void; onZoomOut: () => void; onResetZoom: () => void },
   ) => Promise<void>;
   sendNotification?: (options: {
     title: string;

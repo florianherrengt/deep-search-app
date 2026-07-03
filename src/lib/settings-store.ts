@@ -80,6 +80,7 @@ export const settingsSchema = z.object({
   chrome_devtools_mcp_browser_url: z.string(),
   chrome_devtools_mcp_node_path: z.string(),
   web_extraction_backend: webExtractionBackendSchema,
+  zoom_level: z.number(),
 });
 
 export type Settings = z.infer<typeof settingsSchema>;
@@ -112,6 +113,7 @@ export const settingsDefaults: Settings = {
   chrome_devtools_mcp_browser_url: "",
   chrome_devtools_mcp_node_path: "",
   web_extraction_backend: "tauri-webview",
+  zoom_level: 1,
 };
 
 export const settingsStore = createStore(

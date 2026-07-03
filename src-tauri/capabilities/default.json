@@ -22,6 +22,7 @@
     "core:webview:allow-webview-show",
     "core:webview:allow-set-webview-position",
     "core:webview:allow-set-webview-size",
+    "core:webview:allow-set-webview-zoom",
     "core:window:allow-create",
     "core:window:default",
     "fs:allow-exists",
