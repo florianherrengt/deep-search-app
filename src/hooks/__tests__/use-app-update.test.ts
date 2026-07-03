@@ -1,11 +1,32 @@
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import { act, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
+  APP_UPDATE_CHECK_INTERVAL_MS,
   appUpdateReducer,
   getDownloadProgress,
   getErrorMessage,
+  useAppUpdate,
   type AppUpdateState,
 } from "../use-app-update";
-import type { DownloadEvent } from "@/lib/tauri-bridge";
+import type { AppUpdate, DownloadEvent } from "@/lib/tauri-bridge";
+
+const bridgeMocks = vi.hoisted(() => ({
+  isTauri: vi.fn(),
+  checkForUpdate: vi.fn(),
+  relaunchApp: vi.fn(),
+}));
+
+vi.mock("@/lib/tauri-bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-bridge")>();
+
+  return {
+    ...actual,
+    isTauri: bridgeMocks.isTauri,
+    checkForUpdate: bridgeMocks.checkForUpdate,
+    relaunchApp: bridgeMocks.relaunchApp,
+  };
+});
 
 const updateInfo = {
   version: "2.0.0",
@@ -13,6 +34,37 @@ const updateInfo = {
   date: "2026-06-06",
   body: "Release notes",
 };
+
+function createUpdate(overrides: Partial<AppUpdate> = {}): AppUpdate {
+  return {
+    version: updateInfo.version,
+    currentVersion: updateInfo.currentVersion,
+    date: updateInfo.date,
+    body: updateInfo.body,
+    close: vi.fn().mockResolvedValue(undefined),
+    downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+function flushPromises() {
+  return act(() => Promise.resolve());
+}
+
+beforeEach(() => {
+  bridgeMocks.isTauri.mockReset();
+  bridgeMocks.isTauri.mockReturnValue(false);
+  bridgeMocks.checkForUpdate.mockReset();
+  bridgeMocks.checkForUpdate.mockResolvedValue(null);
+  bridgeMocks.relaunchApp.mockReset();
+  bridgeMocks.relaunchApp.mockResolvedValue(undefined);
+  delete (window as Window & { __storybookAppUpdateState?: AppUpdateState })
+    .__storybookAppUpdateState;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("appUpdateReducer", () => {
   it("check_started → checking", () => {
@@ -264,5 +316,69 @@ describe("getErrorMessage", () => {
 
   it("returns default message for non-string, non-Error values", () => {
     expect(getErrorMessage(42)).toBe("Could not install the update.");
+  });
+});
+
+describe("useAppUpdate", () => {
+  it("automatically checks immediately and then every hour", async () => {
+    vi.useFakeTimers();
+    bridgeMocks.isTauri.mockReturnValue(true);
+
+    renderHook(() => useAppUpdate());
+    await flushPromises();
+
+    expect(bridgeMocks.checkForUpdate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(APP_UPDATE_CHECK_INTERVAL_MS - 1);
+    });
+    expect(bridgeMocks.checkForUpdate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    await flushPromises();
+
+    expect(bridgeMocks.checkForUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps automatic check failures hidden", async () => {
+    bridgeMocks.isTauri.mockReturnValue(true);
+    bridgeMocks.checkForUpdate.mockRejectedValue(new Error("offline"));
+
+    const { result } = renderHook(() => useAppUpdate());
+    await flushPromises();
+
+    expect(result.current.state).toEqual({ status: "hidden" });
+  });
+
+  it("shows manual check failures", async () => {
+    bridgeMocks.isTauri.mockReturnValue(true);
+    bridgeMocks.checkForUpdate.mockRejectedValue(new Error("offline"));
+
+    const { result } = renderHook(() => useAppUpdate({ manual: true }));
+
+    act(() => {
+      result.current.checkForUpdates();
+    });
+    await flushPromises();
+
+    expect(result.current.state).toEqual({
+      status: "check-error",
+      error: "offline",
+    });
+  });
+
+  it("shows updates discovered by an automatic check", async () => {
+    bridgeMocks.isTauri.mockReturnValue(true);
+    bridgeMocks.checkForUpdate.mockResolvedValue(createUpdate());
+
+    const { result } = renderHook(() => useAppUpdate());
+    await flushPromises();
+
+    expect(result.current.state).toEqual({
+      status: "available",
+      update: updateInfo,
+    });
   });
 });

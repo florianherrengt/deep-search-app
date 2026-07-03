@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Box, Text } from "@mantine/core";
+import { Box, Group, Text } from "@mantine/core";
 import { withAppUpdateState } from "@/lib/storybook";
 import { AppUpdateButton } from "./app-update-button";
 
@@ -30,6 +30,23 @@ type Story = StoryObj<typeof meta>;
 
 export const Available: Story = {
   decorators: [withAppUpdateState({ status: "available", update })],
+};
+
+export const ToolbarContext: Story = {
+  decorators: [withAppUpdateState({ status: "available", update })],
+  render: () => (
+    <Group
+      h={40}
+      px={8}
+      justify="flex-end"
+      style={{
+        width: 360,
+        borderBottom: "1px solid var(--mantine-color-default-border)",
+      }}
+    >
+      <AppUpdateButton />
+    </Group>
+  ),
 };
 
 export const Downloading: Story = {

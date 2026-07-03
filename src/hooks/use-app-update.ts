@@ -3,6 +3,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 
 const CHECK_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+export const APP_UPDATE_CHECK_INTERVAL_MS = 60 * 60_000;
 
 interface AppUpdateInfo {
   version: string;
@@ -31,6 +32,14 @@ type AppUpdateAction =
   | { type: "relaunch_started"; update: AppUpdateInfo }
   | { type: "install_failed"; update: AppUpdateInfo; error: string }
   | { type: "dismissed" };
+
+type AppUpdateCheckOptions = {
+  silent?: boolean;
+};
+
+type StorybookWindow = Window & {
+  __storybookAppUpdateState?: AppUpdateState;
+};
 
 export function appUpdateReducer(
   _state: AppUpdateState,
@@ -77,24 +86,49 @@ export function useAppUpdate(options?: { manual?: boolean }) {
   const updateRef = useRef<AppUpdate | null>(null);
   const [state, dispatch] = useReducer(appUpdateReducer, {
     status: "hidden",
-  });
-  const cancelledRef = useRef(false);
+  }, () => getInitialAppUpdateState());
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const latestCheckIdRef = useRef(0);
+  const isMountedRef = useRef(true);
 
-  const checkForUpdates = useCallback(() => {
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      latestCheckIdRef.current += 1;
+      const update = updateRef.current;
+      updateRef.current = null;
+      void update?.close().catch(() => undefined);
+    };
+  }, []);
+
+  const checkForUpdates = useCallback((checkOptions?: AppUpdateCheckOptions) => {
     if (!isTauri()) return;
-    cancelledRef.current = false;
-    dispatch({ type: "check_started" });
+    const silent = checkOptions?.silent ?? false;
+    const checkId = latestCheckIdRef.current + 1;
+    latestCheckIdRef.current = checkId;
+
+    if (!silent) {
+      dispatch({ type: "check_started" });
+    }
 
     void checkForUpdate({ timeout: CHECK_TIMEOUT_MS })
       .then((update) => {
-        if (cancelledRef.current) {
+        if (!isMountedRef.current || checkId !== latestCheckIdRef.current) {
           void update?.close().catch(() => undefined);
           return;
         }
 
         if (!update) {
-          dispatch({ type: "check_completed", update: null });
+          if (!silent) {
+            dispatch({ type: "check_completed", update: null });
+          }
           return;
+        }
+
+        const previousUpdate = updateRef.current;
+        if (previousUpdate && previousUpdate !== update) {
+          void previousUpdate.close().catch(() => undefined);
         }
 
         updateRef.current = update;
@@ -104,7 +138,7 @@ export function useAppUpdate(options?: { manual?: boolean }) {
         });
       })
       .catch((error) => {
-        if (!cancelledRef.current) {
+        if (!silent && isMountedRef.current && checkId === latestCheckIdRef.current) {
           dispatch({
             type: "check_failed",
             error: getErrorMessage(error),
@@ -115,12 +149,15 @@ export function useAppUpdate(options?: { manual?: boolean }) {
 
   useEffect(() => {
     if (manual) return;
-    checkForUpdates();
+    checkForUpdates({ silent: true });
+    const intervalId = window.setInterval(() => {
+      if (stateRef.current.status === "hidden") {
+        checkForUpdates({ silent: true });
+      }
+    }, APP_UPDATE_CHECK_INTERVAL_MS);
+
     return () => {
-      cancelledRef.current = true;
-      const update = updateRef.current;
-      updateRef.current = null;
-      void update?.close().catch(() => undefined);
+      window.clearInterval(intervalId);
     };
   }, [checkForUpdates, manual]);
 
@@ -185,6 +222,7 @@ export function useAppUpdate(options?: { manual?: boolean }) {
   }, []);
 
   const dismissUpdate = useCallback(() => {
+    latestCheckIdRef.current += 1;
     const update = updateRef.current;
     updateRef.current = null;
     void update?.close().catch(() => undefined);
@@ -198,6 +236,11 @@ export function useAppUpdate(options?: { manual?: boolean }) {
     retryUpdate: retry,
     dismissUpdate,
   };
+}
+
+function getInitialAppUpdateState(): AppUpdateState {
+  if (typeof window === "undefined") return { status: "hidden" };
+  return (window as StorybookWindow).__storybookAppUpdateState ?? { status: "hidden" };
 }
 
 function toUpdateInfo(update: AppUpdate): AppUpdateInfo {

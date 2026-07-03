@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { Decorator } from "@storybook/react-vite";
 import {
   AssistantRuntimeProvider,
@@ -39,11 +39,34 @@ export function setStorybookTauriStores(stores: StoreSeed) {
 
 export function withAppUpdateState(state: AppUpdateState): Decorator {
   return (Story) => {
-    if (typeof window !== "undefined") {
-      (window as StorybookWindow).__storybookAppUpdateState = state;
-    }
-    return <Story />;
+    return (
+      <StorybookAppUpdateStateProvider state={state}>
+        <Story />
+      </StorybookAppUpdateStateProvider>
+    );
   };
+}
+
+function StorybookAppUpdateStateProvider({
+  state,
+  children,
+}: {
+  state: AppUpdateState;
+  children: ReactNode;
+}) {
+  if (typeof window !== "undefined") {
+    (window as StorybookWindow).__storybookAppUpdateState = state;
+  }
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined") {
+        delete (window as StorybookWindow).__storybookAppUpdateState;
+      }
+    };
+  }, []);
+
+  return children;
 }
 
 export function AssistantRuntimeStoryProvider({
