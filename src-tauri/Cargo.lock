@@ -796,6 +796,7 @@ dependencies = [
  "tauri-plugin-webdriver",
  "tokio",
  "url",
+ "uuid",
 ]
 
 [[package]]

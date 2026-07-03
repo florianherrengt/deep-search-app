@@ -7,6 +7,7 @@
     "dev": "vite",
     "lint": "eslint .",
     "build": "tsc && vite build",
+    "mcp": "node scripts/deep-search-mcp.mjs",
     "preview": "vite preview",
     "verify": "npm run lint && npm test && npm run build && npm run build-storybook && npm run test:browser && cargo test --manifest-path src-tauri/Cargo.toml && npm run test:e2e && npm run test:e2e:tauri && npm run test:visual && npm run benchmark:subagents",
     "release:set-version": "node scripts/set-release-version.mjs",

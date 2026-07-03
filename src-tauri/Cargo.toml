@@ -40,3 +40,4 @@ tauri-plugin-process = "2"
 ipnet = "2.10"
 dotenvy = "0.15"
 tauri-plugin-playwright = { version = "0.4", optional = true }
+uuid = { version = "1", features = ["v4"] }

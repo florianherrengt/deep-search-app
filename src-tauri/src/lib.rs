@@ -1,13 +1,17 @@
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::str::FromStr;
-use std::sync::mpsc;
 use std::sync::Mutex;
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use ipnet::IpNet;
 
 use reqwest::header::{ACCEPT, CONTENT_TYPE, LOCATION, USER_AGENT};
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewBuilder, WebviewUrl};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewBuilder, WebviewUrl,
+};
 
 const TAB_BAR_HEIGHT: f64 = 40.0;
 const PAGE_LOAD_TIMEOUT_SECS: u64 = 30;
@@ -19,6 +23,39 @@ const MAX_HTML_BYTES: usize = 5 * 1024 * 1024;
 struct SidecarState {
     pid: Mutex<Option<u32>>,
 }
+
+#[derive(Clone)]
+struct McpBridgeState {
+    started: Arc<Mutex<Option<McpBridgeInfo>>>,
+    pending: Arc<Mutex<HashMap<String, mpsc::Sender<String>>>>,
+}
+
+impl McpBridgeState {
+    fn new() -> Self {
+        Self {
+            started: Arc::new(Mutex::new(None)),
+            pending: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+struct McpBridgeInfo {
+    port: u16,
+    token: String,
+    config_path: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct McpBridgeRequestPayload {
+    id: String,
+    body: serde_json::Value,
+}
+
+const MCP_BRIDGE_CONFIG_FILENAME: &str = "mcp-bridge.json";
+const MCP_BRIDGE_REQUEST_EVENT: &str = "deep-search:mcp-request";
+const MCP_BRIDGE_MAX_BODY_BYTES: usize = 1024 * 1024;
+const MCP_BRIDGE_RENDERER_TIMEOUT_SECS: u64 = 120;
 
 #[tauri::command]
 async fn open_tab(app: AppHandle, url: String, id: String) -> Result<(), String> {
@@ -124,12 +161,7 @@ async fn extract_content(app: AppHandle, id: String) -> Result<String, String> {
 
 #[tauri::command]
 async fn fetch_html(url: String) -> Result<Option<String>, String> {
-    fetch_validated_text(
-        &url,
-        "text/html,application/xhtml+xml",
-        MAX_HTML_BYTES,
-    )
-    .await
+    fetch_validated_text(&url, "text/html,application/xhtml+xml", MAX_HTML_BYTES).await
 }
 
 async fn validate_external_url(raw: &str) -> Result<url::Url, String> {
@@ -387,6 +419,262 @@ fn unregister_sidecar_pid(state: tauri::State<SidecarState>) -> Result<(), Strin
     Ok(())
 }
 
+#[tauri::command]
+fn start_mcp_bridge(
+    app: AppHandle,
+    state: tauri::State<McpBridgeState>,
+) -> Result<McpBridgeInfo, String> {
+    if let Some(info) = state.started.lock().map_err(|e| e.to_string())?.clone() {
+        return Ok(info);
+    }
+
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|e| format!("Failed to bind MCP bridge: {}", e))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to read MCP bridge address: {}", e))?
+        .port();
+    let token = uuid::Uuid::new_v4().to_string();
+    let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&app_data).map_err(|e| e.to_string())?;
+    let config_path = app_data.join(MCP_BRIDGE_CONFIG_FILENAME);
+
+    let info = McpBridgeInfo {
+        port,
+        token: token.clone(),
+        config_path: config_path.to_string_lossy().into_owned(),
+    };
+    let config = serde_json::to_string_pretty(&info).map_err(|e| e.to_string())?;
+    std::fs::write(&config_path, config).map_err(|e| {
+        format!(
+            "Failed to write MCP bridge config at {}: {}",
+            config_path.to_string_lossy(),
+            e
+        )
+    })?;
+
+    let app_handle = app.clone();
+    let pending = state.pending.clone();
+    std::thread::Builder::new()
+        .name("deep-search-mcp-bridge".to_string())
+        .spawn(move || {
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => {
+                        let app_handle = app_handle.clone();
+                        let pending = pending.clone();
+                        let token = token.clone();
+                        std::thread::spawn(move || {
+                            if let Err(error) =
+                                handle_mcp_bridge_stream(stream, app_handle, pending, token)
+                            {
+                                eprintln!("[mcp-bridge] request failed: {}", error);
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        eprintln!("[mcp-bridge] accept failed: {}", error);
+                    }
+                }
+            }
+        })
+        .map_err(|e| format!("Failed to start MCP bridge thread: {}", e))?;
+
+    *state.started.lock().map_err(|e| e.to_string())? = Some(info.clone());
+    Ok(info)
+}
+
+#[tauri::command]
+fn respond_mcp_bridge_request(
+    state: tauri::State<McpBridgeState>,
+    id: String,
+    response: serde_json::Value,
+) -> Result<(), String> {
+    let sender = state
+        .pending
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&id)
+        .ok_or_else(|| format!("No pending MCP bridge request for id {}", id))?;
+
+    sender
+        .send(response.to_string())
+        .map_err(|e| format!("Failed to send MCP bridge response: {}", e))
+}
+
+fn handle_mcp_bridge_stream(
+    mut stream: TcpStream,
+    app: AppHandle,
+    pending: Arc<Mutex<HashMap<String, mpsc::Sender<String>>>>,
+    token: String,
+) -> Result<(), String> {
+    let request = read_mcp_bridge_request(&mut stream)?;
+
+    if request.method != "POST" || request.path != "/deep-search" {
+        write_http_response(&mut stream, 404, r#"{"error":"not found"}"#)?;
+        return Ok(());
+    }
+
+    if !request_has_valid_token(&request.headers, &token) {
+        write_http_response(&mut stream, 401, r#"{"error":"unauthorized"}"#)?;
+        return Ok(());
+    }
+
+    let body: serde_json::Value = serde_json::from_str(&request.body)
+        .map_err(|e| format!("Invalid MCP bridge JSON body: {}", e))?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let (tx, rx) = mpsc::channel::<String>();
+    pending
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(id.clone(), tx);
+
+    let payload = McpBridgeRequestPayload {
+        id: id.clone(),
+        body,
+    };
+    if let Err(error) = app.emit(MCP_BRIDGE_REQUEST_EVENT, payload) {
+        let _ = pending.lock().map(|mut guard| guard.remove(&id));
+        write_http_response(
+            &mut stream,
+            500,
+            &format_json_error(&format!("Failed to emit bridge request: {}", error)),
+        )?;
+        return Ok(());
+    }
+
+    match rx.recv_timeout(Duration::from_secs(MCP_BRIDGE_RENDERER_TIMEOUT_SECS)) {
+        Ok(response) => write_http_response(&mut stream, 200, &response)?,
+        Err(_) => {
+            let _ = pending.lock().map(|mut guard| guard.remove(&id));
+            write_http_response(
+                &mut stream,
+                504,
+                r#"{"status":"failed","error":"MCP bridge request timed out."}"#,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+struct McpBridgeHttpRequest {
+    method: String,
+    path: String,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+fn read_mcp_bridge_request(stream: &mut TcpStream) -> Result<McpBridgeHttpRequest, String> {
+    let mut buffer = Vec::new();
+    let mut temp = [0_u8; 1024];
+    let header_end;
+
+    loop {
+        let read = stream
+            .read(&mut temp)
+            .map_err(|e| format!("Failed to read MCP bridge request: {}", e))?;
+        if read == 0 {
+            return Err("MCP bridge client closed the connection.".to_string());
+        }
+        buffer.extend_from_slice(&temp[..read]);
+        if buffer.len() > MCP_BRIDGE_MAX_BODY_BYTES {
+            return Err("MCP bridge request is too large.".to_string());
+        }
+        if let Some(index) = find_header_end(&buffer) {
+            header_end = index;
+            break;
+        }
+    }
+
+    let header_text = String::from_utf8(buffer[..header_end].to_vec())
+        .map_err(|_| "MCP bridge headers are not valid UTF-8.".to_string())?;
+    let mut lines = header_text.split("\r\n");
+    let request_line = lines
+        .next()
+        .ok_or_else(|| "MCP bridge request line is missing.".to_string())?;
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts
+        .next()
+        .ok_or_else(|| "MCP bridge request method is missing.".to_string())?
+        .to_string();
+    let path = request_parts
+        .next()
+        .ok_or_else(|| "MCP bridge request path is missing.".to_string())?
+        .to_string();
+
+    let headers: Vec<(String, String)> = lines
+        .flat_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            Some((name.trim().to_ascii_lowercase(), value.trim().to_string()))
+        })
+        .collect();
+    let content_length = headers
+        .iter()
+        .find(|(name, _)| name == "content-length")
+        .and_then(|(_, value)| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    if content_length > MCP_BRIDGE_MAX_BODY_BYTES {
+        return Err("MCP bridge request body is too large.".to_string());
+    }
+
+    let body_start = header_end + 4;
+    while buffer.len() < body_start + content_length {
+        let read = stream
+            .read(&mut temp)
+            .map_err(|e| format!("Failed to read MCP bridge body: {}", e))?;
+        if read == 0 {
+            return Err("MCP bridge client closed before sending the body.".to_string());
+        }
+        buffer.extend_from_slice(&temp[..read]);
+    }
+
+    let body = String::from_utf8(buffer[body_start..body_start + content_length].to_vec())
+        .map_err(|_| "MCP bridge body is not valid UTF-8.".to_string())?;
+
+    Ok(McpBridgeHttpRequest {
+        method,
+        path,
+        headers,
+        body,
+    })
+}
+
+fn find_header_end(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+fn request_has_valid_token(headers: &[(String, String)], token: &str) -> bool {
+    headers
+        .iter()
+        .any(|(name, value)| name == "authorization" && value == &format!("Bearer {}", token))
+}
+
+fn write_http_response(stream: &mut TcpStream, status: u16, body: &str) -> Result<(), String> {
+    let reason = match status {
+        200 => "OK",
+        401 => "Unauthorized",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        504 => "Gateway Timeout",
+        _ => "OK",
+    };
+    let response = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        status,
+        reason,
+        body.as_bytes().len(),
+        body,
+    );
+    stream
+        .write_all(response.as_bytes())
+        .map_err(|e| format!("Failed to write MCP bridge response: {}", e))
+}
+
+fn format_json_error(message: &str) -> String {
+    serde_json::json!({ "status": "failed", "error": message }).to_string()
+}
+
 /// Required Node version range for chrome-devtools-mcp.
 /// Mirrors `chrome-devtools-mcp`'s `engines.node` and the TS-side check in
 /// `src/lib/mcp/chrome-devtools-sidecar.ts`.
@@ -428,7 +716,10 @@ fn validate_node_at(path: &std::path::Path) -> Option<String> {
     if !path.is_file() {
         return None;
     }
-    let output = std::process::Command::new(path).arg("--version").output().ok()?;
+    let output = std::process::Command::new(path)
+        .arg("--version")
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -513,10 +804,18 @@ fn common_node_candidates() -> Vec<std::path::PathBuf> {
         candidates.push(std::path::PathBuf::from("/usr/bin/node"));
     } else if cfg!(windows) {
         if let Ok(pf) = std::env::var("ProgramFiles") {
-            candidates.push(std::path::PathBuf::from(&pf).join("nodejs").join("node.exe"));
+            candidates.push(
+                std::path::PathBuf::from(&pf)
+                    .join("nodejs")
+                    .join("node.exe"),
+            );
         }
         if let Ok(pf) = std::env::var("ProgramFiles(x86)") {
-            candidates.push(std::path::PathBuf::from(&pf).join("nodejs").join("node.exe"));
+            candidates.push(
+                std::path::PathBuf::from(&pf)
+                    .join("nodejs")
+                    .join("node.exe"),
+            );
         }
     }
     candidates
@@ -597,7 +896,10 @@ pub fn run() {
         .setup(|app| {
             let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(&app_data).map_err(|e| e.to_string())?;
-            app.manage(SidecarState { pid: Mutex::new(None) });
+            app.manage(SidecarState {
+                pid: Mutex::new(None),
+            });
+            app.manage(McpBridgeState::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -609,6 +911,8 @@ pub fn run() {
             register_sidecar_pid,
             unregister_sidecar_pid,
             resolve_node_path,
+            start_mcp_bridge,
+            respond_mcp_bridge_request,
         ]);
 
     #[cfg(debug_assertions)]
@@ -707,9 +1011,7 @@ mod tests {
 
     #[test]
     fn content_type_matching_is_strict() {
-        assert!(content_type_is_allowed(
-            "text/html; charset=utf-8",
-        ));
+        assert!(content_type_is_allowed("text/html; charset=utf-8",));
         assert!(content_type_is_allowed("application/xhtml+xml"));
         assert!(!content_type_is_allowed("text/plain"));
         assert!(!content_type_is_allowed("application/json"));
@@ -767,5 +1069,4 @@ mod tests {
         let ip: Ipv6Addr = "::ffff:8.8.8.8".parse().unwrap();
         assert!(!is_blocked_ip(IpAddr::V6(ip)));
     }
-
 }

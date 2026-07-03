@@ -29,9 +29,11 @@ import { useBrowserTabs } from "@/hooks/use-browser-tabs";
 import { useDesktopNotifications } from "@/hooks/use-desktop-notifications";
 import { useWebviewZoom } from "@/hooks/use-webview-zoom";
 import { ResearchSidebar } from "@/components/research-sidebar";
-import { SubAgentProvider } from "@/lib/sub-agent-store";
+import { SubAgentProvider, useSubAgentActions } from "@/lib/sub-agent-store";
 import { SubAgentSidebar } from "@/components/sub-agent-sidebar";
 import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
+import { startDeepSearchMcpBridge } from "@/lib/mcp/deep-search-app-bridge";
+import { DeepSearchSessionManager } from "@/lib/mcp/deep-search-session-manager";
 import {
   compareResearchFolders,
   createResearchChatId,
@@ -217,6 +219,7 @@ function AppInner() {
   useSubAgentRenderCounter("AppInner");
 
   const { settings, loading, error: settingsError, updateSetting } = useSettings();
+  const { processEvent } = useSubAgentActions();
   const { tabs, activeTabId, switchToTab, closeTab } = useBrowserTabs();
   const [researchFolders, setResearchFolders] = useState<ResearchFolder[]>([]);
   const [researchFoldersStatus, setResearchFoldersStatus] = useState<
@@ -462,8 +465,8 @@ function AppInner() {
       currency: settings.currency,
       chromeDevToolsMcpEnabled: settings.chrome_devtools_mcp_enabled,
       chromeDevToolsMcpConnectionMode: settings.chrome_devtools_mcp_connection_mode,
-      chromeDevtoolsMcpBrowserUrl: settings.chrome_devtools_mcp_browser_url || null,
-      chromeDevtoolsMcpNodePath: settings.chrome_devtools_mcp_node_path || null,
+      chromeDevToolsMcpBrowserUrl: settings.chrome_devtools_mcp_browser_url || null,
+      chromeDevToolsMcpNodePath: settings.chrome_devtools_mcp_node_path || null,
       webExtractionBackend: settings.web_extraction_backend,
     }),
     [
@@ -481,6 +484,8 @@ function AppInner() {
       settings.web_extraction_backend,
     ],
   );
+  const searchKeysRef = useRef(searchKeys);
+  searchKeysRef.current = searchKeys;
   const effectiveSelectedModelId = selectedModelId || defaultChatModelId;
 
   const getSelectedToolChatModel = (): ChatModelConfig | null => {
@@ -496,6 +501,65 @@ function AppInner() {
       baseURL: selected.baseURL,
     };
   };
+
+  const mcpSessionManagerRef = useRef<DeepSearchSessionManager | null>(null);
+  if (!mcpSessionManagerRef.current) {
+    mcpSessionManagerRef.current = new DeepSearchSessionManager({
+      getChatModel: getSelectedToolChatModel,
+      getSearchKeys: () => searchKeysRef.current,
+    });
+  }
+  mcpSessionManagerRef.current.setConfig({
+    getChatModel: getSelectedToolChatModel,
+    getSearchKeys: () => searchKeysRef.current,
+    onResearchFolderChange: (_sessionId, folderName) => {
+      setResearchFolders((folders) =>
+        upsertRecentResearchFolder(folders, folderName),
+      );
+      void refreshResearchFolders();
+      if (folderName === activeResearchFolderRef.current) {
+        void refreshResearchChats(folderName);
+      }
+    },
+    onResearchChatSaved: (folderName) => {
+      if (folderName === activeResearchFolderRef.current) {
+        void refreshResearchChats(folderName);
+      }
+    },
+    onSubAgentEvent: (chatId, event) => {
+      processEvent(chatId, event);
+    },
+  });
+
+  useEffect(() => {
+    if (loading) return;
+
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+
+    void startDeepSearchMcpBridge((body) => {
+      const manager = mcpSessionManagerRef.current;
+      if (!manager) {
+        throw new Error("Deep Search MCP session manager is not ready.");
+      }
+      return manager.handle(body);
+    })
+      .then((nextCleanup) => {
+        if (cancelled) {
+          nextCleanup();
+          return;
+        }
+        cleanup = nextCleanup;
+      })
+      .catch((error) => {
+        console.error("[mcp-bridge] Failed to start:", error);
+      });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [loading]);
 
   const chatModelOptionsRef = useRef(chatModelOptions);
   chatModelOptionsRef.current = chatModelOptions;

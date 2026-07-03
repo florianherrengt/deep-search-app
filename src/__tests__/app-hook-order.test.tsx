@@ -61,6 +61,9 @@ vi.mock("@/hooks/use-skills", () => ({
 
 vi.mock("@/lib/sub-agent-store", () => ({
   SubAgentProvider: ({ children }: { children: ReactNode }) => children,
+  useSubAgentActions: () => ({
+    processEvent: vi.fn(),
+  }),
 }));
 
 vi.mock("@/hooks/use-browser-tabs", () => ({

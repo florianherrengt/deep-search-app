@@ -50,6 +50,75 @@ The agent searches the web, reads the actual pages, follows leads, cross-referen
 
 Each step is a separate tool call with guardrails. The agent has to actually fetch and read sources — it can't skip steps or make them up.
 
+## Use from coding agents
+
+Deep Search includes a stdio MCP proxy for coding agents. The proxy talks to the running desktop app, so MCP research uses the same settings, browser rendering, saved history, research folders, and guardrails as a normal in-app research run.
+
+1. Open the Deep Search desktop app.
+2. Configure a chat model and at least one search provider in Settings.
+3. In your coding agent's MCP config, run the proxy from this repo:
+
+```sh
+npm run mcp
+```
+
+If your MCP client runs from a different working directory, use an absolute project path, for example:
+
+```sh
+npm --prefix /path/to/deep-search-app run mcp
+```
+
+The MCP exposes:
+
+- `deep_search` - start, poll, or resume a research session.
+- `deep_search_cancel` - cancel a running research session.
+
+Use `deep_search` with one of these inputs:
+
+```json
+{ "question": "Research React 19 migration risk for this repo" }
+```
+
+```json
+{ "session_id": "mcp-session-id" }
+```
+
+```json
+{
+  "session_id": "mcp-session-id",
+  "answers": ["migration plan"]
+}
+```
+
+Responses are one of:
+
+```json
+{ "session_id": "mcp-session-id", "status": "running" }
+```
+
+```json
+{
+  "session_id": "mcp-session-id",
+  "status": "questions",
+  "questions": [
+    {
+      "text": "Do you want a migration plan or a risk assessment?",
+      "options": ["migration plan", "risk assessment"]
+    }
+  ]
+}
+```
+
+```json
+{
+  "session_id": "mcp-session-id",
+  "status": "done",
+  "result": "Final cited research answer..."
+}
+```
+
+When `status` is `questions`, ask the user and call `deep_search` again with `session_id` and `answers`. When `status` is `running`, call `deep_search` again later with only `session_id`.
+
 ## Providers
 
 LLM (pick one or more):
@@ -81,6 +150,7 @@ npm run tauri dev
 | Command                        | What it does                    |
 | ------------------------------ | ------------------------------- |
 | `npm run dev`                  | Frontend only (Vite, port 1420) |
+| `npm run mcp`                  | Stdio MCP proxy for coding agents |
 | `npm run verify`               | Full local verification gate    |
 | `npm run build`                | TypeScript check + Vite build   |
 | `npm test`                     | Unit tests (Vitest)             |
