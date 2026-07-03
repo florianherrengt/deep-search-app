@@ -125,19 +125,54 @@ export function getDeepSearchResultText(messages: UIMessage[]): string {
     const message = messages[i];
     if (message.role !== "assistant") continue;
 
-    const text = message.parts
-      .flatMap((part) => {
-        if (part.type !== "text") return [];
-        if (isSubAgentOutputTextPart(part)) return [];
-        return [part.text];
-      })
-      .join("")
-      .trim();
+    const text = getAssistantResultText(message);
 
     if (text) return text;
   }
 
   return "";
+}
+
+export function normalizeDeepSearchAssistantMessage(message: UIMessage): UIMessage {
+  if (message.role !== "assistant") return message;
+  if (!message.parts.some(isGuardrailEventPart)) return message;
+
+  const parts = getLatestAssistantStepParts(message.parts);
+  if (parts === message.parts) return message;
+
+  return { ...message, parts };
+}
+
+function getAssistantResultText(message: UIMessage): string {
+  return getLatestAssistantStepParts(message.parts)
+    .flatMap((part) => {
+      if (part.type !== "text") return [];
+      if (isSubAgentOutputTextPart(part)) return [];
+      return [part.text];
+    })
+    .join("")
+    .trim();
+}
+
+function getLatestAssistantStepParts(parts: UIMessage["parts"]) {
+  const lastStepStartIndex = parts.reduce(
+    (found, part, index) => (part.type === "step-start" ? index : found),
+    -1,
+  );
+  if (lastStepStartIndex === -1) return parts;
+
+  const latestStepParts = parts.slice(lastStepStartIndex);
+  const hasVisibleText = latestStepParts.some((part) => {
+    if (part.type !== "text") return false;
+    if (isSubAgentOutputTextPart(part)) return false;
+    return part.text.trim().length > 0;
+  });
+
+  return hasVisibleText ? latestStepParts : parts;
+}
+
+function isGuardrailEventPart(part: UIMessage["parts"][number]): boolean {
+  return isRecord(part) && part.type === "data-guardrail_event";
 }
 
 function getLatestPendingQuestionsPart(messages: UIMessage[]) {

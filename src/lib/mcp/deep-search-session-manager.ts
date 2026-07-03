@@ -22,6 +22,7 @@ import {
   deepSearchRequestSchema,
   getDeepSearchResultText,
   getPendingDeepSearchQuestions,
+  normalizeDeepSearchAssistantMessage,
   type DeepSearchResponse,
 } from "./deep-search-protocol";
 
@@ -296,11 +297,13 @@ async function collectMessages(
 
   if (!responseMessage) return messages;
 
-  if (lastAssistant && responseMessage.id === lastAssistant.id) {
-    return [...messages.slice(0, -1), responseMessage];
+  const normalizedResponse = normalizeDeepSearchAssistantMessage(responseMessage);
+
+  if (lastAssistant && normalizedResponse.id === lastAssistant.id) {
+    return [...messages.slice(0, -1), normalizedResponse];
   }
 
-  return [...messages, responseMessage];
+  return [...messages, normalizedResponse];
 }
 
 function describeSession(session: DeepSearchSession): DeepSearchResponse {

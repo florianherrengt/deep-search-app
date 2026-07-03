@@ -15,7 +15,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ["react/jsx-dev-runtime"],
+    include: ["@tauri-apps/api/event", "react/jsx-dev-runtime"],
   },
   test: {
     server: {

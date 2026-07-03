@@ -84,6 +84,29 @@ describe("DeepSearchSessionManager", () => {
     ]);
   });
 
+  it("stores guarded retry output as one clean assistant reply before follow-up", async () => {
+    const manager = createManager();
+    mocks.assistantResponses.push(guardedRetryMessage());
+
+    const first = await manager.handle({ question: "Initial question" });
+
+    expect(first.status).toBe("done");
+    expect(first).toMatchObject({ result: "Final retry answer." });
+
+    mocks.assistantResponses.push(assistantTextMessage("Follow-up answer."));
+    await manager.handle({
+      session_id: first.session_id,
+      question: "Follow-up question",
+    });
+
+    const secondCall = mocks.sendMessages.mock.calls[1]?.[0];
+    expect(messageTextParts(secondCall?.messages as UIMessage[])).toEqual([
+      ["user", "Initial question"],
+      ["assistant", "Final retry answer."],
+      ["user", "Follow-up question"],
+    ]);
+  });
+
   it("rejects follow-up questions while the session is waiting for answers", async () => {
     const manager = createManager();
     mocks.hasPendingQuestionTool.mockReturnValueOnce(true);
@@ -161,6 +184,35 @@ function pendingQuestionMessage(): UIMessage {
       } as UIMessage["parts"][number],
     ],
   };
+}
+
+function guardedRetryMessage(): UIMessage {
+  return {
+    id: "assistant-guarded",
+    role: "assistant",
+    parts: [
+      { type: "step-start" },
+      { type: "text", text: "First attempt." },
+      guardrailEventPart(),
+      { type: "step-start" },
+      { type: "text", text: "Final retry answer." },
+    ],
+  };
+}
+
+function guardrailEventPart(): UIMessage["parts"][number] {
+  return {
+    type: "data-guardrail_event",
+    id: "guardrail-1",
+    data: {
+      kind: "research_checkpoint",
+      status: "retrying",
+      title: "Research depth reminder",
+      message: "Prompted the agent to consider whether more research is needed.",
+      reason: "The answer did not show enough research tool use.",
+      attempt: 1,
+    },
+  } as UIMessage["parts"][number];
 }
 
 function messageTextParts(messages: UIMessage[]): Array<[string, string]> {

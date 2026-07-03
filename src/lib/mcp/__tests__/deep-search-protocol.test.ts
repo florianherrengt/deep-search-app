@@ -5,6 +5,7 @@ import {
   deepSearchRequestSchema,
   getDeepSearchResultText,
   getPendingDeepSearchQuestions,
+  normalizeDeepSearchAssistantMessage,
 } from "@/lib/mcp/deep-search-protocol";
 import { SUB_AGENT_TEXT_PROVIDER_METADATA } from "@/lib/sub-agent-stream";
 
@@ -87,6 +88,43 @@ describe("deep search MCP protocol helpers", () => {
       ]),
     ).toBe("Final answer");
   });
+
+  it("extracts only the latest assistant step after guardrail retries", () => {
+    expect(
+      getDeepSearchResultText([
+        {
+          id: "assistant-guarded",
+          role: "assistant",
+          parts: [
+            { type: "step-start" },
+            { type: "text", text: "First attempt." },
+            guardrailEventPart(),
+            { type: "step-start" },
+            { type: "text", text: "Final retry answer." },
+          ],
+        },
+      ]),
+    ).toBe("Final retry answer.");
+  });
+
+  it("normalizes guarded retry assistant messages to the final step", () => {
+    expect(
+      normalizeDeepSearchAssistantMessage({
+        id: "assistant-guarded",
+        role: "assistant",
+        parts: [
+          { type: "step-start" },
+          { type: "text", text: "First attempt." },
+          guardrailEventPart(),
+          { type: "step-start" },
+          { type: "text", text: "Final retry answer." },
+        ],
+      }).parts,
+    ).toEqual([
+      { type: "step-start" },
+      { type: "text", text: "Final retry answer." },
+    ]);
+  });
 });
 
 function pendingQuestionMessage(): UIMessage {
@@ -120,4 +158,19 @@ function assistantTextMessage(text: string): UIMessage {
     role: "assistant",
     parts: [{ type: "text", text }],
   };
+}
+
+function guardrailEventPart(): UIMessage["parts"][number] {
+  return {
+    type: "data-guardrail_event",
+    id: "guardrail-1",
+    data: {
+      kind: "research_checkpoint",
+      status: "retrying",
+      title: "Research depth reminder",
+      message: "Prompted the agent to consider whether more research is needed.",
+      reason: "The answer did not show enough research tool use.",
+      attempt: 1,
+    },
+  } as UIMessage["parts"][number];
 }
