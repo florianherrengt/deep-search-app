@@ -1,23 +1,32 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import type { UIMessage } from "ai";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type {
+  ResearchChatSummary,
+  ResearchFolder,
+} from "@/lib/research-history";
 
 const appMocks = vi.hoisted(() => ({
   settingsLoading: true,
   settingsError: null as Error | null,
+  bridgeHandler: null as ((body: unknown) => Promise<unknown>) | null,
   chatIdCounter: 0,
   closeTab: vi.fn(),
   deleteResearchFolder: vi.fn(async () => undefined),
   fetch: vi.fn(async () => new Response()),
-  listResearchChats: vi.fn(async () => []),
-  listResearchFolders: vi.fn(async () => []),
-  readResearchChatMessages: vi.fn(async () => []),
+  listResearchChats: vi.fn<() => Promise<ResearchChatSummary[]>>(
+    async () => [],
+  ),
+  listResearchFolders: vi.fn<() => Promise<ResearchFolder[]>>(async () => []),
+  readResearchChatMessages: vi.fn<() => Promise<UIMessage[]>>(async () => []),
   renameResearchFolder: vi.fn(async (_oldName: string, newName: string) => ({
     name: newName,
     updatedAt: null,
   })),
   resetAll: vi.fn(async () => undefined),
+  researchSidebar: vi.fn(),
   setupMenu: vi.fn(),
   subscribeResearchLibraryChanged: vi.fn(() => () => undefined),
   switchToTab: vi.fn(),
@@ -111,8 +120,42 @@ vi.mock("@/lib/chat-provider-settings", () => ({
   getDefaultChatModelId: () => "",
 }));
 
+vi.mock("@/lib/mcp/deep-search-app-bridge", () => ({
+  startDeepSearchMcpBridge: vi.fn(
+    async (handler: (body: unknown) => Promise<unknown>) => {
+      appMocks.bridgeHandler = handler;
+      return () => undefined;
+    },
+  ),
+}));
+
+vi.mock("@/lib/mcp/deep-search-session-manager", () => ({
+  DeepSearchSessionManager: class {
+    private config: {
+      onResearchChatSaved?: (folderName: string, chatId: string) => void;
+    };
+
+    constructor(config: {
+      onResearchChatSaved?: (folderName: string, chatId: string) => void;
+    }) {
+      this.config = config;
+    }
+
+    setConfig(config: {
+      onResearchChatSaved?: (folderName: string, chatId: string) => void;
+    }) {
+      this.config = config;
+    }
+
+    async handle() {
+      this.config.onResearchChatSaved?.("mcp-folder", "mcp-chat");
+      return { session_id: "mcp-session", status: "done", result: "done" };
+    }
+  },
+}));
+
 vi.mock("@/components/tab-panel", () => ({
-  TabPanel: () => "app ready",
+  TabPanel: ({ chatPanel }: { chatPanel: ReactNode }) => chatPanel,
 }));
 
 vi.mock("@/components/settings-panel", () => ({
@@ -132,11 +175,24 @@ vi.mock("@/components/skills-section", () => ({
 }));
 
 vi.mock("@/components/research-sidebar", () => ({
-  ResearchSidebar: () => null,
+  ResearchSidebar: (props: {
+    folders: Array<{ name: string }>;
+    chats: Array<{ title: string }>;
+  }) => {
+    appMocks.researchSidebar(props);
+    return [
+      ...props.folders.map((folder) => folder.name),
+      ...props.chats.map((chat) => chat.title),
+    ].join(" ");
+  },
 }));
 
 vi.mock("@/components/sub-agent-sidebar", () => ({
   SubAgentSidebar: () => null,
+}));
+
+vi.mock("@/components/chat", () => ({
+  Chat: () => null,
 }));
 
 vi.mock("@/components/app-update-button", () => ({
@@ -149,6 +205,7 @@ afterEach(() => {
   cleanup();
   appMocks.settingsLoading = true;
   appMocks.settingsError = null;
+  appMocks.bridgeHandler = null;
   appMocks.chatIdCounter = 0;
   vi.clearAllMocks();
 });
@@ -160,6 +217,58 @@ describe("App", () => {
     appMocks.settingsLoading = false;
 
     expect(() => rerender(<App />)).not.toThrow();
-    expect(screen.getByText("app ready")).toBeTruthy();
+  });
+
+  it("opens MCP-saved research chats in the main research UI", async () => {
+    appMocks.settingsLoading = false;
+    appMocks.listResearchFolders.mockResolvedValue([]);
+    appMocks.listResearchChats.mockResolvedValue([
+      {
+        id: "mcp-chat",
+        title: "MCP chat",
+        createdAt: "2026-07-03T17:00:00.000Z",
+        updatedAt: "2026-07-03T17:00:01.000Z",
+        messageCount: 2,
+      },
+    ]);
+    appMocks.readResearchChatMessages.mockResolvedValue([
+      {
+        id: "user-message",
+        role: "user",
+        parts: [{ type: "text", text: "Question" }],
+      },
+      {
+        id: "assistant-message",
+        role: "assistant",
+        parts: [{ type: "text", text: "Answer" }],
+      },
+    ]);
+
+    render(<App />);
+
+    await waitFor(() => expect(appMocks.bridgeHandler).toBeTruthy());
+
+    await act(async () => {
+      await appMocks.bridgeHandler?.({ question: "test" });
+    });
+
+    await waitFor(() => {
+      const latestCall =
+        appMocks.researchSidebar.mock.calls[
+          appMocks.researchSidebar.mock.calls.length - 1
+        ];
+      const latestProps = latestCall?.[0];
+      expect(latestProps?.activeFolderName).toBe("mcp-folder");
+      expect(latestProps?.activeChatId).toBe("mcp-chat");
+    });
+
+    expect(screen.getByText(/mcp-folder/)).toBeTruthy();
+    expect(screen.getByText(/MCP chat/)).toBeTruthy();
+    expect(appMocks.switchToTab).toHaveBeenCalledWith("main");
+    expect(appMocks.listResearchChats).toHaveBeenCalledWith("mcp-folder");
+    expect(appMocks.readResearchChatMessages).toHaveBeenCalledWith(
+      "mcp-folder",
+      "mcp-chat",
+    );
   });
 });

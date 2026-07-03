@@ -330,6 +330,47 @@ function AppInner() {
     }
   }, []);
 
+  const latestMcpChatOpenRef = useRef<object | null>(null);
+  const openMcpResearchChat = useCallback(
+    async (folderName: string, chatId: string) => {
+      const request = {};
+      latestMcpChatOpenRef.current = request;
+      const isStale = () => latestMcpChatOpenRef.current !== request;
+
+      setResearchFolders((folders) =>
+        upsertRecentResearchFolder(folders, folderName),
+      );
+      setResearchChatsStatus("loading");
+      switchToTab("main");
+
+      try {
+        const [chats, messages] = await Promise.all([
+          listResearchChats(folderName),
+          readResearchChatMessages(folderName, chatId),
+        ]);
+        if (isStale()) return;
+
+        setResearchChats(chats);
+        setResearchChatsStatus("ready");
+        activateSession({
+          researchChatId: chatId,
+          researchFolder: folderName,
+          initialMessages: messages,
+        });
+      } catch (error) {
+        if (isStale()) return;
+
+        console.error("[App] Failed to open MCP research chat:", error);
+        setResearchChatsStatus("error");
+        activateSession({
+          researchChatId: chatId,
+          researchFolder: folderName,
+        });
+      }
+    },
+    [activateSession, switchToTab],
+  );
+
   const { zoomIn, zoomOut, resetZoom } = useWebviewZoom(
     settings.zoom_level,
     updateSetting,
@@ -521,10 +562,8 @@ function AppInner() {
         void refreshResearchChats(folderName);
       }
     },
-    onResearchChatSaved: (folderName) => {
-      if (folderName === activeResearchFolderRef.current) {
-        void refreshResearchChats(folderName);
-      }
+    onResearchChatSaved: (folderName, chatId) => {
+      void openMcpResearchChat(folderName, chatId);
     },
     onSubAgentEvent: (chatId, event) => {
       processEvent(chatId, event);
