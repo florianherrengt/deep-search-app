@@ -5,7 +5,7 @@ import {
   requestNotificationPermission as requestPermission,
   sendNotification,
 } from "@/lib/tauri-bridge";
-import type { ChatSessionRecord } from "@/App";
+import type { ChatSessionRecord } from "@/lib/chat-sessions";
 
 interface UseDesktopNotificationsOptions {
   sessions: ChatSessionRecord[];

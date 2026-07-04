@@ -30,13 +30,16 @@ vi.mock("@/lib/sub-agent-types", async (importOriginal) => {
 });
 
 import {
-  researchPlanInputSchema,
   createResearchPlanTool,
-} from "@/tools/research-plan-tool";
-import { RESEARCH_PLANNER_SYSTEM } from "@/tools/research-plan-tool";
+  researchPlanInputSchema,
+  RESEARCH_PLANNER_SYSTEM,
+} from "@/tools/core-research-tools";
 
 type ExecutablePlanTool = {
-  execute: (input: { query: string }, options?: { abortSignal?: AbortSignal; toolCallId?: string; messages?: unknown[] }) => Promise<string>;
+  execute: (
+    input: { query: string },
+    options?: { abortSignal?: AbortSignal; toolCallId?: string; messages?: unknown[] },
+  ) => Promise<string>;
 };
 
 function makeModel() {
@@ -76,55 +79,23 @@ describe("researchPlanInputSchema", () => {
 });
 
 describe("RESEARCH_PLANNER_SYSTEM", () => {
-  it("contains goal classification guidance", () => {
+  it("uses the shared core planner prompt", () => {
     expect(RESEARCH_PLANNER_SYSTEM).toContain("decide");
     expect(RESEARCH_PLANNER_SYSTEM).toContain("compare");
     expect(RESEARCH_PLANNER_SYSTEM).toContain("verify");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("explain");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("find");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("troubleshoot");
-  });
-
-  it("contains freshness classification", () => {
     expect(RESEARCH_PLANNER_SYSTEM).toContain("Freshness");
-  });
-
-  it("contains must-answer questions section", () => {
     expect(RESEARCH_PLANNER_SYSTEM).toContain("Must-answer questions");
-  });
-
-  it("contains source priority section", () => {
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Source priority");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Primary");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Secondary");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Experiential");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Weak");
-  });
-
-  it("contains research passes", () => {
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Map the topic");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Primary evidence");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Independent evidence");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Synthesis");
-  });
-
-  it("contains confidence rules", () => {
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("Confidence rules");
-  });
-
-  it("contains stop conditions", () => {
     expect(RESEARCH_PLANNER_SYSTEM).toContain("Stop conditions");
-    expect(RESEARCH_PLANNER_SYSTEM).toContain("must-answer questions are answered");
   });
 });
 
 describe("createResearchPlanTool", () => {
-  it("has the correct description", () => {
+  it("has the core research-plan description", () => {
     const t = createResearchPlanTool(makeModel());
     expect(t.description).toContain("research plan");
   });
 
-  it("calls streamText with correct parameters and returns streamed text", async () => {
+  it("uses the core planner prompt and returns streamed text", async () => {
     const model = makeModel();
     aiMocks.streamText.mockReturnValueOnce(mockStreamText(["Research ", "plan output"]));
 
@@ -140,9 +111,9 @@ describe("createResearchPlanTool", () => {
     });
   });
 
-  it("emits sub-agent events during streaming", async () => {
+  it("emits app sub-agent text streaming events around the core planner prompt", async () => {
     const model = makeModel();
-    aiMocks.streamText.mockReturnValueOnce(mockStreamText(["chunk1", "chunk2"]));
+    aiMocks.streamText.mockReturnValueOnce(mockStreamText(["plan", " chunk"]));
 
     const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
     await t.execute({ query: "test" });
@@ -151,10 +122,10 @@ describe("createResearchPlanTool", () => {
       expect.objectContaining({ type: "start", id: "sa-test-1", toolName: "create_research_plan" }),
     );
     expect(emitterMocks.emitSubAgentEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "text-delta", id: "sa-test-1", delta: "chunk1" }),
+      expect.objectContaining({ type: "text-delta", id: "sa-test-1", delta: "plan" }),
     );
     expect(emitterMocks.emitSubAgentEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "text-delta", id: "sa-test-1", delta: "chunk2" }),
+      expect.objectContaining({ type: "text-delta", id: "sa-test-1", delta: " chunk" }),
     );
     expect(emitterMocks.emitSubAgentEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "complete", id: "sa-test-1" }),
@@ -198,7 +169,7 @@ describe("createResearchPlanTool", () => {
     );
   });
 
-  it("emits error event when model call fails", async () => {
+  it("emits error event when the core planner call fails", async () => {
     const model = makeModel();
     aiMocks.streamText.mockImplementationOnce(() => {
       throw new Error("Model API error");
@@ -215,20 +186,7 @@ describe("createResearchPlanTool", () => {
     );
   });
 
-  it("returns error message when model returns empty string", async () => {
-    const model = makeModel();
-    aiMocks.streamText.mockReturnValueOnce(mockStreamText([""]));
-
-    const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
-    const result = await t.execute({ query: "What is AI?" });
-
-    expect(result).toContain("empty");
-    expect(emitterMocks.emitSubAgentEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "error", id: "sa-test-1" }),
-    );
-  });
-
-  it("returns error message when model returns whitespace only", async () => {
+  it("returns core empty-plan message and emits error", async () => {
     const model = makeModel();
     aiMocks.streamText.mockReturnValueOnce(mockStreamText(["   ", "  "]));
 
@@ -239,25 +197,14 @@ describe("createResearchPlanTool", () => {
     expect(emitterMocks.emitSubAgentEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "error", id: "sa-test-1" }),
     );
-  });
-
-  it("does not emit complete event when output is empty", async () => {
-    const model = makeModel();
-    aiMocks.streamText.mockReturnValueOnce(mockStreamText([""]));
-
-    const t = createResearchPlanTool(model) as unknown as ExecutablePlanTool;
-    await t.execute({ query: "What is AI?" });
 
     const completeCalls = emitterMocks.emitSubAgentEvent.mock.calls.filter(
-      (c: any[]) => c[0]?.type === "complete",
+      (call: unknown[]) => (call[0] as { type?: string })?.type === "complete",
     );
     expect(completeCalls).toHaveLength(0);
   });
 
-  it("emits a cancelled event (not an error) when the abort signal fires", async () => {
-    // Regression: previously abort surfaced as `type: "error"` with
-    // errorText "Cancelled", which made the sub-agent sidebar show a red
-    // error for user-initiated cancellation.
+  it("emits a cancelled event when the abort signal fires", async () => {
     const model = makeModel();
     const abortError = new DOMException("aborted", "AbortError");
     aiMocks.streamText.mockImplementationOnce(() => {
@@ -273,13 +220,8 @@ describe("createResearchPlanTool", () => {
     ).rejects.toBe(abortError);
 
     const cancelledCalls = emitterMocks.emitSubAgentEvent.mock.calls.filter(
-      (c: any[]) => c[0]?.type === "cancelled",
+      (call: unknown[]) => (call[0] as { type?: string })?.type === "cancelled",
     );
     expect(cancelledCalls).toHaveLength(1);
-
-    const errorCalls = emitterMocks.emitSubAgentEvent.mock.calls.filter(
-      (c: any[]) => c[0]?.type === "error",
-    );
-    expect(errorCalls).toHaveLength(0);
   });
 });

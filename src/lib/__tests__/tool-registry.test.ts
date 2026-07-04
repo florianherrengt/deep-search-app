@@ -55,7 +55,7 @@ describe("createTools", () => {
     emitterMocks.createSubAgentId.mockReturnValue("sa-registry-1");
   });
 
-  it("registers create_research_plan with live sub-agent text streaming", async () => {
+  it("registers create_research_plan with live sub-agent text streaming from the core planner prompt", async () => {
     aiMocks.streamText.mockReturnValueOnce(mockStreamText(["plan ", "chunk"]));
 
     const tools = await createTools({

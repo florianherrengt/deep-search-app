@@ -106,16 +106,11 @@ function getEngine(
 
   if (_engine && _engineKey === fullEngineKey) return _engine;
 
-  const basePageLoader = shouldUseChromeMcp
-    ? createChromeMcpPageLoader({
-        connectionMode: chromeMcp!.connectionMode,
-        browserUrl: chromeMcp!.browserUrl,
-        nodePath: chromeMcp!.nodePath,
-      })
-    : createAppPageLoader({ fetchHtml, extractViaWebview });
-  const pageLoader = useScrapeDo
-    ? withScrapeDoFallback(core, basePageLoader, scrapeDoToken)
-    : basePageLoader;
+  const pageLoader = createExtractionPageLoader({
+    chromeMcp,
+    scrapeDoApiKey,
+    method,
+  });
 
   _engine = core.createSearchExtractEngine({
     fetch: bridgeFetch,
@@ -181,13 +176,13 @@ function hasUsefulContent(core: CoreModule, html: string | null): html is string
 }
 
 function withScrapeDoFallback(
-  core: CoreModule,
   pageLoader: PageLoader,
   apiKey: string,
 ): PageLoader {
   return {
     ...pageLoader,
     renderHtml: async (url, options) => {
+      const core = await loadCore();
       const remoteHtml = await core.fetchScrapeDoHtml(
         url,
         { apiKey, fetch: bridgeFetch },
@@ -197,6 +192,40 @@ function withScrapeDoFallback(
       return pageLoader.renderHtml?.(url, options) ?? null;
     },
   };
+}
+
+export function createExtractionPageLoader({
+  chromeMcp,
+  scrapeDoApiKey,
+  method = "auto",
+}: {
+  chromeMcp?: {
+    enabled: boolean;
+    connectionMode?: ChromeMcpConnectionMode;
+    browserUrl?: string;
+    nodePath?: string;
+    backend: WebExtractionBackend;
+  };
+  scrapeDoApiKey?: string | null;
+  method?: ExtractionMethod;
+} = {}): PageLoader {
+  const backend = chromeMcp?.backend ?? "tauri-webview";
+  const forceChrome = method === "chrome";
+  const shouldUseChromeMcp = Boolean(chromeMcp?.enabled) && (backend === "chrome-mcp" || forceChrome);
+  const scrapeDoToken = scrapeDoApiKey?.trim() ?? "";
+  const useScrapeDo = (method === "auto" || method === "scrape.do") && scrapeDoToken.length > 0;
+
+  const basePageLoader = shouldUseChromeMcp
+    ? createChromeMcpPageLoader({
+        connectionMode: chromeMcp!.connectionMode,
+        browserUrl: chromeMcp!.browserUrl,
+        nodePath: chromeMcp!.nodePath,
+      })
+    : createAppPageLoader({ fetchHtml, extractViaWebview });
+
+  return useScrapeDo
+    ? withScrapeDoFallback(basePageLoader, scrapeDoToken)
+    : basePageLoader;
 }
 
 function createWebviewTabId(): string {

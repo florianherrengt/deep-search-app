@@ -70,13 +70,11 @@ import {
   sequentialThinkingInputSchema,
 } from "@/tools/sequential-thinking-tool";
 import {
-  createResearchPlanTool,
-  researchPlanInputSchema,
-} from "@/tools/research-plan-tool";
-import {
   createFactsCheckTool,
+  createResearchPlanTool,
   factsCheckInputSchema,
-} from "@/tools/facts-check-tool";
+  researchPlanInputSchema,
+} from "@/tools/core-research-tools";
 import { researchCheckpointInputSchema } from "@/lib/agent-guards";
 import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
 import { isValidServiceUrl } from "@/lib/url-validation";

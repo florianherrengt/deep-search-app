@@ -10,7 +10,7 @@ import {
   updateChatSessionAttentionState,
   updateChatSessionResearchFolder,
   updateChatSessionRunState,
-} from "@/App";
+} from "@/lib/chat-sessions";
 
 describe("chat session state", () => {
   it("allows multiple sessions to remain running in parallel", () => {
