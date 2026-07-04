@@ -11,6 +11,7 @@ import {
   type UIMessageChunk,
 } from "ai";
 import type { SharedV3ProviderOptions } from "@ai-sdk/provider";
+import { DEFAULT_SYSTEM_PROMPT } from "deep-search-core/research-orchestrator";
 import { SafePathSegmentSchema } from "@/lib/app-file-storage";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import {
@@ -21,7 +22,6 @@ import {
 import { getActiveToolNamesForMessages } from "@/lib/tool-call-requirements";
 import { createTools, type SearchToolKeys } from "./tool-registry";
 import { skillsStore } from "@/lib/skills-store";
-import systemPrompt from "../system-prompt.md?raw";
 import type { AgentDiagnosticEvent } from "@/lib/agent-diagnostics";
 import {
   createInterruptedToolRepairDiagnostic,
@@ -151,7 +151,7 @@ export function createGuardedStream({
 function buildSystemPrompt(
   skills?: { slug: string; whenToUse: string }[],
 ): string {
-  let prompt = systemPrompt;
+  let prompt = DEFAULT_SYSTEM_PROMPT;
 
   if (skills && skills.length > 0) {
     const skillList = skills

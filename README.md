@@ -235,7 +235,7 @@ npm run tauri dev
 | `npm run verify`               | Full local verification gate    |
 | `npm run build`                | TypeScript check + Vite build   |
 | `npm test`                     | Unit tests (Vitest)             |
-| `npm run test:e2e`             | E2e tests (WebdriverIO)         |
+| `npm run test:e2e`             | E2E tests (Playwright/headless Chrome) |
 | `cargo test` (in `src-tauri/`) | Rust backend tests              |
 
 ## Architecture

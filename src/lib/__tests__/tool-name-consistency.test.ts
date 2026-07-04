@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SYSTEM_PROMPT } from "deep-search-core/research-orchestrator";
 import { TOOL_NAMES } from "@/lib/tool-names";
 import { TOOL_CALL_REQUIREMENTS, type ToolCallRequirement } from "@/lib/tool-call-requirements";
-import systemPrompt from "@/lib/system-prompt.md?raw";
 
 const RESEARCH_TOOL_NAMES = new Set<string>([
   TOOL_NAMES.brave_search,
@@ -51,7 +51,7 @@ describe("tool name consistency", () => {
   });
 
   it("system prompt only references tool names that exist in TOOL_NAMES", () => {
-    const allBackticked = extractBacktickedToolNames(systemPrompt);
+    const allBackticked = extractBacktickedToolNames(DEFAULT_SYSTEM_PROMPT);
     const unknown = allBackticked.filter(
       (name) =>
         !NOT_TOOL_NAMES.has(name) &&
@@ -71,7 +71,7 @@ describe("tool name consistency", () => {
     ];
     for (const toolName of coreFileTools) {
       expect(
-        systemPrompt.includes(`\`${toolName}\``),
+        DEFAULT_SYSTEM_PROMPT.includes(`\`${toolName}\``),
         `system prompt must reference \`${toolName}\``,
       ).toBe(true);
     }
@@ -116,7 +116,7 @@ describe("tool name consistency", () => {
     ];
     for (const toolName of essential) {
       expect(
-        systemPrompt.includes(`\`${toolName}\``),
+        DEFAULT_SYSTEM_PROMPT.includes(`\`${toolName}\``),
         `system prompt must reference \`${toolName}\``,
       ).toBe(true);
     }

@@ -18,7 +18,6 @@ export default tseslint.config(
       "__vis__/**",
       ".agent-logs/**",
       ".playwright-mcp/**",
-      "e2e-tests/node_modules/**",
       "src-tauri/target/**",
     ],
   },

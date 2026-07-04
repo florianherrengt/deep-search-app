@@ -1420,9 +1420,6 @@ pub fn run() {
             respond_mcp_bridge_request,
         ]);
 
-    #[cfg(debug_assertions)]
-    let builder = builder.plugin(tauri_plugin_webdriver::init());
-
     #[cfg(feature = "e2e-testing")]
     let builder = builder.plugin(tauri_plugin_playwright::init());
 

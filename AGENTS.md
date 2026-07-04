@@ -54,7 +54,7 @@ src-tauri/
     lib.rs                     # Tauri commands
     main.rs                    # Entry point
 
-e2e-tests/                     # WebdriverIO e2e package
+e2e/                           # Playwright browser-only e2e package
 
 .agents/                       # Detailed agent workflows
 ```
