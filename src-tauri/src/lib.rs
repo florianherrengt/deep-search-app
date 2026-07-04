@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::fs;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::{mpsc, Arc};
@@ -165,6 +168,478 @@ async fn extract_content(app: AppHandle, id: String) -> Result<String, String> {
 #[tauri::command]
 async fn fetch_html(url: String) -> Result<Option<String>, String> {
     fetch_validated_text(&url, "text/html,application/xhtml+xml", MAX_HTML_BYTES).await
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct YoutubeSubtitleTrack {
+    language_code: String,
+    language_name: String,
+    is_auto_generated: bool,
+    is_translatable: bool,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct YoutubeSubtitleCue {
+    start_ms: u64,
+    duration_ms: u64,
+    text: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct YoutubeSubtitleDownload {
+    video_id: String,
+    language_code: String,
+    language_name: String,
+    is_auto_generated: bool,
+    is_translatable: bool,
+    cues: Vec<YoutubeSubtitleCue>,
+    text: String,
+    available_tracks: Vec<YoutubeSubtitleTrack>,
+}
+
+struct DownloadedSubtitles {
+    result: YoutubeSubtitleDownload,
+    temp_dir: PathBuf,
+}
+
+#[tauri::command]
+async fn download_youtube_subtitles_with_ytdlp(
+    yt_dlp_path: String,
+    url: String,
+) -> Result<YoutubeSubtitleDownload, String> {
+    let yt_dlp = validate_executable_file_path(&yt_dlp_path, "yt-dlp")?;
+    let youtube_url = validate_youtube_video_url(&url)?;
+    let parsed: url::Url = youtube_url
+        .parse()
+        .map_err(|e: url::ParseError| format!("Invalid YouTube URL: {}", e))?;
+    let video_id = extract_youtube_video_id(&parsed)
+        .ok_or_else(|| "Expected a YouTube video URL.".to_string())?;
+
+    let download = tokio::task::spawn_blocking(move || {
+        download_youtube_subtitles_blocking(&yt_dlp, &youtube_url, &video_id)
+    })
+    .await
+    .map_err(|e| format!("yt-dlp task failed: {}", e))??;
+
+    let _ = fs::remove_dir_all(&download.temp_dir);
+    Ok(download.result)
+}
+
+fn validate_executable_file_path(raw: &str, label: &str) -> Result<PathBuf, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(format!("{} path is required.", label));
+    }
+
+    let path = PathBuf::from(trimmed);
+    if !path.is_absolute() {
+        return Err(format!("{} path must be absolute.", label));
+    }
+    if !path.is_file() {
+        return Err(format!("{} path does not point to a file.", label));
+    }
+
+    Ok(path)
+}
+
+fn validate_youtube_video_url(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    let parsed: url::Url = trimmed
+        .parse()
+        .map_err(|e: url::ParseError| format!("Invalid YouTube URL: {}", e))?;
+
+    if parsed.scheme() != "https" {
+        return Err("Only https YouTube URLs are allowed.".to_string());
+    }
+
+    extract_youtube_video_id(&parsed)
+        .map(|_| trimmed.to_string())
+        .ok_or_else(|| "Expected a YouTube video URL.".to_string())
+}
+
+fn extract_youtube_video_id(parsed: &url::Url) -> Option<String> {
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host);
+
+    if host == "youtu.be" {
+        let id = parsed.path_segments()?.next()?;
+        return is_youtube_video_id(id).then(|| id.to_string());
+    }
+
+    if host == "youtube.com" || host == "m.youtube.com" {
+        if let Some(id) = parsed.query_pairs().find_map(|(key, value)| {
+            (key == "v" && is_youtube_video_id(&value)).then(|| value.to_string())
+        }) {
+            return Some(id);
+        }
+
+        let segments = parsed.path_segments()?.collect::<Vec<_>>();
+        if matches!(segments.first().copied(), Some("embed" | "shorts" | "live")) {
+            if let Some(id) = segments.get(1) {
+                return is_youtube_video_id(id).then(|| (*id).to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn is_youtube_video_id(value: &str) -> bool {
+    value.len() == 11
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
+fn download_youtube_subtitles_blocking(
+    yt_dlp_path: &Path,
+    youtube_url: &str,
+    video_id: &str,
+) -> Result<DownloadedSubtitles, String> {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "deep-search-youtube-subtitles-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temporary subtitle directory: {}", e))?;
+
+    let output = Command::new(yt_dlp_path)
+        .current_dir(&temp_dir)
+        .args(youtube_subtitle_download_args(youtube_url))
+        .output()
+        .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
+
+    if !output.status.success() {
+        let _ = fs::remove_dir_all(&temp_dir);
+        return Err(format!(
+            "yt-dlp failed: {}",
+            process_output_summary(&output.stdout, &output.stderr)
+        ));
+    }
+
+    let file_path = find_downloaded_subtitle_file(&temp_dir, &output).map_err(|error| {
+        let _ = fs::remove_dir_all(&temp_dir);
+        error
+    })?;
+    let result = parse_youtube_vtt_file(&file_path, video_id).map_err(|error| {
+        let _ = fs::remove_dir_all(&temp_dir);
+        error
+    })?;
+
+    Ok(DownloadedSubtitles { result, temp_dir })
+}
+
+fn youtube_subtitle_download_args(youtube_url: &str) -> Vec<String> {
+    [
+        "--skip-download",
+        "--write-auto-subs",
+        "--sub-langs",
+        "en",
+        "--sub-format",
+        "vtt",
+        "--no-playlist",
+        "--no-progress",
+        "--force-overwrites",
+        "-o",
+        "subtitle.%(ext)s",
+        youtube_url,
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+fn find_downloaded_subtitle_file(
+    temp_dir: &Path,
+    output: &std::process::Output,
+) -> Result<PathBuf, String> {
+    let mut candidates = fs::read_dir(temp_dir)
+        .map_err(|e| format!("Failed to read temporary subtitle directory: {}", e))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.starts_with("subtitle.")
+                            && name.ends_with(".vtt")
+                            && !name.ends_with(".part")
+                    })
+        })
+        .collect::<Vec<_>>();
+
+    candidates.sort();
+    let file_path = candidates.into_iter().next().ok_or_else(|| {
+        format!(
+            "yt-dlp did not produce a subtitle file: {}",
+            process_output_summary(&output.stdout, &output.stderr)
+        )
+    })?;
+
+    let metadata = fs::metadata(&file_path)
+        .map_err(|e| format!("Failed to inspect downloaded subtitle file: {}", e))?;
+    if metadata.len() == 0 {
+        return Err("yt-dlp produced an empty subtitle file.".to_string());
+    }
+
+    Ok(file_path)
+}
+
+fn parse_youtube_vtt_file(path: &Path, video_id: &str) -> Result<YoutubeSubtitleDownload, String> {
+    let body =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read subtitle file: {}", e))?;
+    let cues = parse_vtt_cues(&body)?;
+    if cues.is_empty() {
+        return Err("yt-dlp subtitle file did not contain transcript cues.".to_string());
+    }
+
+    let language_code = subtitle_language_code(path).unwrap_or_else(|| "en".to_string());
+    let language_name = subtitle_language_name(&language_code);
+    let text = cues
+        .iter()
+        .map(|cue| cue.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let track = YoutubeSubtitleTrack {
+        language_code: language_code.clone(),
+        language_name: language_name.clone(),
+        is_auto_generated: true,
+        is_translatable: false,
+    };
+
+    Ok(YoutubeSubtitleDownload {
+        video_id: video_id.to_string(),
+        language_code,
+        language_name,
+        is_auto_generated: true,
+        is_translatable: false,
+        cues,
+        text,
+        available_tracks: vec![track],
+    })
+}
+
+fn parse_vtt_cues(body: &str) -> Result<Vec<YoutubeSubtitleCue>, String> {
+    let mut cues = Vec::new();
+    let mut current_start_ms: Option<u64> = None;
+    let mut current_end_ms: Option<u64> = None;
+    let mut current_lines: Vec<String> = Vec::new();
+    let mut previous_full_text = String::new();
+
+    for raw_line in body.lines() {
+        let line = raw_line.trim_end_matches('\r');
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            push_vtt_cue(
+                &mut cues,
+                &mut previous_full_text,
+                current_start_ms.take(),
+                current_end_ms.take(),
+                &current_lines,
+            );
+            current_lines.clear();
+            continue;
+        }
+
+        if trimmed == "WEBVTT" || trimmed.starts_with("Kind:") || trimmed.starts_with("Language:") {
+            continue;
+        }
+
+        if let Some((start_ms, end_ms)) = parse_vtt_timing(trimmed)? {
+            push_vtt_cue(
+                &mut cues,
+                &mut previous_full_text,
+                current_start_ms.take(),
+                current_end_ms.take(),
+                &current_lines,
+            );
+            current_lines.clear();
+            current_start_ms = Some(start_ms);
+            current_end_ms = Some(end_ms);
+            continue;
+        }
+
+        if current_start_ms.is_some() {
+            current_lines.push(trimmed.to_string());
+        }
+    }
+
+    push_vtt_cue(
+        &mut cues,
+        &mut previous_full_text,
+        current_start_ms.take(),
+        current_end_ms.take(),
+        &current_lines,
+    );
+
+    Ok(cues)
+}
+
+fn push_vtt_cue(
+    cues: &mut Vec<YoutubeSubtitleCue>,
+    previous_full_text: &mut String,
+    start_ms: Option<u64>,
+    end_ms: Option<u64>,
+    lines: &[String],
+) {
+    let Some(start_ms) = start_ms else {
+        return;
+    };
+    let Some(end_ms) = end_ms else {
+        return;
+    };
+    let full_text = clean_vtt_text(lines);
+    if full_text.is_empty() {
+        return;
+    }
+
+    let text = incremental_vtt_text(previous_full_text, &full_text);
+    *previous_full_text = full_text;
+    if text.is_empty() {
+        return;
+    }
+
+    cues.push(YoutubeSubtitleCue {
+        start_ms,
+        duration_ms: end_ms.saturating_sub(start_ms),
+        text,
+    });
+}
+
+fn parse_vtt_timing(line: &str) -> Result<Option<(u64, u64)>, String> {
+    let Some((start, rest)) = line.split_once("-->") else {
+        return Ok(None);
+    };
+    let end = rest.split_whitespace().next().unwrap_or("");
+    let start_ms = parse_vtt_timestamp_ms(start.trim())
+        .ok_or_else(|| format!("Invalid subtitle start timestamp: {}", start.trim()))?;
+    let end_ms = parse_vtt_timestamp_ms(end.trim())
+        .ok_or_else(|| format!("Invalid subtitle end timestamp: {}", end.trim()))?;
+    Ok(Some((start_ms, end_ms)))
+}
+
+fn parse_vtt_timestamp_ms(value: &str) -> Option<u64> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    let (hours, minutes, seconds) = match parts.as_slice() {
+        [minutes, seconds] => (0, minutes.parse::<u64>().ok()?, *seconds),
+        [hours, minutes, seconds] => (
+            hours.parse::<u64>().ok()?,
+            minutes.parse::<u64>().ok()?,
+            *seconds,
+        ),
+        _ => return None,
+    };
+
+    let (seconds, millis) = if let Some((seconds, millis)) = seconds.split_once('.') {
+        (seconds, millis)
+    } else if let Some((seconds, millis)) = seconds.split_once(',') {
+        (seconds, millis)
+    } else {
+        (seconds, "0")
+    };
+    let seconds = seconds.parse::<u64>().ok()?;
+    let mut millis = millis.chars().take(3).collect::<String>();
+    while millis.len() < 3 {
+        millis.push('0');
+    }
+    let millis = millis.parse::<u64>().unwrap_or(0);
+    Some(((hours * 60 + minutes) * 60 + seconds) * 1000 + millis)
+}
+
+fn clean_vtt_text(lines: &[String]) -> String {
+    lines
+        .iter()
+        .map(|line| strip_vtt_markup(line))
+        .map(|line| decode_basic_html_entities(&line))
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn strip_vtt_markup(value: &str) -> String {
+    let mut output = String::new();
+    let mut in_tag = false;
+    for ch in value.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => output.push(ch),
+            _ => {}
+        }
+    }
+    output
+}
+
+fn decode_basic_html_entities(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+}
+
+fn incremental_vtt_text(previous: &str, current: &str) -> String {
+    if current == previous || previous.ends_with(current) {
+        return String::new();
+    }
+    if let Some(rest) = current.strip_prefix(previous) {
+        return rest.trim().to_string();
+    }
+
+    let mut current_lines = current.lines().collect::<Vec<_>>();
+    while current_lines
+        .first()
+        .is_some_and(|line| previous.lines().any(|previous_line| previous_line == *line))
+    {
+        current_lines.remove(0);
+    }
+    current_lines.join("\n").trim().to_string()
+}
+
+fn subtitle_language_code(path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_str()?;
+    let without_prefix = name.strip_prefix("subtitle.")?;
+    let without_ext = without_prefix.strip_suffix(".vtt")?;
+    let language = without_ext.trim();
+    (!language.is_empty()).then(|| language.to_string())
+}
+
+fn subtitle_language_name(language_code: &str) -> String {
+    match language_code
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(language_code)
+    {
+        "en" => "English".to_string(),
+        _ => language_code.to_string(),
+    }
+}
+
+fn process_output_summary(stdout: &[u8], stderr: &[u8]) -> String {
+    let stderr_text = String::from_utf8_lossy(stderr);
+    let stdout_text = String::from_utf8_lossy(stdout);
+    let combined = if stderr_text.trim().is_empty() {
+        stdout_text.trim().to_string()
+    } else {
+        stderr_text.trim().to_string()
+    };
+    trim_output(&combined)
+}
+
+fn trim_output(value: &str) -> String {
+    const MAX_LEN: usize = 1200;
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= MAX_LEN {
+        return trimmed.to_string();
+    }
+    format!("{}...", trimmed.chars().take(MAX_LEN).collect::<String>())
 }
 
 async fn validate_external_url(raw: &str) -> Result<url::Url, String> {
@@ -937,6 +1412,7 @@ pub fn run() {
             close_tab,
             extract_content,
             fetch_html,
+            download_youtube_subtitles_with_ytdlp,
             register_sidecar_pid,
             unregister_sidecar_pid,
             resolve_node_path,
@@ -1044,6 +1520,95 @@ mod tests {
         assert!(content_type_is_allowed("application/xhtml+xml"));
         assert!(!content_type_is_allowed("text/plain"));
         assert!(!content_type_is_allowed("application/json"));
+    }
+
+    #[test]
+    fn youtube_video_url_validation_accepts_video_urls() {
+        for raw in [
+            "https://www.youtube.com/watch?v=abc123DEF45",
+            "https://youtu.be/abc123DEF45",
+            "https://www.youtube.com/shorts/abc123DEF45",
+            "https://www.youtube.com/embed/abc123DEF45",
+        ] {
+            assert!(validate_youtube_video_url(raw).is_ok(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn youtube_video_url_validation_rejects_non_video_urls() {
+        for raw in [
+            "http://www.youtube.com/watch?v=abc123DEF45",
+            "https://www.youtube.com/@openai",
+            "https://example.com/watch?v=abc123DEF45",
+            "https://www.youtube.com/watch?v=bad",
+        ] {
+            assert!(validate_youtube_video_url(raw).is_err(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn youtube_subtitle_download_args_download_auto_vtt_without_video() {
+        let args = youtube_subtitle_download_args("https://www.youtube.com/watch?v=abc123DEF45");
+        assert!(args.iter().any(|arg| arg == "--skip-download"));
+        assert!(args.iter().any(|arg| arg == "--write-auto-subs"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--sub-langs" && pair[1] == "en"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--sub-format" && pair[1] == "vtt"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-o" && pair[1] == "subtitle.%(ext)s"));
+    }
+
+    #[test]
+    fn downloaded_subtitle_lookup_reports_ytdlp_output_when_only_partial_file_exists() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "deep-search-ytdlp-partial-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&temp_dir).unwrap();
+        fs::write(temp_dir.join("subtitle.en.vtt.part"), b"partial").unwrap();
+
+        let output = Command::new("sh")
+            .args([
+                "-c",
+                "printf 'There are no subtitles for the requested languages'",
+            ])
+            .output()
+            .unwrap();
+        let error = find_downloaded_subtitle_file(&temp_dir, &output).unwrap_err();
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        assert!(error.contains("yt-dlp did not produce a subtitle file"));
+        assert!(error.contains("There are no subtitles"));
+    }
+
+    #[test]
+    fn parses_youtube_auto_caption_vtt_without_rolling_duplicates() {
+        let vtt = r#"WEBVTT
+Kind: captions
+Language: en
+
+00:00:14.639 --> 00:00:18.950 align:start position:0%
+[Music]
+Hi<00:00:14.880><c> there</c><00:00:15.200><c> guys.</c>
+
+00:00:18.950 --> 00:00:18.960 align:start position:0%
+Hi there guys.
+
+00:00:18.960 --> 00:00:24.390 align:start position:0%
+Hi there guys.
+So<00:00:19.199><c> this</c><00:00:19.359><c> is</c><00:00:19.520><c> not</c><00:00:19.680><c> the</c><00:00:19.840><c> Caribbean</c><00:00:21.119><c>.</c>
+"#;
+        let cues = parse_vtt_cues(vtt).unwrap();
+
+        assert_eq!(cues.len(), 2);
+        assert_eq!(cues[0].start_ms, 14_639);
+        assert_eq!(cues[0].duration_ms, 4_311);
+        assert_eq!(cues[0].text, "[Music]\nHi there guys.");
+        assert_eq!(cues[1].text, "So this is not the Caribbean.");
     }
 
     #[test]

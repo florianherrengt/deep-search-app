@@ -101,6 +101,18 @@ describe("SettingsFields", () => {
     expect(screen.getByLabelText("Scrape.do API Key")).toBeTruthy();
   });
 
+  it("renders YouTube subtitle fallback setting", () => {
+    renderSettingsFields();
+
+    expect(screen.getByLabelText("yt-dlp Path")).toBeTruthy();
+  });
+
+  it("renders YouTube Data API key setting", () => {
+    renderSettingsFields();
+
+    expect(screen.getByLabelText("YouTube Data API Key")).toBeTruthy();
+  });
+
   it("renders the Deep Search MCP setup section", () => {
     renderSettingsFields();
 

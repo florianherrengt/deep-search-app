@@ -60,6 +60,12 @@ const SERVICE_FIELDS: readonly SettingsFieldDefinition[] = [
     type: "password",
     placeholder: "tvly-...",
   },
+  {
+    key: "youtube_api_key",
+    label: "YouTube Data API Key",
+    type: "password",
+    placeholder: "AIza...",
+  },
 ];
 
 const EXTRACTION_SERVICE_FIELDS: readonly SettingsFieldDefinition[] = [
@@ -68,6 +74,12 @@ const EXTRACTION_SERVICE_FIELDS: readonly SettingsFieldDefinition[] = [
     label: "Scrape.do API Key",
     type: "password",
     placeholder: "scrape.do token",
+  },
+  {
+    key: "youtube_ytdlp_path",
+    label: "yt-dlp Path",
+    type: "text",
+    placeholder: "/opt/homebrew/bin/yt-dlp",
   },
 ];
 

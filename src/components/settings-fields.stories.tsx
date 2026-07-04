@@ -18,7 +18,9 @@ const configuredSettings: Settings = {
   exa_api_key: "exa-storybook",
   serper_api_key: "serper-storybook",
   tavily_api_key: "tvly-storybook",
+  youtube_api_key: "AIza-storybook",
   scrape_do_api_key: "scrapedo-storybook",
+  youtube_ytdlp_path: "/opt/homebrew/bin/yt-dlp",
   currency: "EUR",
   chrome_devtools_mcp_enabled: true,
 };
@@ -56,6 +58,7 @@ export const SearchOnly: Story = {
       ...settingsDefaults,
       searxng_url: "http://localhost:8080",
       brave_api_key: "BSA-storybook",
+      youtube_api_key: "AIza-storybook",
       currency: "GBP",
     },
   },

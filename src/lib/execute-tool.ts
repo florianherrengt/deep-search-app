@@ -26,6 +26,12 @@ import {
   searxngSearchInputSchema,
 } from "@/tools/searxng-search-tool";
 import {
+  createSearchTools,
+} from "deep-search-core/research-orchestrator";
+import {
+  searchQueryInputSchema as youtubeSearchInputSchema,
+} from "deep-search-core/search-extract";
+import {
   aggregateSearchInputSchema,
   createAggregateSearchTool,
 } from "@/tools/aggregate-search-tool";
@@ -72,6 +78,7 @@ import {
   factsCheckInputSchema,
 } from "@/tools/facts-check-tool";
 import { researchCheckpointInputSchema } from "@/lib/agent-guards";
+import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
 import { isValidServiceUrl } from "@/lib/url-validation";
 import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 
@@ -86,7 +93,9 @@ export interface ToolExecuteConfig {
   exaApiKey?: string | null;
   serperApiKey?: string | null;
   tavilyApiKey?: string | null;
+  youtubeApiKey?: string | null;
   scrapeDoApiKey?: string | null;
+  youtubeYtDlpPath?: string | null;
   searxngBaseUrl?: string | null;
   chromeDevToolsMcpEnabled?: boolean | null;
   chromeDevToolsMcpConnectionMode?: ChromeMcpConnectionMode | null;
@@ -112,7 +121,11 @@ export function getAvailableTools(
   const exaApiKey = config?.exaApiKey;
   const serperApiKey = config?.serperApiKey;
   const tavilyApiKey = config?.tavilyApiKey;
+  const youtubeApiKey = config?.youtubeApiKey;
   const scrapeDoApiKey = config?.scrapeDoApiKey;
+  const youtubeSubtitleDownload = {
+    ytDlpPath: config?.youtubeYtDlpPath ?? undefined,
+  };
   const searxngBaseUrl = config?.searxngBaseUrl;
 
   const chatModel = getChatModel?.();
@@ -125,6 +138,9 @@ export function getAvailableTools(
   const exaTool = exaApiKey ? createExaSearchTool(exaApiKey) : undefined;
   const serperTool = serperApiKey ? createSerperSearchTool(serperApiKey) : undefined;
   const tavilyTool = tavilyApiKey ? createTavilySearchTool(tavilyApiKey) : undefined;
+  const youtubeTool = youtubeApiKey
+    ? createSearchTools({ youtubeApiKey }, bridgeFetch).youtube_search
+    : undefined;
   const searxngTool =
     searxngBaseUrl && isValidServiceUrl(searxngBaseUrl)
       ? createSearXNGSearchTool(searxngBaseUrl)
@@ -146,7 +162,13 @@ export function getAvailableTools(
       }
     : undefined;
   const extractTool = model && getResearchFolder
-    ? createExtractPageContentTool(model, getResearchFolder, chromeMcpConfig, scrapeDoApiKey)
+    ? createExtractPageContentTool(
+        model,
+        getResearchFolder,
+        chromeMcpConfig,
+        scrapeDoApiKey,
+        youtubeSubtitleDownload,
+      )
     : undefined;
   const searchResearchTool = model
     ? createSearchResearchTool(model, getResearchFolder)
@@ -184,6 +206,11 @@ export function getAvailableTools(
       TOOL_NAMES.searxng_search,
       searxngTool,
       searxngSearchInputSchema,
+    ),
+    describeOptionalTool(
+      TOOL_NAMES.youtube_search,
+      youtubeTool,
+      youtubeSearchInputSchema,
     ),
     describeOptionalTool(
       TOOL_NAMES.aggregate_search,

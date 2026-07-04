@@ -25,6 +25,7 @@ import { validateUrl, UrlValidationError } from "@/lib/url-validation";
 import type {
   SearchExtractEngine,
   PageLoader,
+  YouTubeSubtitlesResult,
 } from "deep-search-core/search-extract";
 import { createAppPageLoader, createChromeMcpPageLoader } from "./extraction-page-loader";
 import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
@@ -56,6 +57,11 @@ interface ExtractPageContentOptions {
     backend: WebExtractionBackend;
   };
   scrapeDoApiKey?: string | null;
+  youtubeSubtitleDownload?: YouTubeSubtitleDownloadConfig;
+}
+
+export interface YouTubeSubtitleDownloadConfig {
+  ytDlpPath?: string | null;
 }
 
 type RawContentLocation = {
@@ -79,6 +85,7 @@ function getEngine(
     backend: WebExtractionBackend;
   },
   scrapeDoApiKey?: string | null,
+  youtubeSubtitleDownload?: YouTubeSubtitleDownloadConfig,
   method: ExtractionMethod = "auto",
 ): SearchExtractEngine {
   const backend = chromeMcp?.backend ?? "tauri-webview";
@@ -94,7 +101,8 @@ function getEngine(
     ? `chrome-mcp:${chromeMcp?.connectionMode ?? ""}:${chromeMcp?.nodePath?.trim() ?? ""}`
     : "tauri-webview";
   const remoteKey = useScrapeDo ? `:scrape-do:${hashSecret(scrapeDoToken)}` : "";
-  const fullEngineKey = `${engineKey}${remoteKey}`;
+  const youtubeSubtitleKey = youtubeSubtitleDownloadKey(youtubeSubtitleDownload);
+  const fullEngineKey = `${engineKey}${remoteKey}${youtubeSubtitleKey}`;
 
   if (_engine && _engineKey === fullEngineKey) return _engine;
 
@@ -110,11 +118,53 @@ function getEngine(
     : basePageLoader;
 
   _engine = core.createSearchExtractEngine({
+    fetch: bridgeFetch,
     pageLoader,
-    extractors: [new core.RedditExtractor(), new core.AmazonExtractor(), new core.ShopifyExtractor(), new core.GithubExtractor()],
+    extractors: [
+      new core.RedditExtractor(),
+      new core.AmazonExtractor(),
+      new core.ShopifyExtractor(),
+      new core.GithubExtractor(),
+      new core.YouTubeExtractor({
+        subtitleDownloader: createYouTubeSubtitleDownloader(youtubeSubtitleDownload),
+      }),
+    ],
   });
   _engineKey = fullEngineKey;
   return _engine;
+}
+
+function youtubeSubtitleDownloadKey(
+  config: YouTubeSubtitleDownloadConfig | undefined,
+): string {
+  const ytDlpPath = config?.ytDlpPath?.trim() ?? "";
+  if (!ytDlpPath) return "";
+  return `:youtube-subtitles:${ytDlpPath}`;
+}
+
+function createYouTubeSubtitleDownloader(
+  config: YouTubeSubtitleDownloadConfig | undefined,
+) {
+  const ytDlpPath = config?.ytDlpPath?.trim() ?? "";
+  if (!ytDlpPath) return undefined;
+
+  return async ({
+    url,
+    signal,
+  }: {
+    url: string;
+    videoId: string;
+    reason: string;
+    signal?: AbortSignal;
+  }) => {
+    return await abortablePromise(
+      invoke<YouTubeSubtitlesResult>("download_youtube_subtitles_with_ytdlp", {
+        ytDlpPath,
+        url,
+      }),
+      signal,
+    );
+  };
 }
 
 function hashSecret(value: string): string {
@@ -481,6 +531,7 @@ export async function extractPageContent(
     core,
     options.chromeMcp,
     options.scrapeDoApiKey,
+    options.youtubeSubtitleDownload,
     forced,
   );
   const extractResult = await engine.extract(url, {
@@ -489,11 +540,14 @@ export async function extractPageContent(
     signal: options.abortSignal,
   });
 
-  const { content, html: rawHtml, usedCustomExtractor } = extractResult;
+  const { content, html: rawHtml, usedCustomExtractor, warnings } = extractResult;
   const html = rawHtml ?? null;
 
   if (!html && !content) {
-    return `No content could be extracted from ${url}. The page may be empty, require JavaScript rendering, or be blocked by a paywall or captcha.`;
+    return appendExtractionWarnings(
+      `No content could be extracted from ${url}. The page may be empty, require JavaScript rendering, or be blocked by a paywall or captcha.`,
+      warnings,
+    );
   }
 
   const shouldSummarize = shouldSummarizeContent(options, usedCustomExtractor);
@@ -548,6 +602,12 @@ export async function extractPageContent(
     : content;
 }
 
+function appendExtractionWarnings(message: string, warnings?: string[]): string {
+  const usefulWarnings = (warnings ?? []).filter((warning) => warning.trim());
+  if (usefulWarnings.length === 0) return message;
+  return `${message}\n\nWarnings:\n${usefulWarnings.map((warning) => `- ${warning}`).join("\n")}`;
+}
+
 export const extractPageContentInputSchema = z.object({
   url: z.string().describe("URL to extract content from"),
   query: z
@@ -581,6 +641,7 @@ export function createExtractPageContentTool(
     backend: WebExtractionBackend;
   },
   scrapeDoApiKey?: string | null,
+  youtubeSubtitleDownload?: YouTubeSubtitleDownloadConfig,
 ) {
   return tool({
     description:
@@ -621,6 +682,7 @@ export function createExtractPageContentTool(
           subAgentId: saId,
           chromeMcp,
           scrapeDoApiKey,
+          youtubeSubtitleDownload,
         });
 
         emitSubAgentEvent({ type: "complete", id: saId });

@@ -7,6 +7,7 @@ const SEARCH_TOOLS = [
   "serper_search",
   "tavily_search",
   "searxng_search",
+  "youtube_search",
 ] as const;
 
 const TEST_CHAT_MODEL = {
@@ -60,6 +61,15 @@ describe("search tool availability from config", () => {
     expect(tavily?.available).toBe(true);
   });
 
+  it("youtube_search available when YouTube API key provided", () => {
+    const tools = getAvailableTools({
+      researchFolder: null,
+      youtubeApiKey: "youtube-key-123",
+    });
+    const youtube = tools.find((t) => t.name === "youtube_search");
+    expect(youtube?.available).toBe(true);
+  });
+
   it("searxng_search available when non-default url provided", () => {
     const tools = getAvailableTools({
       researchFolder: null,
@@ -94,6 +104,7 @@ describe("search tool availability from config", () => {
       exaApiKey: "exa-key",
       serperApiKey: "serper-key",
       tavilyApiKey: "tavily-key",
+      youtubeApiKey: "youtube-key",
       searxngBaseUrl: "https://search.example.com",
     };
 
@@ -109,6 +120,7 @@ describe("search tool availability from config", () => {
       exaApiKey: "",
       serperApiKey: "",
       tavilyApiKey: "",
+      youtubeApiKey: "",
       searxngBaseUrl: "",
     };
 

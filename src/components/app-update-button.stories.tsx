@@ -49,6 +49,30 @@ export const ToolbarContext: Story = {
   ),
 };
 
+export const ToolbarContextDark: Story = {
+  decorators: [withAppUpdateState({ status: "available", update })],
+  render: () => (
+    <Box
+      data-mantine-color-scheme="dark"
+      style={{
+        width: 360,
+        backgroundColor: "var(--mantine-color-dark-7)",
+      }}
+    >
+      <Group
+        h={40}
+        px={8}
+        justify="flex-end"
+        style={{
+          borderBottom: "1px solid var(--mantine-color-dark-4)",
+        }}
+      >
+        <AppUpdateButton />
+      </Group>
+    </Box>
+  ),
+};
+
 export const Downloading: Story = {
   decorators: [withAppUpdateState({ status: "downloading", update, progress: 42 })],
 };

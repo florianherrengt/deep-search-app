@@ -8,6 +8,7 @@ const configuredToolConfig = {
   exaApiKey: "exa-storybook",
   serperApiKey: "serper-storybook",
   tavilyApiKey: "tvly-storybook",
+  youtubeApiKey: "AIza-storybook",
   searxngBaseUrl: "http://localhost:8080",
   getChatModel: () => ({
     provider: "openrouter" as const,

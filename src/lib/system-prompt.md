@@ -42,6 +42,7 @@ Think through step by step using `sequential_thinking`.
 - Do not stop until all stop conditions from the plan are met.
 
 - Search broadly enough to map the topic.
+- Use `youtube_search` when the research target is specifically YouTube videos. Use `extract_page_content` on YouTube video URLs to extract the transcript through the YouTube custom extractor. It tries public captions first and may use the configured yt-dlp subtitle fallback when captions are unavailable.
 - Read actual pages/results, not snippets.
 - Use `extract_page_content` to read pages. By default the page is summarized — provide a `query` to focus the summary on specific information (e.g. `query: "price and availability"`). Set `summarize: false` only on special occasions when the summary didn't give you what you needed — default to summarized extraction.
 - Extract useful facts, claims, contradictions, source quality, and new terminology.

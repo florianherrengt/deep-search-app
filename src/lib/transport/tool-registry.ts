@@ -28,7 +28,9 @@ export interface SearchToolKeys {
   exaApiKey?: string | null;
   serperApiKey?: string | null;
   tavilyApiKey?: string | null;
+  youtubeApiKey?: string | null;
   scrapeDoApiKey?: string | null;
+  youtubeYtDlpPath?: string | null;
   searxngBaseUrl?: string | null;
   currency?: Currency;
   chromeDevToolsMcpEnabled?: boolean;
@@ -74,6 +76,7 @@ export async function createTools({
         exaApiKey: searchKeys.exaApiKey ?? undefined,
         serperApiKey: searchKeys.serperApiKey ?? undefined,
         tavilyApiKey: searchKeys.tavilyApiKey ?? undefined,
+        youtubeApiKey: searchKeys.youtubeApiKey ?? undefined,
         searxngBaseUrl: searchKeys.searxngBaseUrl ?? undefined,
     }
     : undefined;
@@ -107,6 +110,9 @@ export async function createTools({
           }
         : undefined,
       searchKeys?.scrapeDoApiKey ?? undefined,
+      {
+        ytDlpPath: searchKeys?.youtubeYtDlpPath ?? undefined,
+      },
     ),
     facts_check: createFactsCheckTool(model, searchKeys?.scrapeDoApiKey ?? undefined),
     create_file: createCreateFileTool(getResearchFolder),

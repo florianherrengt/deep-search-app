@@ -38,6 +38,8 @@ const appMocks = vi.hoisted(() => ({
     exa_api_key: "",
     serper_api_key: "",
     tavily_api_key: "",
+    youtube_api_key: "",
+    youtube_ytdlp_path: "",
     scrape_do_api_key: "",
     searxng_url: "",
     currency: "USD",

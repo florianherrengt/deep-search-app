@@ -6,6 +6,7 @@ export const TOOL_NAMES = {
   serper_search: "serper_search",
   tavily_search: "tavily_search",
   searxng_search: "searxng_search",
+  youtube_search: "youtube_search",
   aggregate_search: "aggregate_search",
   extract_page_content: "extract_page_content",
   create_file: "create_file",

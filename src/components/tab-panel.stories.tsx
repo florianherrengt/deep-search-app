@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Button, Center, Paper, Text } from "@mantine/core";
+import { Center, Paper, Text } from "@mantine/core";
+import { withAppUpdateState } from "@/lib/storybook";
+import { AppUpdateButton } from "./app-update-button";
 import { TabPanel } from "./tab-panel";
 
 const noop = () => undefined;
@@ -30,9 +32,17 @@ const browserTabs = [
   },
 ];
 
+const update = {
+  version: "0.2.0",
+  currentVersion: "0.1.0",
+  date: "2026-06-06",
+  body: "Adds Storybook visual review support and fixes several research sidebar states.",
+};
+
 const meta = {
   title: "Layout/TabPanel",
   component: TabPanel,
+  decorators: [withAppUpdateState({ status: "available", update })],
   args: {
     activeTabId: "main",
     tabs: browserTabs,
@@ -41,7 +51,7 @@ const meta = {
     promptsPanel: <PanelPlaceholder label="Prompt Templates" />,
     skillsPanel: <PanelPlaceholder label="Skills" />,
     toolsPanel: <PanelPlaceholder label="Tools" />,
-    toolbarEnd: <Button size="compact-xs">Update available</Button>,
+    toolbarEnd: <AppUpdateButton />,
     onSwitchTab: noop,
     onCloseTab: noop,
   },

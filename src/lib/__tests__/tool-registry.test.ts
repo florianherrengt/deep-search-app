@@ -107,4 +107,28 @@ describe("createTools", () => {
       }),
     );
   });
+
+  it("registers YouTube search from the configured key without exposing subtitle-only extraction", async () => {
+    const toolsWithoutKey = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+    });
+
+    const toolsWithoutKeyByName = toolsWithoutKey as Record<string, unknown>;
+    expect(toolsWithoutKeyByName.youtube_search).toBeUndefined();
+    expect(toolsWithoutKeyByName.youtube_download_subtitles).toBeUndefined();
+
+    const toolsWithKey = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+      searchKeys: { youtubeApiKey: "youtube-key" },
+    });
+
+    const toolsWithKeyByName = toolsWithKey as Record<string, unknown>;
+    expect(toolsWithKeyByName.youtube_search).toBeTruthy();
+    expect(toolsWithKeyByName.youtube_download_subtitles).toBeUndefined();
+    expect(toolsWithKeyByName.extract_page_content).toBeTruthy();
+  });
 });

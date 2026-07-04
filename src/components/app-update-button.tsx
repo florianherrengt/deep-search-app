@@ -63,7 +63,7 @@ export function AppUpdateButton() {
             size={15}
             style={isBusy ? { animation: "spin 1s linear infinite" } : undefined}
           />
-          {!isBusy && (
+          {isError && !isBusy && (
             <Box
               component="span"
               aria-hidden="true"
@@ -74,9 +74,7 @@ export function AppUpdateButton() {
                 width: 6,
                 height: 6,
                 borderRadius: 999,
-                backgroundColor: isError
-                  ? "var(--mantine-color-red-6)"
-                  : "var(--mantine-color-blue-6)",
+                backgroundColor: "var(--mantine-color-red-6)",
                 boxShadow: "0 0 0 2px var(--mantine-color-body)",
               }}
             />
