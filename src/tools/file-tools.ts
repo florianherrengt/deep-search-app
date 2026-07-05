@@ -1,11 +1,10 @@
 import { tool, zodSchema } from "ai";
 import { z } from "zod";
-import { createArtifactStore } from "deep-search-core/research-orchestrator";
 import {
   SafePathSegmentSchema,
 } from "@/lib/app-file-storage";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
-import { createAppArtifactStorage } from "@/lib/core-artifact-storage";
+import { createAppArtifactStore } from "@/lib/core-artifact-storage";
 
 const FilenameField = SafePathSegmentSchema.describe(
   "File name, for example 'notes.md', 'sources.md', or 'queue.json'. Must not include folders.",
@@ -16,10 +15,7 @@ function subfolderFor(folder: string) {
 }
 
 function artifactStoreFor(folder: string) {
-  return createArtifactStore({
-    root: subfolderFor(folder),
-    storage: createAppArtifactStorage(),
-  });
+  return createAppArtifactStore(subfolderFor(folder));
 }
 
 export const createFileInputSchema = z.object({
@@ -152,7 +148,7 @@ export function createMoveFileTool(
       const folder = await getResearchFolder();
       const store = artifactStoreFor(folder);
 
-      await store.rename(source, destination, { overwrite: true });
+      await store.rename(source, destination);
 
       return "OK";
     },
