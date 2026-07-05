@@ -9,6 +9,7 @@ import { isAbortError } from "@/lib/abort";
 import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
 import { createSubAgentId } from "@/lib/sub-agent-types";
 import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
+import { SOCIAL_SOURCE_PLANNING_GUIDANCE } from "@/lib/research-source-guidance";
 import { createExtractionPageLoader } from "@/tools/extract-page-content-tool";
 
 export const researchPlanInputSchema = z.object({
@@ -30,7 +31,7 @@ export const factsCheckInputSchema = z.object({
     ),
 });
 
-export const RESEARCH_PLANNER_SYSTEM = RESEARCH_PLANNER_PROMPT;
+export const RESEARCH_PLANNER_SYSTEM = `${RESEARCH_PLANNER_PROMPT}\n\n${SOCIAL_SOURCE_PLANNING_GUIDANCE}`;
 
 type CoreResearchPlanTool = ReturnType<typeof createCoreResearchPlanTool>;
 
@@ -73,7 +74,7 @@ export function createResearchPlanTool(model: LanguageModel): CoreResearchPlanTo
       try {
         const result = streamText({
           model,
-          system: RESEARCH_PLANNER_PROMPT,
+          system: RESEARCH_PLANNER_SYSTEM,
           prompt: input.query,
           abortSignal: options?.abortSignal,
         });

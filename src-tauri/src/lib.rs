@@ -7,7 +7,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::sync::Mutex;
 use std::sync::{mpsc, Arc};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ipnet::IpNet;
 
@@ -22,6 +22,10 @@ const EVAL_RECV_TIMEOUT_SECS: u64 = 5;
 const FETCH_TIMEOUT_SECS: u64 = 10;
 const MAX_FETCH_REDIRECTS: usize = 5;
 const MAX_HTML_BYTES: usize = 5 * 1024 * 1024;
+const APP_LOG_DIR: &str = "logs";
+const APP_LOG_FILENAME: &str = "deep-search.log";
+const MAX_RENDERER_LOG_ENTRIES: usize = 200;
+const MAX_LOG_MESSAGE_CHARS: usize = 32_000;
 
 struct SidecarState {
     pid: Mutex<Option<u32>>,
@@ -203,6 +207,15 @@ struct YoutubeSubtitleDownload {
 struct DownloadedSubtitles {
     result: YoutubeSubtitleDownload,
     temp_dir: PathBuf,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RendererLogEntry {
+    level: String,
+    target: String,
+    message: String,
+    timestamp: Option<String>,
 }
 
 #[tauri::command]
@@ -884,15 +897,181 @@ async fn read_limited_response(
 }
 
 #[tauri::command]
-fn register_sidecar_pid(state: tauri::State<SidecarState>, pid: u32) -> Result<(), String> {
-    eprintln!("[sidecar] Registered sidecar PID {}", pid);
+fn append_app_log(app: AppHandle, entries: Vec<RendererLogEntry>) -> Result<String, String> {
+    let total_entries = entries.len();
+    let mut lines: Vec<String> = entries
+        .into_iter()
+        .take(MAX_RENDERER_LOG_ENTRIES)
+        .map(format_renderer_log_line)
+        .collect();
+
+    if total_entries > MAX_RENDERER_LOG_ENTRIES {
+        lines.push(format_log_line(
+            &current_log_timestamp(),
+            "warn",
+            "logger",
+            &format!(
+                "Dropped {} renderer log entries from an oversized IPC batch.",
+                total_entries - MAX_RENDERER_LOG_ENTRIES
+            ),
+        ));
+    }
+
+    append_log_lines(&app, lines).map(|path| path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn get_app_log_path(app: AppHandle) -> Result<String, String> {
+    ensure_app_log_file(&app).map(|path| path.to_string_lossy().into_owned())
+}
+
+fn app_log_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join(APP_LOG_DIR)
+        .join(APP_LOG_FILENAME))
+}
+
+fn ensure_app_log_file(app: &AppHandle) -> Result<PathBuf, String> {
+    let log_path = app_log_file_path(app)?;
+    if let Some(parent) = log_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create app log directory at {}: {}",
+                parent.to_string_lossy(),
+                e
+            )
+        })?;
+    }
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| {
+            format!(
+                "Failed to open app log file at {}: {}",
+                log_path.to_string_lossy(),
+                e
+            )
+        })?;
+
+    Ok(log_path)
+}
+
+fn append_log_lines<I>(app: &AppHandle, lines: I) -> Result<PathBuf, String>
+where
+    I: IntoIterator<Item = String>,
+{
+    let log_path = ensure_app_log_file(app)?;
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| {
+            format!(
+                "Failed to open app log file at {}: {}",
+                log_path.to_string_lossy(),
+                e
+            )
+        })?;
+
+    for line in lines {
+        writeln!(file, "{}", line).map_err(|e| {
+            format!(
+                "Failed to write app log file at {}: {}",
+                log_path.to_string_lossy(),
+                e
+            )
+        })?;
+    }
+
+    Ok(log_path)
+}
+
+fn write_native_log(app: &AppHandle, level: &str, target: &str, message: &str) {
+    eprintln!("[{}] {}", target, message);
+    let line = format_log_line(&current_log_timestamp(), level, target, message);
+    let _ = append_log_lines(app, std::iter::once(line));
+}
+
+fn format_renderer_log_line(entry: RendererLogEntry) -> String {
+    let timestamp = entry.timestamp.unwrap_or_else(current_log_timestamp);
+    format_log_line(&timestamp, &entry.level, &entry.target, &entry.message)
+}
+
+fn format_log_line(timestamp: &str, level: &str, target: &str, message: &str) -> String {
+    format!(
+        "[{}] [{}] [{}] {}",
+        sanitize_log_component(timestamp, "unknown-time"),
+        sanitize_log_component(level, "info"),
+        sanitize_log_component(target, "app"),
+        sanitize_log_message(message),
+    )
+}
+
+fn sanitize_log_component(value: &str, fallback: &str) -> String {
+    let cleaned: String = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .take(96)
+        .collect();
+    let trimmed = cleaned.trim_matches('_');
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn sanitize_log_message(value: &str) -> String {
+    let escaped = value.replace('\r', "\\r").replace('\n', "\\n");
+    truncate_log_message(&escaped)
+}
+
+fn truncate_log_message(value: &str) -> String {
+    let mut chars = value.chars();
+    let mut truncated: String = chars.by_ref().take(MAX_LOG_MESSAGE_CHARS).collect();
+    if chars.next().is_some() {
+        truncated.push_str("... [truncated]");
+    }
+    truncated
+}
+
+fn current_log_timestamp() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!("unix-ms:{}", millis)
+}
+
+#[tauri::command]
+fn register_sidecar_pid(
+    app: AppHandle,
+    state: tauri::State<SidecarState>,
+    pid: u32,
+) -> Result<(), String> {
+    write_native_log(
+        &app,
+        "info",
+        "sidecar",
+        &format!("Registered sidecar PID {}", pid),
+    );
     *state.pid.lock().map_err(|e| e.to_string())? = Some(pid);
     Ok(())
 }
 
 #[tauri::command]
-fn unregister_sidecar_pid(state: tauri::State<SidecarState>) -> Result<(), String> {
-    eprintln!("[sidecar] Unregistered sidecar PID");
+fn unregister_sidecar_pid(app: AppHandle, state: tauri::State<SidecarState>) -> Result<(), String> {
+    write_native_log(&app, "info", "sidecar", "Unregistered sidecar PID");
     *state.pid.lock().map_err(|e| e.to_string())? = None;
     Ok(())
 }
@@ -947,14 +1126,24 @@ fn start_mcp_bridge(
                         let token = token.clone();
                         std::thread::spawn(move || {
                             if let Err(error) =
-                                handle_mcp_bridge_stream(stream, app_handle, pending, token)
+                                handle_mcp_bridge_stream(stream, app_handle.clone(), pending, token)
                             {
-                                eprintln!("[mcp-bridge] request failed: {}", error);
+                                write_native_log(
+                                    &app_handle,
+                                    "error",
+                                    "mcp-bridge",
+                                    &format!("request failed: {}", error),
+                                );
                             }
                         });
                     }
                     Err(error) => {
-                        eprintln!("[mcp-bridge] accept failed: {}", error);
+                        write_native_log(
+                            &app_handle,
+                            "error",
+                            "mcp-bridge",
+                            &format!("accept failed: {}", error),
+                        );
                     }
                 }
             }
@@ -1413,6 +1602,8 @@ pub fn run() {
             extract_content,
             fetch_html,
             download_youtube_subtitles_with_ytdlp,
+            append_app_log,
+            get_app_log_path,
             register_sidecar_pid,
             unregister_sidecar_pid,
             resolve_node_path,
@@ -1430,12 +1621,22 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app_handle.try_state::<SidecarState>() {
                     let Ok(mut guard) = state.pid.lock() else {
-                        eprintln!("[sidecar] Cannot lock sidecar PID on exit (mutex poisoned)");
+                        write_native_log(
+                            app_handle,
+                            "error",
+                            "sidecar",
+                            "Cannot lock sidecar PID on exit (mutex poisoned)",
+                        );
                         return;
                     };
                     let pid = guard.take();
                     if let Some(pid) = pid {
-                        eprintln!("[sidecar] App exiting — killing sidecar PID {}", pid);
+                        write_native_log(
+                            app_handle,
+                            "info",
+                            "sidecar",
+                            &format!("App exiting - killing sidecar PID {}", pid),
+                        );
                         #[cfg(unix)]
                         {
                             let _ = std::process::Command::new("kill")
@@ -1517,6 +1718,32 @@ mod tests {
         assert!(content_type_is_allowed("application/xhtml+xml"));
         assert!(!content_type_is_allowed("text/plain"));
         assert!(!content_type_is_allowed("application/json"));
+    }
+
+    #[test]
+    fn renderer_log_line_is_single_line_and_sanitized() {
+        let line = format_renderer_log_line(RendererLogEntry {
+            timestamp: Some("2026-07-05T01:02:03.004Z".to_string()),
+            level: "warn\nbad".to_string(),
+            target: "console.error".to_string(),
+            message: "first line\nsecond line\rthird line".to_string(),
+        });
+
+        assert_eq!(
+            line,
+            "[2026-07-05T01:02:03.004Z] [warn_bad] [console.error] first line\\nsecond line\\rthird line",
+        );
+        assert!(!line.contains('\n'));
+        assert!(!line.contains('\r'));
+    }
+
+    #[test]
+    fn log_message_truncates_long_values() {
+        let long = "x".repeat(MAX_LOG_MESSAGE_CHARS + 1);
+        let sanitized = sanitize_log_message(&long);
+
+        assert!(sanitized.ends_with("... [truncated]"));
+        assert!(sanitized.len() < long.len() + "... [truncated]".len());
     }
 
     #[test]

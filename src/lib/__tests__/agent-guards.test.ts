@@ -265,6 +265,18 @@ describe("evaluateAssistantStep", () => {
     expect(decision).toMatchObject({ action: "accept" });
   });
 
+  it("accepts extract_page_content after youtube_search was called", () => {
+    const decision = evaluateAssistantStep({
+      messages: [
+        userMessage("Find a YouTube walkthrough"),
+        assistantWithYoutubeSearchTool(),
+      ],
+      responseMessage: assistantWithExtractTool(),
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+  });
+
   it("accepts non-research answers without checkpoint", () => {
     const decision = evaluateAssistantStep({
       messages: [userMessage("Thanks")],
@@ -608,6 +620,30 @@ function assistantWithAggregateSearchTool(): UIMessage {
               title: "Market",
               url: "https://example.com/market",
               description: "Market page",
+            },
+          ],
+        },
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantWithYoutubeSearchTool(): UIMessage {
+  return {
+    id: "assistant-youtube-search",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-youtube_search",
+        toolCallId: "youtube-search-1",
+        state: "output-available",
+        input: { query: "walkthrough" },
+        output: {
+          results: [
+            {
+              title: "Walkthrough",
+              url: "https://www.youtube.com/watch?v=abc123DEF45",
+              description: "Video result",
             },
           ],
         },

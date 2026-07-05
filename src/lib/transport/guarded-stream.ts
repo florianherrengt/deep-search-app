@@ -23,6 +23,7 @@ import {
   logInterruptedToolCallRepair,
   repairInterruptedToolCallMessages,
 } from "@/lib/tool-call-repair";
+import { SOCIAL_SOURCE_EXECUTION_GUIDANCE } from "@/lib/research-source-guidance";
 
 export function createGuardedStream({
   model,
@@ -58,10 +59,13 @@ export function createGuardedStream({
         searchKeys,
       });
 
-      const skillsData = await skillsStore.get();
-      const effectiveSystemPrompt = buildSystemPrompt(skillsData.skills);
       const repair = repairInterruptedToolCallMessages(messages);
       const effectiveMessages = repair.repaired ? repair.messages : messages;
+      const skillsData = await skillsStore.get();
+      const effectiveSystemPrompt = buildSystemPrompt(
+        skillsData.skills,
+        buildCurrentRequestSourceGuidance(effectiveMessages, searchKeys),
+      );
       if (repair.repaired) {
         logInterruptedToolCallRepair("guarded-stream-before-convert", repair);
         writeAgentDiagnosticEvent(
@@ -95,10 +99,15 @@ export function createGuardedStream({
   })();
 }
 
-function buildSystemPrompt(
+export function buildSystemPrompt(
   skills?: { slug: string; whenToUse: string }[],
+  currentRequestSourceGuidance?: string,
 ): string {
-  let prompt = DEFAULT_SYSTEM_PROMPT;
+  let prompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${SOCIAL_SOURCE_EXECUTION_GUIDANCE}`;
+
+  if (currentRequestSourceGuidance) {
+    prompt += `\n\n${currentRequestSourceGuidance}`;
+  }
 
   if (skills && skills.length > 0) {
     const skillList = skills
@@ -108,6 +117,48 @@ function buildSystemPrompt(
   }
 
   return prompt;
+}
+
+export function buildCurrentRequestSourceGuidance(
+  messages: UIMessage[],
+  searchKeys?: SearchToolKeys,
+): string {
+  const latestUserText = [...messages]
+    .reverse()
+    .find((message) => message.role === "user")
+    ?.parts
+    .filter(
+      (part): part is Extract<UIMessage["parts"][number], { type: "text" }> =>
+        part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("\n")
+    .toLowerCase();
+
+  if (!latestUserText) return "";
+
+  const requirements: string[] = [];
+  if (/\b(reddit|subreddit|subreddits|r\/[a-z0-9_]+)\b/i.test(latestUserText)) {
+    requirements.push(
+      "The latest user request explicitly asks for Reddit/community evidence. Run at least one web search containing site:reddit.com or site:old.reddit.com before relying on sources.",
+    );
+  }
+
+  if (/\b(youtube|youtube\.com|youtu\.be|\byt\b)\b/i.test(latestUserText)) {
+    requirements.push(
+      searchKeys?.youtubeApiKey
+        ? "The latest user request explicitly asks for YouTube/video evidence. Call youtube_search, then call extract_page_content on selected YouTube video URLs to read transcripts before relying on them."
+        : "The latest user request explicitly asks for YouTube/video evidence, but youtube_search is not configured. Use a regular web search with site:youtube.com/watch or site:youtu.be, then call extract_page_content on selected YouTube video URLs to read transcripts before relying on them.",
+    );
+  }
+
+  if (requirements.length === 0) return "";
+
+  return [
+    "## Current request source requirements",
+    "",
+    ...requirements.map((requirement) => `- ${requirement}`),
+  ].join("\n");
 }
 
 function createAppEvaluateStep(

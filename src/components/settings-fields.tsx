@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import { useClipboard } from "@mantine/hooks";
-import { CheckIcon, CopyIcon, Loader2, RefreshCw } from "lucide-react";
+import { CheckIcon, CopyIcon, FileText, Loader2, RefreshCw } from "lucide-react";
 import { Button, TextInput, Select, SegmentedControl, Box, Stack, Text, Group, Checkbox, Paper, Progress } from "@mantine/core";
 import { generateText } from "ai";
 import {
@@ -16,7 +16,7 @@ import {
   CURRENCIES,
   WEB_EXTRACTION_BACKENDS,
 } from "@/lib/settings-store";
-import { resolveNodePath, isTauri } from "@/lib/tauri-bridge";
+import { getAppLogPath, isTauri, openPath, resolveNodePath } from "@/lib/tauri-bridge";
 import type { Settings } from "@/hooks/use-settings";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { getDeepSearchMcpBridgeInfo } from "@/lib/mcp/deep-search-app-bridge";
@@ -396,6 +396,75 @@ function DeepSearchMcpSection() {
           </Text>
         ) : null}
       </Stack>
+    </Paper>
+  );
+}
+
+export function SettingsDiagnosticsSection() {
+  const [logPath, setLogPath] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let cancelled = false;
+    setLoadError(null);
+    getAppLogPath()
+      .then((path) => {
+        if (!cancelled) setLogPath(path);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error.message : String(error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleOpenLogFile() {
+    if (!logPath) return;
+    setOpenError(null);
+    try {
+      await openPath(logPath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setOpenError(message);
+      console.error("[settings] Failed to open app log file:", error);
+    }
+  }
+
+  const error = openError ?? loadError;
+
+  return (
+    <Paper withBorder p="sm">
+      <Group justify="space-between" align="flex-start" wrap="nowrap">
+        <Box style={{ flex: 1, minWidth: 0 }}>
+          <Text size="sm" fw={500}>Diagnostics</Text>
+          <TextInput
+            mt="xs"
+            label="Log file"
+            value={logPath ?? ""}
+            placeholder={isTauri() ? "Preparing log file..." : "Available in the desktop app"}
+            readOnly
+          />
+          {error ? (
+            <Text size="xs" c="red" mt={4}>{error}</Text>
+          ) : null}
+        </Box>
+        <Button
+          size="xs"
+          variant="light"
+          leftSection={<FileText size={14} />}
+          disabled={!logPath}
+          onClick={() => void handleOpenLogFile()}
+        >
+          Open
+        </Button>
+      </Group>
     </Paper>
   );
 }

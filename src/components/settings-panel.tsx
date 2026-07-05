@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Modal, Button, Text, Group, Box, ScrollArea, Stack } from "@mantine/core";
-import { SettingsFields, SettingsUpdateSection } from "@/components/settings-fields";
+import { SettingsDiagnosticsSection, SettingsFields, SettingsUpdateSection } from "@/components/settings-fields";
 import { useSettings } from "@/hooks/use-settings";
 
 export function SettingsPanel() {
@@ -27,6 +27,7 @@ export function SettingsPanel() {
         <Box mt="md" className="md-divider-top" pt={16}>
           <Stack gap="md">
             <SettingsUpdateSection />
+            <SettingsDiagnosticsSection />
             <Button
               color="red"
               size="sm"

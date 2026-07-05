@@ -37,11 +37,7 @@ import {
 } from "@/components/assistant-ui/reasoning";
 import { PromptTemplateButton } from "@/components/assistant-ui/prompt-template-button";
 
-const groupBy = (
-  part: PartState,
-  _index: number,
-  _parts: readonly PartState[],
-) => {
+const groupBy = (part: PartState) => {
   if (part.type === "reasoning") return ["group-reasoning"] as const;
   return null;
 };

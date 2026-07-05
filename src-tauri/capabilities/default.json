@@ -11,7 +11,8 @@
     {
       "identifier": "opener:allow-open-path",
       "allow": [
-        { "path": "$APPDATA/search-results/*" }
+        { "path": "$APPDATA/search-results/*" },
+        { "path": "$APPDATA/logs/*" }
       ]
     },
     "notification:default",

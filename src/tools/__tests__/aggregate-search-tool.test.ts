@@ -87,6 +87,55 @@ describe("createAggregateSearchTool", () => {
     expect(tauriMocks.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("passes Reddit-qualified queries unchanged to every configured provider", async () => {
+    const tool = createAggregateSearchTool({
+      braveApiKey: "brave-key",
+      exaApiKey: "exa-key",
+    }) as unknown as ExecutableAggregateTool;
+    const query = "best deep search app site:reddit.com/r/LocalLLaMA";
+
+    tauriMocks.fetch.mockImplementation((url: string) => {
+      if (url.includes("search.brave.com")) {
+        return Promise.resolve(
+          mockResponse(200, {
+            web: {
+              results: [
+                {
+                  title: "Reddit Brave",
+                  url: "https://reddit.com/r/LocalLLaMA/comments/abc/test",
+                  description: "Brave result.",
+                },
+              ],
+            },
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        mockResponse(200, {
+          results: [
+            {
+              title: "Reddit Exa",
+              url: "https://reddit.com/r/LocalLLaMA/comments/abc/test",
+              text: "Exa result.",
+            },
+          ],
+        }),
+      );
+    });
+
+    await tool.execute({ query });
+
+    const requestLog = decodeURIComponent(
+      JSON.stringify(tauriMocks.fetch.mock.calls),
+    ).replace(/\+/g, " ");
+    expect(
+      requestLog.match(
+        /best deep search app site:reddit\.com\/r\/LocalLLaMA/g,
+      ),
+    ).toHaveLength(2);
+  });
+
   it("returns partial merged results when one provider fails", async () => {
     const tool = createAggregateSearchTool({
       braveApiKey: "brave-key",

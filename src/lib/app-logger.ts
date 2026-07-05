@@ -1,0 +1,260 @@
+import {
+  appendAppLog,
+  isTauri,
+  type AppLogEntry,
+} from "@/lib/tauri-bridge";
+
+type ConsoleLevel = "debug" | "info" | "log" | "warn" | "error";
+type OriginalConsole = Record<ConsoleLevel, (...args: unknown[]) => void>;
+
+const CONSOLE_LEVELS: readonly ConsoleLevel[] = [
+  "debug",
+  "info",
+  "log",
+  "warn",
+  "error",
+];
+const FLUSH_DELAY_MS = 250;
+const ERROR_FLUSH_DELAY_MS = 0;
+const MAX_PENDING_ENTRIES = 500;
+const MAX_SERIALIZED_ARG_CHARS = 16_000;
+
+interface LoggerInstall {
+  originalConsole: OriginalConsole;
+  removeEventListeners: () => void;
+  flushing: boolean;
+  lastLogPath: string | null;
+}
+
+let install: LoggerInstall | null = null;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingEntries: AppLogEntry[] = [];
+let droppedEntryCount = 0;
+
+export function initializeAppLogger(): void {
+  if (install || typeof window === "undefined" || !isTauri()) return;
+
+  const originalConsole = captureOriginalConsole();
+
+  for (const level of CONSOLE_LEVELS) {
+    console[level] = (...args: unknown[]) => {
+      originalConsole[level](...args);
+      enqueueLogEntry({
+        timestamp: new Date().toISOString(),
+        level,
+        target: "console",
+        message: formatLogArgs(args),
+      });
+    };
+  }
+
+  const handleError = (event: ErrorEvent) => {
+    enqueueLogEntry(
+      {
+        timestamp: new Date().toISOString(),
+        level: "error",
+        target: "window.error",
+        message: formatWindowError(event),
+      },
+      true,
+    );
+  };
+  const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+    enqueueLogEntry(
+      {
+        timestamp: new Date().toISOString(),
+        level: "error",
+        target: "window.unhandledrejection",
+        message: `Unhandled promise rejection: ${serializeLogArg(event.reason)}`,
+      },
+      true,
+    );
+  };
+  const handlePageHide = () => {
+    void flushLogEntries();
+  };
+
+  window.addEventListener("error", handleError);
+  window.addEventListener("unhandledrejection", handleUnhandledRejection);
+  window.addEventListener("pagehide", handlePageHide);
+
+  install = {
+    originalConsole,
+    flushing: false,
+    lastLogPath: null,
+    removeEventListeners: () => {
+      window.removeEventListener("error", handleError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+      window.removeEventListener("pagehide", handlePageHide);
+    },
+  };
+
+  enqueueLogEntry({
+    timestamp: new Date().toISOString(),
+    level: "info",
+    target: "logger",
+    message: "App file logging initialized.",
+  });
+}
+
+export function disposeAppLoggerForTests(): void {
+  if (!install) return;
+
+  for (const level of CONSOLE_LEVELS) {
+    (console as Record<ConsoleLevel, (...args: unknown[]) => void>)[level] =
+      install.originalConsole[level];
+  }
+  install.removeEventListeners();
+  install = null;
+  pendingEntries = [];
+  droppedEntryCount = 0;
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+}
+
+function captureOriginalConsole(): OriginalConsole {
+  return {
+    debug: console.debug.bind(console),
+    info: console.info.bind(console),
+    log: console.log.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+  };
+}
+
+function enqueueLogEntry(entry: AppLogEntry, urgent = false): void {
+  if (!install) return;
+
+  if (pendingEntries.length >= MAX_PENDING_ENTRIES) {
+    pendingEntries.shift();
+    droppedEntryCount += 1;
+  }
+
+  pendingEntries.push(entry);
+  scheduleFlush(urgent ? ERROR_FLUSH_DELAY_MS : FLUSH_DELAY_MS);
+}
+
+function scheduleFlush(delayMs: number): void {
+  if (flushTimer && delayMs !== ERROR_FLUSH_DELAY_MS) return;
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+  }
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void flushLogEntries();
+  }, delayMs);
+}
+
+async function flushLogEntries(): Promise<void> {
+  const activeInstall = install;
+  if (!activeInstall || activeInstall.flushing) return;
+
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+
+  const entries = pendingEntries.splice(0, pendingEntries.length);
+  if (droppedEntryCount > 0) {
+    entries.unshift({
+      timestamp: new Date().toISOString(),
+      level: "warn",
+      target: "logger",
+      message: `Dropped ${droppedEntryCount} renderer log entries because the pending log buffer was full.`,
+    });
+    droppedEntryCount = 0;
+  }
+
+  if (entries.length === 0) return;
+
+  activeInstall.flushing = true;
+  try {
+    const logPath = await appendAppLog(entries);
+    if (logPath && activeInstall.lastLogPath !== logPath) {
+      activeInstall.lastLogPath = logPath;
+      activeInstall.originalConsole.info(`[app-logger] Writing logs to ${logPath}`);
+    }
+  } catch (error) {
+    activeInstall.originalConsole.warn(
+      "[app-logger] Failed to write app log file:",
+      error,
+    );
+  } finally {
+    activeInstall.flushing = false;
+    if (pendingEntries.length > 0) {
+      scheduleFlush(FLUSH_DELAY_MS);
+    }
+  }
+}
+
+function formatLogArgs(args: unknown[]): string {
+  return args.map((arg) => serializeLogArg(arg)).join(" ");
+}
+
+function formatWindowError(event: ErrorEvent): string {
+  const parts = ["Unhandled window error"];
+  if (event.message) {
+    parts.push(event.message);
+  }
+  if (event.filename) {
+    parts.push(`at ${event.filename}:${event.lineno}:${event.colno}`);
+  }
+  if (event.error) {
+    parts.push(serializeLogArg(event.error));
+  }
+  return parts.join(" | ");
+}
+
+export function serializeLogArg(value: unknown): string {
+  if (value instanceof Error) {
+    return value.stack || `${value.name}: ${value.message}`;
+  }
+  if (typeof value === "string") {
+    return truncateSerializedArg(value);
+  }
+  if (value === undefined) {
+    return "undefined";
+  }
+  if (typeof value === "bigint") {
+    return `${value.toString()}n`;
+  }
+  if (typeof value === "symbol") {
+    return value.toString();
+  }
+  if (typeof value === "function") {
+    return `[Function ${value.name || "anonymous"}]`;
+  }
+
+  try {
+    const seen = new WeakSet<object>();
+    const serialized = JSON.stringify(value, (_key, nestedValue: unknown) => {
+      if (typeof nestedValue === "bigint") {
+        return `${nestedValue.toString()}n`;
+      }
+      if (nestedValue instanceof Error) {
+        return {
+          name: nestedValue.name,
+          message: nestedValue.message,
+          stack: nestedValue.stack,
+        };
+      }
+      if (typeof nestedValue === "object" && nestedValue !== null) {
+        if (seen.has(nestedValue)) {
+          return "[Circular]";
+        }
+        seen.add(nestedValue);
+      }
+      return nestedValue;
+    });
+    return truncateSerializedArg(serialized ?? String(value));
+  } catch {
+    return truncateSerializedArg(String(value));
+  }
+}
+
+function truncateSerializedArg(value: string): string {
+  if (value.length <= MAX_SERIALIZED_ARG_CHARS) return value;
+  return `${value.slice(0, MAX_SERIALIZED_ARG_CHARS)}... [truncated]`;
+}

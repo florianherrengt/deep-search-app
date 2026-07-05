@@ -44,6 +44,17 @@ describe("SettingsPanel", () => {
     expect(html).toContain("Reset All Settings");
   });
 
+  it("renders the diagnostics log section", () => {
+    const html = renderToStaticMarkup(
+      <MantineProvider>
+        <SettingsPanel />
+      </MantineProvider>,
+    );
+
+    expect(html).toContain(">Diagnostics<");
+    expect(html).toContain(">Log file<");
+  });
+
   it("renders the SettingsFields component", () => {
     const html = renderToStaticMarkup(
       <MantineProvider>

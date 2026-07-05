@@ -35,6 +35,8 @@ vi.mock("@/lib/mcp/chrome-devtools-tools", () => ({
 
 import { createTools } from "@/lib/transport/tool-registry";
 
+type ToolByName = Record<string, { description?: string } | undefined>;
+
 function makeModel() {
   return { modelId: "test", doGenerate: async () => ({}) } as never;
 }
@@ -115,7 +117,7 @@ describe("createTools", () => {
       switchResearchFolder: vi.fn(),
     });
 
-    const toolsWithoutKeyByName = toolsWithoutKey as Record<string, unknown>;
+    const toolsWithoutKeyByName = toolsWithoutKey as ToolByName;
     expect(toolsWithoutKeyByName.youtube_search).toBeUndefined();
     expect(toolsWithoutKeyByName.youtube_download_subtitles).toBeUndefined();
 
@@ -126,9 +128,41 @@ describe("createTools", () => {
       searchKeys: { youtubeApiKey: "youtube-key" },
     });
 
-    const toolsWithKeyByName = toolsWithKey as Record<string, unknown>;
+    const toolsWithKeyByName = toolsWithKey as ToolByName;
     expect(toolsWithKeyByName.youtube_search).toBeTruthy();
     expect(toolsWithKeyByName.youtube_download_subtitles).toBeUndefined();
     expect(toolsWithKeyByName.extract_page_content).toBeTruthy();
+    expect(
+      (toolsWithKeyByName.youtube_search?.description ?? ""),
+    ).toContain("video evidence could matter");
+    expect(
+      (toolsWithKeyByName.youtube_search?.description ?? ""),
+    ).toContain("extract_page_content");
+  });
+
+  it("marks aggregate search as separate from Reddit and YouTube source passes", async () => {
+    const tools = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+      searchKeys: {
+        braveApiKey: "brave-key",
+        youtubeApiKey: "youtube-key",
+      },
+    });
+    const toolsByName = tools as ToolByName;
+
+    expect(toolsByName.aggregate_search?.description ?? "").toContain(
+      "does not call youtube_search",
+    );
+    expect(toolsByName.aggregate_search?.description ?? "").toContain(
+      "site:reddit.com",
+    );
+    expect(toolsByName.brave_search?.description ?? "").toContain(
+      "site:reddit.com",
+    );
+    expect(toolsByName.brave_search?.description ?? "").toContain(
+      "site:youtube.com/watch",
+    );
   });
 });

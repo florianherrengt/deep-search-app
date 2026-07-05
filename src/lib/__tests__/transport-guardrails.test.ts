@@ -32,6 +32,10 @@ vi.mock("@/lib/tauri-bridge", () => ({
 }));
 
 import { createGuardedStream } from "@/lib/transport";
+import {
+  buildCurrentRequestSourceGuidance,
+  buildSystemPrompt,
+} from "@/lib/transport/guarded-stream";
 import type { SearchToolKeys } from "@/lib/transport/tool-registry";
 
 interface RunGuardedStreamOptions {
@@ -973,6 +977,36 @@ describe("createGuardedStream", () => {
 });
 
 describe("buildSystemPrompt", () => {
+  it("adds source coverage guidance for Reddit and YouTube", () => {
+    const prompt = buildSystemPrompt();
+
+    expect(prompt).toContain("site:reddit.com");
+    expect(prompt).toContain("site:youtube.com/watch");
+    expect(prompt).toContain("youtube_search");
+    expect(prompt).toContain("aggregate_search is a general web-search fanout");
+  });
+
+  it("adds current-request guidance for explicit Reddit and configured YouTube asks", () => {
+    const guidance = buildCurrentRequestSourceGuidance(
+      [userMessage("Search Reddit and YouTube for hands-on reviews")],
+      { youtubeApiKey: "youtube-key" },
+    );
+
+    expect(guidance).toContain("Current request source requirements");
+    expect(guidance).toContain("site:reddit.com");
+    expect(guidance).toContain("Call youtube_search");
+    expect(guidance).toContain("extract_page_content");
+  });
+
+  it("falls back to YouTube site search when youtube_search is unavailable", () => {
+    const guidance = buildCurrentRequestSourceGuidance([
+      userMessage("Find YouTube walkthroughs for this setup"),
+    ]);
+
+    expect(guidance).toContain("youtube_search is not configured");
+    expect(guidance).toContain("site:youtube.com/watch");
+  });
+
   it("works without memories", async () => {
     const model = new MockLanguageModelV3({
       doStream: async (): Promise<LanguageModelV3StreamResult> => ({

@@ -87,6 +87,13 @@ describe("RESEARCH_PLANNER_SYSTEM", () => {
     expect(RESEARCH_PLANNER_SYSTEM).toContain("Must-answer questions");
     expect(RESEARCH_PLANNER_SYSTEM).toContain("Stop conditions");
   });
+
+  it("instructs the planner to include Reddit and YouTube source passes when relevant", () => {
+    expect(RESEARCH_PLANNER_SYSTEM).toContain("site:reddit.com");
+    expect(RESEARCH_PLANNER_SYSTEM).toContain("site:old.reddit.com");
+    expect(RESEARCH_PLANNER_SYSTEM).toContain("youtube_search");
+    expect(RESEARCH_PLANNER_SYSTEM).toContain("extract transcripts");
+  });
 });
 
 describe("createResearchPlanTool", () => {

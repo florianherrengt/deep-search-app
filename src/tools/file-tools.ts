@@ -1,14 +1,11 @@
 import { tool, zodSchema } from "ai";
 import { z } from "zod";
+import { createArtifactStore } from "deep-search-core/research-orchestrator";
 import {
   SafePathSegmentSchema,
-  deleteAppFile,
-  listAppFiles,
-  readAppFile,
-  renameAppFile,
-  writeAppFile,
 } from "@/lib/app-file-storage";
 import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
+import { createAppArtifactStorage } from "@/lib/core-artifact-storage";
 
 const FilenameField = SafePathSegmentSchema.describe(
   "File name, for example 'notes.md', 'sources.md', or 'queue.json'. Must not include folders.",
@@ -16,6 +13,13 @@ const FilenameField = SafePathSegmentSchema.describe(
 
 function subfolderFor(folder: string) {
   return `${SEARCH_RESULTS_SUBFOLDER}/${folder}`;
+}
+
+function artifactStoreFor(folder: string) {
+  return createArtifactStore({
+    root: subfolderFor(folder),
+    storage: createAppArtifactStorage(),
+  });
 }
 
 export const createFileInputSchema = z.object({
@@ -54,14 +58,9 @@ export function createCreateFileTool(
     outputSchema: zodSchema(z.string()),
     execute: async ({ filename, content }) => {
       const folder = await getResearchFolder();
-      const subfolder = subfolderFor(folder);
+      const store = artifactStoreFor(folder);
 
-      const existing = await readAppFile({ subfolder, filename });
-      if (existing !== null) {
-        throw new Error(`File "${filename}" already exists. Use update_file to modify it.`);
-      }
-
-      await writeAppFile({ subfolder, filename, content });
+      await store.writeText(filename, content, { overwrite: false });
 
       return "OK";
     },
@@ -78,9 +77,9 @@ export function createReadFileTool(
     inputSchema: zodSchema(readFileInputSchema),
     execute: async ({ filename }) => {
       const folder = await getResearchFolder();
-      const subfolder = subfolderFor(folder);
+      const store = artifactStoreFor(folder);
 
-      const content = await readAppFile({ subfolder, filename });
+      const content = await store.readText(filename);
 
       if (content === null) {
         throw new Error(`File "${filename}" not found in research folder "${folder}".`);
@@ -102,9 +101,9 @@ export function createUpdateFileTool(
     outputSchema: zodSchema(z.string()),
     execute: async ({ filename, old_string, new_string, replace_all }) => {
       const folder = await getResearchFolder();
-      const subfolder = subfolderFor(folder);
+      const store = artifactStoreFor(folder);
 
-      const content = await readAppFile({ subfolder, filename });
+      const content = await store.readText(filename);
       if (content === null) {
         throw new Error(`File "${filename}" not found in research folder "${folder}".`);
       }
@@ -129,7 +128,7 @@ export function createUpdateFileTool(
         ? content.split(old_string).join(new_string)
         : content.replace(old_string, new_string);
 
-      await writeAppFile({ subfolder, filename, content: newContent });
+      await store.writeText(filename, newContent);
 
       return "OK";
     },
@@ -151,9 +150,9 @@ export function createMoveFileTool(
       }
 
       const folder = await getResearchFolder();
-      const subfolder = subfolderFor(folder);
+      const store = artifactStoreFor(folder);
 
-      await renameAppFile({ subfolder, oldFilename: source, newFilename: destination });
+      await store.rename(source, destination, { overwrite: true });
 
       return "OK";
     },
@@ -171,9 +170,9 @@ export function createDeleteFileTool(
     outputSchema: zodSchema(z.string()),
     execute: async ({ filename }) => {
       const folder = await getResearchFolder();
-      const subfolder = subfolderFor(folder);
+      const store = artifactStoreFor(folder);
 
-      await deleteAppFile({ subfolder, filename });
+      await store.remove(filename);
 
       return "OK";
     },
@@ -196,9 +195,9 @@ export function createListFilesTool(
     ),
     execute: async () => {
       const folder = await getResearchFolder();
-      const subfolder = subfolderFor(folder);
+      const store = artifactStoreFor(folder);
 
-      const files = await listAppFiles({ subfolder });
+      const files = (await store.list()).filter((entry) => entry.type === "file").map((entry) => entry.path);
 
       return { folder, files };
     },

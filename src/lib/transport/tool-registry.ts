@@ -22,6 +22,12 @@ import {
 import { applyToolCallRequirementSafeguards } from "@/lib/tool-call-requirements";
 import type { Currency, ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 import { createChromeDevToolsMcpTools } from "@/lib/mcp/chrome-devtools-tools";
+import { TOOL_NAMES } from "@/lib/tool-names";
+import {
+  AGGREGATE_SEARCH_SOURCE_GUIDANCE,
+  GENERAL_WEB_SEARCH_SOURCE_GUIDANCE,
+  YOUTUBE_SEARCH_SOURCE_GUIDANCE,
+} from "@/lib/research-source-guidance";
 
 type CoreLanguageModel = Parameters<typeof createResearchPlanTool>[0];
 
@@ -48,6 +54,44 @@ function asAppTool(tool: unknown): ToolSet[string] {
 
 function asAppToolSet(tools: unknown): ToolSet {
   return tools as ToolSet;
+}
+
+function appendToolDescription<T extends ToolSet[string]>(
+  appTool: T | undefined,
+  extra: string,
+): T | undefined {
+  if (!appTool) return undefined;
+
+  return {
+    ...appTool,
+    description: [appTool.description, extra].filter(Boolean).join("\n\n"),
+  } as T;
+}
+
+function addSourceCoverageDescriptions(searchTools: ToolSet): void {
+  for (const toolName of [
+    TOOL_NAMES.brave_search,
+    TOOL_NAMES.exa_search,
+    TOOL_NAMES.serper_search,
+    TOOL_NAMES.tavily_search,
+    TOOL_NAMES.searxng_search,
+  ]) {
+    const searchTool = appendToolDescription(
+      searchTools[toolName],
+      GENERAL_WEB_SEARCH_SOURCE_GUIDANCE,
+    );
+    if (searchTool) {
+      searchTools[toolName] = searchTool;
+    }
+  }
+
+  const youtubeSearchTool = appendToolDescription(
+    searchTools[TOOL_NAMES.youtube_search],
+    YOUTUBE_SEARCH_SOURCE_GUIDANCE,
+  );
+  if (youtubeSearchTool) {
+    searchTools[TOOL_NAMES.youtube_search] = youtubeSearchTool;
+  }
 }
 
 export async function createTools({
@@ -85,7 +129,11 @@ export async function createTools({
 
   const searchTools = asAppToolSet(createSearchTools(pkgSearchKeys, bridgeFetch));
   delete searchTools.aggregate_search;
-  const aggregateSearchTool = createAggregateSearchTool(pkgSearchKeys);
+  addSourceCoverageDescriptions(searchTools);
+  const aggregateSearchTool = appendToolDescription(
+    createAggregateSearchTool(pkgSearchKeys),
+    AGGREGATE_SEARCH_SOURCE_GUIDANCE,
+  );
   const coreModel = model as unknown as CoreLanguageModel;
 
   const tools = {

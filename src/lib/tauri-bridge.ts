@@ -54,6 +54,31 @@ export async function invoke<T = unknown>(
   return tauriInvoke<T>(cmd, args);
 }
 
+export interface AppLogEntry {
+  level: string;
+  target: string;
+  message: string;
+  timestamp?: string;
+}
+
+export async function appendAppLog(entries: AppLogEntry[]): Promise<string | null> {
+  const mock = getBridgeMock("appendAppLog");
+  if (mock) return mock(entries);
+
+  if (!isTauri()) return null;
+
+  return invoke<string>("append_app_log", { entries });
+}
+
+export async function getAppLogPath(): Promise<string | null> {
+  const mock = getBridgeMock("getAppLogPath");
+  if (mock) return mock();
+
+  if (!isTauri()) return null;
+
+  return invoke<string>("get_app_log_path");
+}
+
 export async function writeTextFile(
   path: string,
   content: string,
@@ -763,6 +788,8 @@ export type TauriBridgeMock = {
     entries: () => Promise<Array<[string, unknown]>>;
     clear: () => Promise<void>;
   }>;
+  appendAppLog?: (entries: AppLogEntry[]) => Promise<string | null>;
+  getAppLogPath?: () => Promise<string | null>;
   writeTextFile?: (path: string, content: string, opts?: { baseDir?: number; append?: boolean }) => Promise<void>;
   readTextFile?: (path: string, opts?: { baseDir: number }) => Promise<string>;
   exists?: (path: string, opts?: { baseDir: number }) => Promise<boolean>;

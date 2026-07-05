@@ -169,6 +169,15 @@ describe("tool call requirements", () => {
     expect(activeTools).toContain("extract_page_content");
   });
 
+  it("shows extract_page_content after youtube_search was called", () => {
+    const activeTools = getActiveToolNamesForMessages(fakeToolsWithExtract(), [
+      userMessage("Research the market"),
+      assistantToolCallMessage("youtube_search"),
+    ]);
+
+    expect(activeTools).toContain("extract_page_content");
+  });
+
   it("still hides extract_page_content when only unrelated tools were called", () => {
     const activeTools = getActiveToolNamesForMessages(fakeToolsWithExtract(), [
       userMessage("Research the market"),
@@ -249,6 +258,24 @@ describe("tool call requirements", () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
+  it("allows extract_page_content execution after youtube_search was called", () => {
+    const execute = vi.fn(() => "extracted");
+    const tools = applyToolCallRequirementSafeguards({
+      extract_page_content: {
+        description: "Extract a web page.",
+        execute,
+      },
+    } as unknown as ToolSet);
+
+    expect(
+      executeTool(tools, "extract_page_content", [
+        { role: "user", content: "Research the market" },
+        modelToolCallMessage("youtube_search"),
+      ]),
+    ).toBe("extracted");
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
   it("formatToolCallRequirementViolation formats an anyOf violation", () => {
     const message = formatToolCallRequirementViolation({
       toolName: "extract_page_content",
@@ -259,6 +286,7 @@ describe("tool call requirements", () => {
         "serper_search",
         "tavily_search",
         "searxng_search",
+        "youtube_search",
       ],
       missingAnyOfTools: [
         "aggregate_search",
@@ -267,6 +295,7 @@ describe("tool call requirements", () => {
         "serper_search",
         "tavily_search",
         "searxng_search",
+        "youtube_search",
       ],
       instruction:
         "Run a web search first to find URLs to extract from, then retry extract_page_content.",
@@ -277,6 +306,7 @@ describe("tool call requirements", () => {
     expect(message).toContain("`aggregate_search`");
     expect(message).toContain("`brave_search`");
     expect(message).toContain("`exa_search`");
+    expect(message).toContain("`youtube_search`");
     expect(message).toMatch(/^\S/);
   });
 
@@ -303,6 +333,7 @@ function fakeToolsWithExtract() {
     aggregate_search: {},
     brave_search: {},
     serper_search: {},
+    youtube_search: {},
     extract_page_content: {},
   } as unknown as ToolSet;
 }
