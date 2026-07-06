@@ -6,35 +6,124 @@ import {
 import { useMessagePartText } from "@assistant-ui/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { memo, type AnchorHTMLAttributes, type CSSProperties, type FC } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type AnchorHTMLAttributes,
+  type FC,
+} from "react";
 import { useClipboard } from "@mantine/hooks";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { openUrl } from "@/lib/tauri-bridge";
 
 const REMARK_PLUGINS = [remarkGfm];
-const STREAMING_TEXT_STYLE: CSSProperties = {
-  margin: 0,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-  fontFamily: "inherit",
-};
+const STREAMING_MARKDOWN_RENDER_INTERVAL_MS = 1000;
 
 const MarkdownTextImpl = () => {
   const { text, status } = useMessagePartText();
+  const running = status.type === "running";
+  const throttledStreamingText = useThrottledStreamingText(text, running);
 
-  if (status.type === "running") {
-    if (text.length === 0) return null;
-
-    return (
-      <pre data-status={status.type} style={STREAMING_TEXT_STYLE}>
-        {text}
-      </pre>
-    );
+  if (running) {
+    if (throttledStreamingText.length === 0) return null;
+    return <MarkdownContent text={throttledStreamingText} />;
   }
 
   return <MarkdownContent text={text} />;
 };
 export const MarkdownText = MarkdownTextImpl;
+
+function useThrottledStreamingText(text: string, running: boolean): string {
+  const [renderedText, setRenderedText] = useState(text);
+  const renderedTextRef = useRef(text);
+  const pendingTextRef = useRef(text);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastFlushAtRef = useRef(text.length > 0 ? Date.now() : 0);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const clearScheduledFlush = () => {
+      if (timeoutRef.current === null) return;
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    };
+
+    const flush = (nextText: string) => {
+      renderedTextRef.current = nextText;
+      lastFlushAtRef.current = Date.now();
+      setRenderedText(nextText);
+    };
+
+    if (!running) {
+      clearScheduledFlush();
+      pendingTextRef.current = text;
+      lastFlushAtRef.current = 0;
+      if (renderedTextRef.current !== text) {
+        flush(text);
+      }
+      return;
+    }
+
+    pendingTextRef.current = text;
+
+    if (text.length === 0) {
+      clearScheduledFlush();
+      lastFlushAtRef.current = 0;
+      if (renderedTextRef.current.length > 0) {
+        flush("");
+      }
+      return;
+    }
+
+    if (renderedTextRef.current.length === 0) {
+      clearScheduledFlush();
+      flush(text);
+      return;
+    }
+
+    if (renderedTextRef.current === text) {
+      return;
+    }
+
+    const elapsedMs = Date.now() - lastFlushAtRef.current;
+    const remainingMs = Math.max(
+      STREAMING_MARKDOWN_RENDER_INTERVAL_MS - elapsedMs,
+      0,
+    );
+
+    if (remainingMs === 0) {
+      clearScheduledFlush();
+      flush(text);
+      return;
+    }
+
+    if (timeoutRef.current !== null) {
+      return;
+    }
+
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      if (pendingTextRef.current !== renderedTextRef.current) {
+        flush(pendingTextRef.current);
+      }
+    }, remainingMs);
+  }, [running, text]);
+
+  if (running && renderedText.length === 0 && text.length > 0) {
+    return text;
+  }
+
+  return running ? renderedText : text;
+}
 
 export const MarkdownContent = memo(function MarkdownContent({
   text,
