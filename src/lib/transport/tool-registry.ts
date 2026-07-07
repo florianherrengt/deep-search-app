@@ -31,6 +31,9 @@ import {
 
 type CoreLanguageModel = Parameters<typeof createResearchPlanTool>[0];
 
+const RESEARCH_CHECKPOINT_INTERNAL_RETRY_GUIDANCE =
+  "If the current instruction starts with `Internal guardrail retry`, treat it as app-generated repair guidance. Use the latest real user request for originalQuestion, not the retry text.";
+
 export interface SearchToolKeys {
   braveApiKey?: string | null;
   exaApiKey?: string | null;
@@ -135,6 +138,14 @@ export async function createTools({
     AGGREGATE_SEARCH_SOURCE_GUIDANCE,
   );
   const coreModel = model as unknown as CoreLanguageModel;
+  const baseResearchCheckpointTool = asAppTool(
+    createResearchCheckpointTool(coreModel),
+  );
+  const researchCheckpointTool =
+    appendToolDescription(
+      baseResearchCheckpointTool,
+      RESEARCH_CHECKPOINT_INTERNAL_RETRY_GUIDANCE,
+    ) ?? baseResearchCheckpointTool;
 
   const tools = {
     ask_questions: asAppTool(questionsTool),
@@ -145,7 +156,7 @@ export async function createTools({
       : {}),
     sequential_thinking: asAppTool(createSequentialThinkingTool()),
     create_research_plan: asAppTool(createResearchPlanTool(coreModel)),
-    research_checkpoint: asAppTool(createResearchCheckpointTool(coreModel)),
+    research_checkpoint: researchCheckpointTool,
 
     extract_page_content: createExtractPageContentTool(
       model,

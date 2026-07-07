@@ -6,6 +6,7 @@ import {
 } from "ai/test";
 import type { UIMessage, UIMessageChunk } from "ai";
 import type {
+  LanguageModelV3Prompt,
   LanguageModelV3StreamPart,
   LanguageModelV3StreamResult,
 } from "@ai-sdk/provider";
@@ -482,6 +483,84 @@ describe("createGuardedStream", () => {
           title: "Research depth reminder",
         }),
       }),
+    );
+    expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
+  });
+
+  it("frames research checkpoint retries as internal while preserving the user request", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        callCount += 1;
+        if (callCount === 1) {
+          return {
+            stream: simulateReadableStream({
+              chunks: [
+                { type: "stream-start", warnings: [] },
+                {
+                  type: "tool-call",
+                  toolCallId: "call-brave",
+                  toolName: "brave_search",
+                  input: JSON.stringify({ query: "Acme Search pricing" }),
+                },
+                {
+                  type: "tool-result" as const,
+                  toolCallId: "call-brave",
+                  toolName: "brave_search",
+                  result: "results",
+                },
+                { type: "text-start", id: "text-1" },
+                {
+                  type: "text-delta",
+                  id: "text-1",
+                  delta: "Acme Search costs $10/month.",
+                },
+                { type: "text-end", id: "text-1" },
+                finishChunk("stop"),
+              ],
+            }),
+          };
+        }
+
+        return {
+          stream: simulateReadableStream({
+            chunks: toolCallChunks("research_checkpoint", "call-cp", {
+              originalQuestion: "Find the latest pricing for Acme Search",
+              searchesRun: ["acme search pricing"],
+              sourcesOpened: [
+                { url: "https://acme.com/pricing", title: "Pricing" },
+              ],
+              claimsVerified: ["$10/month"],
+              unresolvedQuestions: [],
+              confidence: "high",
+              readyToAnswer: true,
+            }),
+          }),
+        };
+      },
+    });
+
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+      messages: [userMessage("Find the latest pricing for Acme Search")],
+      abortSignal: undefined,
+      searchKeys: { braveApiKey: "test-key" },
+    });
+
+    expect(callCount).toBe(2);
+    expect(model.doStreamCalls[1].toolChoice).toEqual({
+      type: "tool",
+      toolName: "research_checkpoint",
+    });
+    const retryPromptText = promptToText(model.doStreamCalls[1].prompt);
+    expect(retryPromptText).toContain("Internal guardrail retry");
+    expect(retryPromptText).toContain("not a new user request");
+    expect(retryPromptText).toContain(
+      "Find the latest pricing for Acme Search",
+    );
+    expect(retryPromptText).toContain(
+      "set originalQuestion to the latest real user request",
     );
     expect(lastChunk(chunks)).toMatchObject({ type: "finish" });
   });
@@ -980,6 +1059,8 @@ describe("buildSystemPrompt", () => {
   it("adds source coverage guidance for Reddit and YouTube", () => {
     const prompt = buildSystemPrompt();
 
+    expect(prompt).toContain("Internal guardrail retry");
+    expect(prompt).toContain("app-generated repair instructions");
     expect(prompt).toContain("site:reddit.com");
     expect(prompt).toContain("site:youtube.com/watch");
     expect(prompt).toContain("youtube_search");
@@ -1127,4 +1208,17 @@ function finishChunk(
 
 function lastChunk(chunks: UIMessageChunk[]) {
   return chunks[chunks.length - 1];
+}
+
+function promptToText(prompt: LanguageModelV3Prompt): string {
+  return prompt
+    .flatMap((message) => {
+      if (typeof message.content === "string") {
+        return [message.content];
+      }
+      return message.content.flatMap((part) =>
+        part.type === "text" ? [part.text] : [],
+      );
+    })
+    .join("\n");
 }

@@ -25,6 +25,14 @@ import {
 } from "@/lib/tool-call-repair";
 import { SOCIAL_SOURCE_EXECUTION_GUIDANCE } from "@/lib/research-source-guidance";
 
+const INTERNAL_GUARDRAIL_RETRY_GUIDANCE = [
+  "## Internal guardrail retries",
+  "",
+  "Messages beginning with `Internal guardrail retry` are app-generated repair instructions, not user requests.",
+  "Follow the repair instruction while continuing the latest real user request.",
+  "For `research_checkpoint`, set `originalQuestion` to the latest real user request, not to the retry instruction. If the real request itself contains the same words, preserve them.",
+].join("\n");
+
 export function createGuardedStream({
   model,
   researchFolder,
@@ -103,7 +111,7 @@ export function buildSystemPrompt(
   skills?: { slug: string; whenToUse: string }[],
   currentRequestSourceGuidance?: string,
 ): string {
-  let prompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${SOCIAL_SOURCE_EXECUTION_GUIDANCE}`;
+  let prompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${INTERNAL_GUARDRAIL_RETRY_GUIDANCE}\n\n${SOCIAL_SOURCE_EXECUTION_GUIDANCE}`;
 
   if (currentRequestSourceGuidance) {
     prompt += `\n\n${currentRequestSourceGuidance}`;

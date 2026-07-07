@@ -320,6 +320,15 @@ describe("evaluateAssistantStep", () => {
         toolName: "research_checkpoint",
       },
     });
+    expect(
+      decision.action === "retry" && decision.retryInstruction,
+    ).toContain("not a new user request");
+    expect(
+      decision.action === "retry" && decision.retryInstruction,
+    ).toContain("Find the latest pricing for Acme Search");
+    expect(
+      decision.action === "retry" && decision.retryInstruction,
+    ).toContain("set originalQuestion to the latest real user request");
   });
 
   it("accepts a final answer after checkpoint guidance in the same turn", () => {

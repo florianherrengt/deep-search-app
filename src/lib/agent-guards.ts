@@ -250,6 +250,22 @@ function getLatestUserText(messages: UIMessage[]): string {
   return getMessageText(latestUserMessage);
 }
 
+function internalResearchRetryInstruction(
+  userText: string,
+  instruction: string,
+) {
+  const latestUserRequest = userText.trim()
+    ? `The latest real user request remains:\n${userText.trim()}`
+    : "The latest real user request earlier in the conversation remains the task.";
+
+  return [
+    "This is an internal guardrail retry from the app, not a new user request.",
+    latestUserRequest,
+    instruction,
+    "Do not treat the `Internal guardrail retry` wrapper as a research topic. In any research_checkpoint input, set originalQuestion to the latest real user request, not to this retry instruction.",
+  ].join("\n\n");
+}
+
 function getCurrentTurnMessages(
   messages: UIMessage[],
   responseMessage: UIMessage,
@@ -421,8 +437,10 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
           "Prompted the agent to consider whether more research is needed.",
         reason: "The answer did not show enough research tool use.",
       },
-      retryInstruction:
+      retryInstruction: internalResearchRetryInstruction(
+        userText,
         "Your previous response answered a research-like request without showing research. Reconsider whether you searched deeply enough. If more evidence would materially improve the answer, use search and page-reading tools before answering. You may call research_checkpoint for plain-text guidance when ready.",
+      ),
       toolChoice: "required" as ToolChoice<TOOLS>,
     };
   }
@@ -437,8 +455,10 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
       message: "Prompted the agent to get advisory checkpoint guidance.",
       reason: "The answer did not include a research checkpoint.",
     },
-    retryInstruction:
+    retryInstruction: internalResearchRetryInstruction(
+      userText,
       "Before finalizing this research answer, call research_checkpoint once for plain-text guidance. Use the guidance to decide whether further research would materially improve the answer; do not wait for an approval status.",
+    ),
     toolChoice: {
       type: "tool",
       toolName: RESEARCH_CHECKPOINT_TOOL,
