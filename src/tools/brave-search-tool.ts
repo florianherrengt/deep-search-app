@@ -1,18 +1,11 @@
 import { fetch } from "@/lib/tauri-bridge";
 import {
-  createSearchExtractEngine,
-  createAiSdkSearchTool,
-  searchQueryInputSchema,
-} from "deep-search-core/search-extract";
+  createBraveSearchTool as createCoreBraveSearchTool,
+} from "deep-search-core/research-orchestrator";
+import { searchQueryInputSchema } from "deep-search-core/search-extract/core";
 
 export const braveSearchInputSchema = searchQueryInputSchema;
 
 export function createBraveSearchTool(apiKey: string) {
-  const engine = createSearchExtractEngine({
-    fetch,
-    searchProviders: {
-      brave: { apiKey },
-    },
-  });
-  return createAiSdkSearchTool(engine, "brave", "Search the web with Brave Search");
+  return createCoreBraveSearchTool(apiKey, fetch);
 }

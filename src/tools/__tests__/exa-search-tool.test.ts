@@ -5,9 +5,6 @@ const tauriMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/tauri-bridge", () => tauriMocks);
-vi.mock("@/lib/rate-limit", () => ({
-  rateLimit: <T>(fn: () => Promise<T>) => fn(),
-}));
 
 import { createExaSearchTool } from "@/tools/exa-search-tool";
 

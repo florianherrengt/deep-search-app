@@ -18,7 +18,7 @@ import {
   extractPageContent,
   fetchHtml,
 } from "../extract-page-content-tool";
-import { sanitizeHtml } from "deep-search-core/search-extract";
+import { sanitizeHtml } from "deep-search-core/search-extract/core";
 import { getAvailableTools } from "@/lib/execute-tool";
 import type { ChatModelConfig } from "@/lib/chat-providers";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";

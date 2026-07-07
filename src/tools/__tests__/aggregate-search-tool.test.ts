@@ -3,7 +3,7 @@ import PQueue from "p-queue";
 import {
   resetRateLimiter,
   setRateLimiter,
-} from "deep-search-core/search-extract";
+} from "deep-search-core/search-extract/core";
 
 const tauriMocks = vi.hoisted(() => ({
   fetch: vi.fn(),

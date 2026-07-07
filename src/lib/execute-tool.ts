@@ -5,32 +5,18 @@ import {
 import { z } from "zod";
 import { describeTool, type ToolDescriptor } from "@/lib/tool-descriptor";
 import { TOOL_NAMES } from "@/lib/tool-names";
+import { braveSearchInputSchema } from "@/tools/brave-search-tool";
+import { exaSearchInputSchema } from "@/tools/exa-search-tool";
+import { serperSearchInputSchema } from "@/tools/serper-search-tool";
+import { tavilySearchInputSchema } from "@/tools/tavily-search-tool";
+import { searxngSearchInputSchema } from "@/tools/searxng-search-tool";
 import {
-  braveSearchInputSchema,
-  createBraveSearchTool,
-} from "@/tools/brave-search-tool";
-import {
-  createExaSearchTool,
-  exaSearchInputSchema,
-} from "@/tools/exa-search-tool";
-import {
-  createSerperSearchTool,
-  serperSearchInputSchema,
-} from "@/tools/serper-search-tool";
-import {
-  createTavilySearchTool,
-  tavilySearchInputSchema,
-} from "@/tools/tavily-search-tool";
-import {
-  createSearXNGSearchTool,
-  searxngSearchInputSchema,
-} from "@/tools/searxng-search-tool";
-import {
+  createResearchCheckpointTool,
   createSearchTools,
 } from "deep-search-core/research-orchestrator";
 import {
   searchQueryInputSchema as youtubeSearchInputSchema,
-} from "deep-search-core/search-extract";
+} from "deep-search-core/search-extract/core";
 import {
   aggregateSearchInputSchema,
   createAggregateSearchTool,
@@ -64,7 +50,6 @@ import {
   createSwitchResearchFolderTool,
   switchResearchFolderInputSchema,
 } from "@/tools/switch-research-folder-tool";
-import { createResearchCheckpointTool } from "@/tools/research-checkpoint-tool";
 import {
   createSequentialThinkingTool,
   sequentialThinkingInputSchema,
@@ -77,7 +62,6 @@ import {
 } from "@/tools/core-research-tools";
 import { researchCheckpointInputSchema } from "@/lib/agent-guards";
 import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
-import { isValidServiceUrl } from "@/lib/url-validation";
 import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 
 export type { ToolDescriptor, ToolParameter } from "@/lib/tool-descriptor";
@@ -132,17 +116,23 @@ export function getAvailableTools(
     ? async () => researchFolder
     : undefined;
 
-  const braveTool = braveApiKey ? createBraveSearchTool(braveApiKey) : undefined;
-  const exaTool = exaApiKey ? createExaSearchTool(exaApiKey) : undefined;
-  const serperTool = serperApiKey ? createSerperSearchTool(serperApiKey) : undefined;
-  const tavilyTool = tavilyApiKey ? createTavilySearchTool(tavilyApiKey) : undefined;
-  const youtubeTool = youtubeApiKey
-    ? createSearchTools({ youtubeApiKey }, bridgeFetch).youtube_search
-    : undefined;
-  const searxngTool =
-    searxngBaseUrl && isValidServiceUrl(searxngBaseUrl)
-      ? createSearXNGSearchTool(searxngBaseUrl)
-      : undefined;
+  const searchTools = createSearchTools(
+    {
+      braveApiKey: braveApiKey ?? undefined,
+      exaApiKey: exaApiKey ?? undefined,
+      serperApiKey: serperApiKey ?? undefined,
+      tavilyApiKey: tavilyApiKey ?? undefined,
+      youtubeApiKey: youtubeApiKey ?? undefined,
+      searxngBaseUrl: searxngBaseUrl ?? undefined,
+    },
+    bridgeFetch,
+  );
+  const braveTool = searchTools[TOOL_NAMES.brave_search];
+  const exaTool = searchTools[TOOL_NAMES.exa_search];
+  const serperTool = searchTools[TOOL_NAMES.serper_search];
+  const tavilyTool = searchTools[TOOL_NAMES.tavily_search];
+  const youtubeTool = searchTools[TOOL_NAMES.youtube_search];
+  const searxngTool = searchTools[TOOL_NAMES.searxng_search];
   const aggregateTool = createAggregateSearchTool({
     braveApiKey,
     exaApiKey,

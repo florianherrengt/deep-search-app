@@ -7,44 +7,13 @@ import {
   renameAppFile,
   writeAppFile,
 } from "@/lib/app-file-storage";
+import {
+  createArtifactStore,
+  type ArtifactStorage,
+  type ArtifactStore,
+} from "deep-search-core/research-orchestrator";
 
-type ArtifactStorageEntry = {
-  name: string;
-  type: "file" | "directory";
-};
-
-type ArtifactStorageAdapter = {
-  readText(path: string): Promise<string | null>;
-  writeText(path: string, content: string): Promise<void>;
-  list(path: string): Promise<ArtifactStorageEntry[]>;
-  remove(path: string): Promise<void>;
-  rename(from: string, to: string): Promise<void>;
-  ensureDirectory(path: string): Promise<void>;
-  exists(path: string): Promise<boolean>;
-};
-
-type ArtifactListEntry = {
-  path: string;
-  type: "file" | "directory";
-};
-
-type AppArtifactStore = {
-  readText(relativePath: string): Promise<string | null>;
-  writeText(
-    relativePath: string,
-    content: string,
-    options?: { overwrite?: boolean },
-  ): Promise<void>;
-  list(): Promise<ArtifactListEntry[]>;
-  remove(relativePath: string): Promise<void>;
-  rename(
-    from: string,
-    to: string,
-    options?: { overwrite?: boolean },
-  ): Promise<void>;
-};
-
-export function createAppArtifactStorage(): ArtifactStorageAdapter {
+export function createAppArtifactStorage(): ArtifactStorage {
   return {
     async readText(path) {
       const { subfolder, filename } = splitStorageFilePath(path);
@@ -88,51 +57,29 @@ export function createAppArtifactStorage(): ArtifactStorageAdapter {
   };
 }
 
-export function createAppArtifactStore(root: string): AppArtifactStore {
+export function createAppArtifactStore(root: string): ArtifactStore {
   const storage = createAppArtifactStorage();
+  const store = createArtifactStore({
+    root,
+    storage,
+  });
 
-  function resolve(relativePath: string): string {
-    const normalized = relativePath.trim().replace(/\\/g, "/").replace(/^\/+/g, "");
-    if (!normalized || normalized.includes("/")) {
-      throw new Error(`Expected artifact filename without folders: ${relativePath}`);
-    }
-    return `${root}/${normalized}`;
+  async function exists(path: string): Promise<boolean> {
+    if (storage.exists) return storage.exists(path);
+    return (await storage.readText(path)) !== null;
   }
 
   return {
-    async readText(relativePath) {
-      return storage.readText(resolve(relativePath));
-    },
-    async writeText(relativePath, content, options = {}) {
-      const target = resolve(relativePath);
-      if (options.overwrite === false && await storage.exists(target)) {
-        throw new Error(`Artifact already exists: ${relativePath}`);
-      }
-      await storage.ensureDirectory(root);
-      await storage.writeText(target, content);
-    },
-    async list() {
-      const entries = await storage.list(root);
-      return entries
-        .filter((entry) => entry.type === "file" || entry.type === "directory")
-        .map((entry) => ({
-          path: entry.name,
-          type: entry.type,
-        }))
-        .sort((a, b) => a.path.localeCompare(b.path));
-    },
-    async remove(relativePath) {
-      await storage.remove(resolve(relativePath));
-    },
+    ...store,
     async rename(from, to, options = {}) {
-      const target = resolve(to);
-      if (options.overwrite === false && await storage.exists(target)) {
+      const target = store.resolve(to);
+      if (options.overwrite === false && await exists(target)) {
         throw new Error(`Artifact already exists: ${to}`);
       }
-      if (options.overwrite === true && await storage.exists(target)) {
+      if (options.overwrite === true && await exists(target)) {
         await storage.remove(target);
       }
-      await storage.rename(resolve(from), target);
+      await storage.rename(store.resolve(from), target);
     },
   };
 }

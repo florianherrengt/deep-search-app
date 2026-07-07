@@ -17,7 +17,7 @@ import {
 import { tryParseJson } from "@/lib/json";
 import slugify from "slugify";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";
-// Type-only imports for `deep-search-core/search-extract` — the runtime
+// Type-only imports for `deep-search-core/search-extract/core` — the runtime
 // values are loaded lazily via `loadCore()` on the first extraction call.
 // This keeps cheerio + parse5 + the extractors (hundreds of KB) out of the
 // main bundle so app startup and chat rendering don't pay for code that
@@ -26,7 +26,7 @@ import type {
   SearchExtractEngine,
   PageLoader,
   YouTubeSubtitlesResult,
-} from "deep-search-core/search-extract";
+} from "deep-search-core/search-extract/core";
 import { createAppPageLoader, createChromeMcpPageLoader } from "./extraction-page-loader";
 import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 
@@ -119,6 +119,7 @@ function getEngine(
       new core.RedditExtractor(),
       new core.AmazonExtractor(),
       new core.ShopifyExtractor(),
+      new core.TrustpilotExtractor(),
       new core.GithubExtractor(),
       new core.YouTubeExtractor({
         subtitleDownloader: createYouTubeSubtitleDownloader(youtubeSubtitleDownload),

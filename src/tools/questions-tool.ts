@@ -1,5 +1,5 @@
-import { tool, zodSchema } from "ai";
 import { z } from "zod";
+export { questionsTool } from "deep-search-core/research-orchestrator";
 
 const candidateSchema = z.object({
   label: z.string().describe("Display text shown to the user"),
@@ -17,10 +17,4 @@ export const questionsInputSchema = z.object({
   questions: questionSchema
     .array()
     .describe("Array of questions with their candidate answers"),
-});
-
-export const questionsTool = tool({
-  description: `Present questions with candidate answers to the user.`,
-  strict: true,
-  inputSchema: zodSchema(questionsInputSchema),
 });
