@@ -79,6 +79,25 @@ describe("SettingsFields", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
+  it("renders currency conversion target with a disabled option", async () => {
+    const updateSetting = vi.fn().mockResolvedValue(undefined);
+    renderSettingsFields({
+      settings: { currency: "USD" },
+      updateSetting: updateSetting as never,
+    });
+
+    const currencyInput = screen
+      .getAllByLabelText("Currency conversion tool target")
+      .find((el): el is HTMLInputElement => el instanceof HTMLInputElement);
+    expect(currencyInput).toBeTruthy();
+    expect(currencyInput!.value).toBe("USD");
+
+    fireEvent.click(currencyInput!);
+    fireEvent.click(await screen.findByRole("option", { name: "Disabled" }));
+
+    expect(updateSetting).toHaveBeenCalledWith("currency", "disabled");
+  });
+
   it("does not call updateSetting for currency with a null value", async () => {
     const updateSetting = vi.fn().mockResolvedValue(undefined);
     renderSettingsFields({
@@ -87,11 +106,10 @@ describe("SettingsFields", () => {
     });
 
     const currencyInput = screen
-      .getAllByLabelText("Currency")
+      .getAllByLabelText("Currency conversion tool target")
       .find((el): el is HTMLInputElement => el instanceof HTMLInputElement);
     expect(currencyInput).toBeTruthy();
 
-    expect(currencyInput!.value).toBe("USD");
     expect(updateSetting).not.toHaveBeenCalled();
   });
 

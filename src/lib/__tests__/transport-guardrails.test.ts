@@ -859,6 +859,41 @@ describe("createGuardedStream", () => {
     );
   });
 
+  it("does not enforce currency conversion when no target currency is configured", async () => {
+    let callCount = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        callCount += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: textChunks("The note mentions a $50 fee."),
+          }),
+        };
+      },
+    });
+
+    const chunks = await runGuardedStream({
+      model,
+      researchFolder: "test-folder",
+
+      messages: [userMessage("Summarize this note")],
+      abortSignal: undefined,
+      searchKeys: {},
+    });
+
+    expect(callCount).toBe(1);
+    expect(
+      chunks.some((chunk) => chunk.type === "data-guardrail_event"),
+    ).toBe(false);
+    expect(
+      chunks.some(
+        (chunk) =>
+          chunk.type === "tool-input-available" &&
+          chunk.toolName === "currency_conversion",
+      ),
+    ).toBe(false);
+  });
+
   it("does not enforce currency conversion for non-currency false positives", async () => {
     let callCount = 0;
     const model = new MockLanguageModelV3({

@@ -728,8 +728,12 @@ describe("DirectTransport research folder lifecycle", () => {
     expect(onFolderChange).toHaveBeenCalledWith("first-msg-topic", {});
   });
 
-  it.skip("emits an abort chunk when aborted during folder naming", async () => {
+  it("emits an abort chunk without a finish when aborted during folder naming", async () => {
     const abortController = new AbortController();
+    let markFolderNamingStarted!: () => void;
+    const folderNamingStarted = new Promise<void>((resolve) => {
+      markFolderNamingStarted = resolve;
+    });
     const model = new MockLanguageModelV3({
       doGenerate: async () => ({
         content: [{ type: "text", text: "test" }],
@@ -738,9 +742,11 @@ describe("DirectTransport research folder lifecycle", () => {
         warnings: [],
       }),
       doStream: async (): Promise<LanguageModelV3StreamResult> => {
+        markFolderNamingStarted();
         return new Promise<never>((_, reject) => {
           abortController.signal.addEventListener("abort", () =>
-            reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            reject(new DOMException("aborted", "AbortError")),
+            { once: true },
           );
         });
       },
@@ -748,7 +754,7 @@ describe("DirectTransport research folder lifecycle", () => {
     chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
     const transport = createTransport(vi.fn());
 
-    const streamPromise = transport.sendMessages({
+    const stream = await transport.sendMessages({
       trigger: "submit-message",
       chatId: "runtime-chat",
       messageId: "user-1",
@@ -756,20 +762,12 @@ describe("DirectTransport research folder lifecycle", () => {
       abortSignal: abortController.signal,
     });
 
-    await new Promise((r) => setTimeout(r, 10));
+    await folderNamingStarted;
     abortController.abort();
-
-    const stream = await streamPromise;
     const chunks = await collectChunks(stream);
 
-    const hasAbortChunk = chunks.some(
-      (c) =>
-        typeof c === "object" &&
-        c !== null &&
-        "type" in c &&
-        (c as { type: string }).type === "abort",
-    );
-    expect(hasAbortChunk).toBe(true);
+    expect(chunksOfType(chunks, "abort")).toHaveLength(1);
+    expect(chunksOfType(chunks, "finish")).toHaveLength(0);
   }, 10000);
 });
 
@@ -1018,6 +1016,35 @@ describe("DirectTransport error handling", () => {
     );
     expect(errorChunks).toHaveLength(0);
   });
+
+  it("emits abort without finish(stop) when aborted during model streaming", async () => {
+    const abortController = new AbortController();
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        abortController.abort();
+        return {
+          stream: simulateReadableStream({ chunks: textChunks("Interrupted.") }),
+        };
+      },
+    });
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const transport = createTransport(vi.fn());
+    transport.setResearchFolder("test-folder");
+
+    const chunks = await collectChunks(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("test query")],
+        abortSignal: abortController.signal,
+      }),
+    );
+
+    expect(chunksOfType(chunks, "abort")).toHaveLength(1);
+    expect(chunksOfType(chunks, "finish")).toHaveLength(0);
+    expect(chunksOfType(chunks, "error")).toHaveLength(0);
+  });
 });
 
 function createTransport(
@@ -1170,4 +1197,14 @@ async function collectChunks(stream: ReadableStream<unknown>): Promise<unknown[]
     reader.releaseLock();
   }
   return chunks;
+}
+
+function chunksOfType(chunks: unknown[], type: string): unknown[] {
+  return chunks.filter(
+    (chunk) =>
+      typeof chunk === "object" &&
+      chunk !== null &&
+      "type" in chunk &&
+      (chunk as { type: string }).type === type,
+  );
 }

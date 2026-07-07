@@ -140,6 +140,27 @@ describe("createTools", () => {
     ).toContain("extract_page_content");
   });
 
+  it("registers currency conversion only when a target currency is configured", async () => {
+    const toolsWithoutTarget = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+    });
+
+    expect((toolsWithoutTarget as ToolByName).currency_conversion).toBeUndefined();
+
+    const toolsWithTarget = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+      searchKeys: { currency: "GBP" },
+    });
+
+    expect((toolsWithTarget as ToolByName).currency_conversion?.description).toContain(
+      "GBP",
+    );
+  });
+
   it("marks aggregate search as separate from Reddit and YouTube source passes", async () => {
     const tools = await createTools({
       model: makeModel(),

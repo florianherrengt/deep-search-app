@@ -58,9 +58,9 @@ function ChatStory() {
             serperApiKey: null,
             tavilyApiKey: null,
             searxngBaseUrl: null,
+            currency: "USD",
             chromeDevToolsMcpEnabled: false,
           }}
-          currency="USD"
         />
       </div>
     </PromptTemplatesProvider>
@@ -149,9 +149,9 @@ function HeavyChatStory() {
             serperApiKey: null,
             tavilyApiKey: null,
             searxngBaseUrl: null,
+            currency: "USD",
             chromeDevToolsMcpEnabled: false,
           }}
-          currency="USD"
         />
       </div>
     </PromptTemplatesProvider>
@@ -236,9 +236,9 @@ function RestoredQuestionToolStory() {
             serperApiKey: null,
             tavilyApiKey: null,
             searxngBaseUrl: null,
+            currency: "USD",
             chromeDevToolsMcpEnabled: false,
           }}
-          currency="USD"
         />
       </div>
     </PromptTemplatesProvider>

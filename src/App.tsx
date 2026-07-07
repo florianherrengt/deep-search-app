@@ -20,6 +20,7 @@ import { SettingsPanel } from "@/components/settings-panel";
 import { ToolsPanel } from "@/components/tools-panel";
 import { PromptTemplatesSection } from "@/components/prompt-templates-section";
 import { SkillsSection } from "@/components/skills-section";
+import { getCurrencyConversionTarget } from "@/lib/settings-store";
 
 import { TabPanel } from "@/components/tab-panel";
 import { AppUpdateButton } from "@/components/app-update-button";
@@ -94,7 +95,7 @@ function AppInner() {
       scrapeDoApiKey: settings.scrape_do_api_key || null,
       youtubeYtDlpPath: settings.youtube_ytdlp_path || null,
       searxngBaseUrl: settings.searxng_url || null,
-      currency: settings.currency,
+      currency: getCurrencyConversionTarget(settings.currency),
       chromeDevToolsMcpEnabled: settings.chrome_devtools_mcp_enabled,
       chromeDevToolsMcpConnectionMode: settings.chrome_devtools_mcp_connection_mode,
       chromeDevToolsMcpBrowserUrl: settings.chrome_devtools_mcp_browser_url || null,
@@ -279,7 +280,6 @@ function AppInner() {
                       onSelectedModelIdChange={handleSelectedModelChange}
                       onConfigure={() => switchToTab("settings")}
                       searchKeys={searchKeys}
-                      currency={settings.currency}
                       onResearchChatSaved={handleResearchChatSaved}
                     />
                   </Suspense>

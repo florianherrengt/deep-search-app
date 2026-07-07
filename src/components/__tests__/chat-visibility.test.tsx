@@ -74,6 +74,7 @@ vi.mock("@/lib/sub-agent-profiler", () => ({
 }));
 
 import { Chat } from "@/components/chat";
+import { shouldContinueAfterToolResult } from "@/lib/transport";
 
 const modelOptions = [
   {
@@ -177,6 +178,111 @@ describe("Chat visibility", () => {
   });
 });
 
+describe("Chat auto-continuation", () => {
+  it("delegates automatic sends for non-aborted finishes", () => {
+    const shouldContinue = vi.mocked(shouldContinueAfterToolResult);
+    shouldContinue.mockReturnValue(true);
+
+    renderChat({ visible: false });
+
+    const options = chatMocks.useChat.mock.calls[0][0];
+    const messages = [completedSearchToolMessage("assistant-tool-result")];
+
+    options.onFinish({ messages, isAbort: false });
+
+    expect(options.sendAutomaticallyWhen({ messages })).toBe(true);
+    expect(shouldContinue).toHaveBeenCalledWith({ messages });
+  });
+
+  it("suppresses the next automatic send after a user stop", () => {
+    const shouldContinue = vi.mocked(shouldContinueAfterToolResult);
+    shouldContinue.mockReturnValue(true);
+
+    renderChat({ visible: false });
+
+    const options = chatMocks.useChat.mock.calls[0][0];
+    const messages = [completedSearchToolMessage("assistant-tool-result")];
+
+    options.onFinish({ messages, isAbort: true });
+
+    expect(options.sendAutomaticallyWhen({ messages })).toBe(false);
+    expect(shouldContinue).not.toHaveBeenCalled();
+
+    expect(options.sendAutomaticallyWhen({ messages })).toBe(true);
+    expect(shouldContinue).toHaveBeenCalledWith({ messages });
+  });
+
+  it("suppresses automatic sends after a stopped tool error result", () => {
+    const shouldContinue = vi.mocked(shouldContinueAfterToolResult);
+    shouldContinue.mockReturnValue(true);
+
+    renderChat({ visible: false });
+
+    const options = chatMocks.useChat.mock.calls[0][0];
+    const messages = [
+      completedSearchToolMessage("assistant-tool-error", "output-error"),
+    ];
+
+    options.onFinish({ messages, isAbort: true });
+
+    expect(options.sendAutomaticallyWhen({ messages })).toBe(false);
+    expect(shouldContinue).not.toHaveBeenCalled();
+  });
+
+  it("does not carry abort suppression into a later message", () => {
+    const shouldContinue = vi.mocked(shouldContinueAfterToolResult);
+    shouldContinue.mockReturnValue(true);
+
+    renderChat({ visible: false });
+
+    const options = chatMocks.useChat.mock.calls[0][0];
+    const abortedMessages = [
+      {
+        id: "assistant-aborted",
+        role: "assistant",
+        parts: [],
+      } satisfies UIMessage,
+    ];
+    const laterMessages = [
+      ...abortedMessages,
+      {
+        id: "user-later",
+        role: "user",
+        parts: [{ type: "text", text: "Continue" }],
+      } satisfies UIMessage,
+    ];
+
+    options.onFinish({ messages: abortedMessages, isAbort: true });
+
+    expect(options.sendAutomaticallyWhen({ messages: laterMessages })).toBe(true);
+    expect(shouldContinue).toHaveBeenCalledWith({ messages: laterMessages });
+  });
+});
+
+function completedSearchToolMessage(
+  id: string,
+  state: "output-available" | "output-error" = "output-available",
+): UIMessage {
+  return {
+    id,
+    role: "assistant",
+    parts: [
+      {
+        type: "step-start",
+      },
+      {
+        type: "tool-brave_search",
+        toolCallId: "brave-1",
+        state,
+        input: { query: "pricing" },
+        ...(state === "output-available"
+          ? { output: "results" }
+          : { errorText: "Search aborted" }),
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
 function renderChat({
   visible,
   onRunStateChange = vi.fn(),
@@ -203,7 +309,6 @@ function renderChat({
           onRunStateChange={onRunStateChange}
           onAttentionStateChange={onAttentionStateChange}
           searchKeys={searchKeys}
-          currency="USD"
         />
       </SubAgentProvider>
     </MantineProvider>,

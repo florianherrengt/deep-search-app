@@ -64,6 +64,15 @@ export const SearchOnly: Story = {
   },
 };
 
+export const CurrencyConversionDisabled: Story = {
+  args: {
+    settings: {
+      ...settingsDefaults,
+      currency: "disabled",
+    },
+  },
+};
+
 export const LongModelNames: Story = {
   args: {
     settings: {

@@ -43,6 +43,18 @@ export const CURRENCIES = [
 export type Currency = (typeof CURRENCIES)[number];
 
 const currencySchema = z.enum(CURRENCIES);
+export const CURRENCY_CONVERSION_DISABLED = "disabled" as const;
+const currencyConversionSettingSchema = z.union([
+  currencySchema,
+  z.literal(CURRENCY_CONVERSION_DISABLED),
+]);
+export type CurrencyConversionSetting = z.infer<typeof currencyConversionSettingSchema>;
+
+export function getCurrencyConversionTarget(
+  setting: CurrencyConversionSetting,
+): Currency | undefined {
+  return setting === CURRENCY_CONVERSION_DISABLED ? undefined : setting;
+}
 
 export const CHROME_MCP_CONNECTION_MODES = ["auto", "browser-url"] as const;
 export const chromeMcpConnectionModeSchema = z.enum(CHROME_MCP_CONNECTION_MODES);
@@ -76,7 +88,7 @@ export const settingsSchema = z.object({
   deepseek_model: z.string(),
   zhipu_model: z.string(),
   opencode_zen_model: z.string(),
-  currency: currencySchema,
+  currency: currencyConversionSettingSchema,
   chrome_devtools_mcp_enabled: z.boolean(),
   chrome_devtools_mcp_connection_mode: chromeMcpConnectionModeSchema,
   chrome_devtools_mcp_browser_url: z.string(),

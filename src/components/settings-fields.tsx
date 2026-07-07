@@ -14,6 +14,7 @@ import {
 import { createChatLanguageModel, getChatProviderLabel, type ChatProvider } from "@/lib/chat-providers";
 import {
   CURRENCIES,
+  CURRENCY_CONVERSION_DISABLED,
   WEB_EXTRACTION_BACKENDS,
 } from "@/lib/settings-store";
 import { getAppLogPath, isTauri, openPath, resolveNodePath } from "@/lib/tauri-bridge";
@@ -192,7 +193,8 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
       </Stack>
 
       <Select
-        label="Currency"
+        label="Currency conversion tool target"
+        description="When the agent uses currency conversion, convert amounts to this currency. Choose Disabled to leave currencies unchanged."
         value={settings.currency}
         allowDeselect={false}
         onChange={(value) => {
@@ -200,7 +202,10 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             void updateSetting("currency", value as Settings["currency"]);
           }
         }}
-        data={CURRENCIES.map((code) => ({ value: code, label: code }))}
+        data={[
+          { value: CURRENCY_CONVERSION_DISABLED, label: "Disabled" },
+          ...CURRENCIES.map((code) => ({ value: code, label: code })),
+        ]}
       />
 
       <DeepSearchMcpSection />

@@ -11,7 +11,6 @@ import {
   shouldContinueAfterToolResult,
   type SearchToolKeys,
 } from "@/lib/transport";
-import type { Currency } from "@/lib/settings-store";
 import {
   fetchChatModelContextWindowTokens,
   type ChatModelConfig,
@@ -63,7 +62,6 @@ interface ChatProps {
   onModelChange?: (model: ConfiguredChatModelOption) => void;
   onConfigure?: () => void;
   searchKeys: SearchToolKeys;
-  currency: Currency;
 }
 
 export function Chat({
@@ -84,7 +82,6 @@ export function Chat({
   onModelChange,
   onConfigure,
   searchKeys,
-  currency,
 }: ChatProps) {
   useSubAgentRenderCounter("Chat");
 
@@ -100,13 +97,8 @@ export function Chat({
   const onModelChangeRef = useRef(onModelChange);
   onModelChangeRef.current = onModelChange;
 
-  const effectiveSearchKeys = useMemo(
-    () => ({ ...searchKeys, currency }),
-    [currency, searchKeys],
-  );
-
-  const searchKeysRef = useRef(effectiveSearchKeys);
-  searchKeysRef.current = effectiveSearchKeys;
+  const searchKeysRef = useRef(searchKeys);
+  searchKeysRef.current = searchKeys;
 
   const researchFolderRef = useRef(researchFolder);
   researchFolderRef.current = researchFolder;
@@ -119,6 +111,23 @@ export function Chat({
 
   const onResearchFolderChangeRef = useRef(onResearchFolderChange);
   onResearchFolderChangeRef.current = onResearchFolderChange;
+  const suppressAutoContinueForMessageIdRef = useRef<string | null>(null);
+
+  const sendAutomaticallyWhen = useCallback(
+    (options: Parameters<typeof shouldContinueAfterToolResult>[0]) => {
+      const suppressedMessageId = suppressAutoContinueForMessageIdRef.current;
+      if (suppressedMessageId !== null) {
+        suppressAutoContinueForMessageIdRef.current = null;
+        const lastMessageId = options.messages[options.messages.length - 1]?.id;
+        if (lastMessageId === suppressedMessageId) {
+          return false;
+        }
+      }
+
+      return shouldContinueAfterToolResult(options);
+    },
+    [],
+  );
 
   function getSelectedChatModel(): ChatModelConfig | null {
     const selected = modelOptionsRef.current.find(
@@ -156,11 +165,16 @@ export function Chat({
     id: runtimeChatId,
     messages: initialMessages,
     transport: transportRef.current,
-    sendAutomaticallyWhen: shouldContinueAfterToolResult,
+    sendAutomaticallyWhen,
     onError: (error) => {
       console.error("[chat] Transport error:", error);
     },
-    onFinish: ({ messages }) => {
+    onFinish: ({ messages, isAbort }) => {
+      if (isAbort) {
+        suppressAutoContinueForMessageIdRef.current =
+          messages[messages.length - 1]?.id ?? null;
+      }
+
       const folderName = researchFolderRef.current;
       if (!folderName) return;
 

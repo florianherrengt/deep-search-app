@@ -146,6 +146,12 @@ export async function createTools({
       baseResearchCheckpointTool,
       RESEARCH_CHECKPOINT_INTERNAL_RETRY_GUIDANCE,
     ) ?? baseResearchCheckpointTool;
+  const currencyConversionTools: ToolSet = {};
+  if (searchKeys?.currency) {
+    currencyConversionTools.currency_conversion = asAppTool(
+      createCurrencyConversionTool(searchKeys.currency),
+    );
+  }
 
   const tools = {
     ask_questions: asAppTool(questionsTool),
@@ -185,7 +191,7 @@ export async function createTools({
     load_skill: createLoadSkillTool(),
     search_research: createSearchResearchTool(model, getResearchFolder),
     switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
-    currency_conversion: createCurrencyConversionTool(searchKeys?.currency ?? "USD"),
+    ...currencyConversionTools,
     ...chromeDevToolsTools,
   } as const satisfies ToolSet;
 
