@@ -1,4 +1,14 @@
-import { streamText, type LanguageModel } from "ai";
+import {
+  streamText,
+  type CallWarning,
+  type ContentPart,
+  type LanguageModel,
+  type LanguageModelRequestMetadata,
+  type LanguageModelResponseMetadata,
+  type LanguageModelUsage,
+  type ProviderMetadata,
+  type ToolSet,
+} from "ai";
 import {
   resolveUniqueFolderName,
   slugifyFolderName,
@@ -117,8 +127,11 @@ export async function generateFolderSlugWithReport(
 
   logDebug("starting", {
     subAgentId: saId,
+    model: describeModel(model),
     titleLength: title.length,
     titlePreview: truncatePreview(title),
+    abortSignalPresent: !!options?.abortSignal,
+    abortSignalAborted: options?.abortSignal?.aborted ?? false,
   });
 
   const attempts: SubAgentAttemptReport[] = [];
@@ -149,6 +162,64 @@ export async function generateFolderSlugWithReport(
           deepseek: { thinking: { type: "disabled" } },
           openrouter: { reasoning: { max_tokens: 0 } },
         },
+        includeRawChunks: true,
+        experimental_onStart: (event) => {
+          logDebug(`attempt ${attempt} ai sdk start`, {
+            model: event.model,
+            maxOutputTokens: event.maxOutputTokens,
+            maxRetries: event.maxRetries,
+            providerOptionProviders: Object.keys(event.providerOptions ?? {}),
+            abortSignalPresent: !!event.abortSignal,
+            abortSignalAborted: event.abortSignal?.aborted ?? false,
+            promptLength: typeof event.prompt === "string" ? event.prompt.length : undefined,
+            systemLength: typeof event.system === "string" ? event.system.length : undefined,
+            messageCount: event.messages?.length,
+          });
+        },
+        experimental_onStepStart: (event) => {
+          logDebug(`attempt ${attempt} ai sdk step start`, {
+            stepNumber: event.stepNumber,
+            model: event.model,
+            messageCount: event.messages.length,
+            providerOptionProviders: Object.keys(event.providerOptions ?? {}),
+          });
+        },
+        onChunk: ({ chunk }) => {
+          logDebug(`attempt ${attempt} ai sdk chunk`, summarizeChunk(chunk));
+        },
+        onError: ({ error }) => {
+          logError(`attempt ${attempt} ai sdk stream error callback`, {
+            error: summarizeError(error),
+          });
+        },
+        onStepFinish: (event) => {
+          logDebug(`attempt ${attempt} ai sdk step finish`, {
+            stepNumber: event.stepNumber,
+            model: event.model,
+            finishReason: event.finishReason,
+            rawFinishReason: event.rawFinishReason,
+            textLength: event.text.length,
+            content: summarizeContent(event.content),
+            usage: summarizeUsage(event.usage),
+            warnings: summarizeWarnings(event.warnings),
+            response: summarizeResponse(event.response),
+            providerMetadata: summarizeProviderMetadata(event.providerMetadata),
+          });
+        },
+        onFinish: (event) => {
+          logDebug(`attempt ${attempt} ai sdk finish`, {
+            finishReason: event.finishReason,
+            rawFinishReason: event.rawFinishReason,
+            textLength: event.text.length,
+            stepCount: event.steps.length,
+            content: summarizeContent(event.content),
+            usage: summarizeUsage(event.usage),
+            totalUsage: summarizeUsage(event.totalUsage),
+            warnings: summarizeWarnings(event.warnings),
+            response: summarizeResponse(event.response),
+            providerMetadata: summarizeProviderMetadata(event.providerMetadata),
+          });
+        },
       });
 
       let chunksReceived = 0;
@@ -158,10 +229,29 @@ export async function generateFolderSlugWithReport(
       }
 
       raw = await result.text;
+      const [finishReason, rawFinishReason, usage, warnings, response, request, providerMetadata, content] =
+        await Promise.all([
+          result.finishReason,
+          result.rawFinishReason,
+          result.usage,
+          result.warnings,
+          result.response,
+          result.request,
+          result.providerMetadata,
+          result.content,
+        ]);
 
       logDebug(`attempt ${attempt} stream completed`, {
         chunksReceived,
         textLength: raw.length,
+        finishReason,
+        rawFinishReason,
+        usage: summarizeUsage(usage),
+        warnings: summarizeWarnings(warnings),
+        request: summarizeRequest(request),
+        response: summarizeResponse(response),
+        providerMetadata: summarizeProviderMetadata(providerMetadata),
+        content: summarizeContent(content),
       });
     } catch (error) {
       if (options?.abortSignal?.aborted) {
@@ -180,7 +270,7 @@ export async function generateFolderSlugWithReport(
       }
 
       const errMsg = errorMessage(error);
-      logError(`attempt ${attempt} model call failed`, { error: errMsg });
+      logError(`attempt ${attempt} model call failed`, { error: summarizeError(error) });
 
       const attemptReport: SubAgentAttemptReport = {
         attempt,
@@ -386,6 +476,255 @@ function formatDebugSummary(attempts: SubAgentAttemptReport[]): string {
     })
     .join("\n");
 }
+function summarizeChunk(chunk: unknown) {
+  if (!chunk || typeof chunk !== "object") {
+    return { type: typeof chunk };
+  }
+
+  const record = chunk as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type : "unknown";
+
+  if (type === "text-delta") {
+    const text = typeof record.text === "string" ? record.text : "";
+    return {
+      type,
+      textLength: text.length,
+      textPreview: truncatePreview(text),
+      providerMetadata: summarizeProviderMetadata(record.providerMetadata as ProviderMetadata | undefined),
+    };
+  }
+
+  if (type === "reasoning-delta") {
+    const text = typeof record.text === "string" ? record.text : "";
+    return {
+      type,
+      textLength: text.length,
+      providerMetadata: summarizeProviderMetadata(record.providerMetadata as ProviderMetadata | undefined),
+    };
+  }
+
+  if (type === "raw") {
+    return {
+      type,
+      rawValue: summarizeUnknown(record.rawValue),
+    };
+  }
+
+  if (type === "source") {
+    return {
+      type,
+      sourceType: record.sourceType,
+      id: record.id,
+      url: typeof record.url === "string" ? truncatePreview(record.url, 160) : undefined,
+    };
+  }
+
+  if (type === "tool-call" || type === "tool-result" || type === "tool-input-start" || type === "tool-input-delta") {
+    return {
+      type,
+      toolName: record.toolName,
+      dynamic: record.dynamic,
+      providerExecuted: record.providerExecuted,
+    };
+  }
+
+  return {
+    type,
+    keys: Object.keys(record).sort(),
+  };
+}
+
+function summarizeContent(content: Array<ContentPart<ToolSet>> | undefined) {
+  if (!content) return undefined;
+  return content.map((part) => {
+    if (part.type === "text") {
+      return {
+        type: part.type,
+        textLength: part.text.length,
+        textPreview: truncatePreview(part.text),
+      };
+    }
+
+    if (part.type === "reasoning") {
+      return {
+        type: part.type,
+        textLength: part.text.length,
+      };
+    }
+
+    if (part.type === "tool-call") {
+      return {
+        type: part.type,
+        toolName: part.toolName,
+      };
+    }
+
+    if (part.type === "file") {
+      return {
+        type: part.type,
+        mediaType: part.file.mediaType,
+      };
+    }
+
+    return { type: part.type };
+  });
+}
+
+function summarizeRequest(request: LanguageModelRequestMetadata | undefined) {
+  if (!request) return undefined;
+  return {
+    hasBody: request.body !== undefined,
+    body: summarizePayloadShape(request.body),
+  };
+}
+
+function summarizeResponse(
+  response: (LanguageModelResponseMetadata & { messages?: unknown[]; body?: unknown }) | undefined,
+) {
+  if (!response) return undefined;
+  return {
+    id: response.id,
+    modelId: response.modelId,
+    timestamp: response.timestamp?.toISOString?.(),
+    headerKeys: Object.keys(response.headers ?? {}).sort(),
+    messageCount: response.messages?.length,
+    hasBody: response.body !== undefined,
+    body: summarizePayloadShape(response.body),
+  };
+}
+
+function summarizeUsage(usage: LanguageModelUsage | undefined) {
+  if (!usage) return undefined;
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+    inputTokenDetails: usage.inputTokenDetails,
+    outputTokenDetails: usage.outputTokenDetails,
+    raw: summarizeUnknown(usage.raw),
+  };
+}
+
+function summarizeWarnings(warnings: CallWarning[] | undefined) {
+  return warnings?.map((warning) => {
+    if (warning.type === "other") {
+      return {
+        type: warning.type,
+        message: truncatePreview(warning.message, 240),
+      };
+    }
+
+    return {
+      type: warning.type,
+      feature: warning.feature,
+      details: warning.details ? truncatePreview(warning.details, 240) : undefined,
+    };
+  });
+}
+
+function summarizeProviderMetadata(metadata: ProviderMetadata | undefined) {
+  if (!metadata) return undefined;
+  return Object.fromEntries(
+    Object.entries(metadata).map(([provider, value]) => [
+      provider,
+      value && typeof value === "object" ? Object.keys(value).sort() : summarizeUnknown(value),
+    ]),
+  );
+}
+
+function summarizeUnknown(value: unknown): unknown {
+  if (value == null) return value;
+  if (typeof value === "string") {
+    return {
+      type: "string",
+      length: value.length,
+      preview: truncatePreview(value, 240),
+    };
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      length: value.length,
+      itemTypes: Array.from(new Set(value.slice(0, 10).map((item) => typeof item))),
+    };
+  }
+
+  if (typeof value === "object") {
+    return {
+      type: "object",
+      keys: Object.keys(value).sort(),
+    };
+  }
+
+  return { type: typeof value };
+}
+
+function summarizePayloadShape(value: unknown): unknown {
+  if (value == null) return value;
+  if (typeof value === "string") {
+    return {
+      type: "string",
+      length: value.length,
+    };
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      length: value.length,
+      itemTypes: Array.from(new Set(value.slice(0, 10).map((item) => typeof item))),
+    };
+  }
+
+  if (typeof value === "object") {
+    return {
+      type: "object",
+      keys: Object.keys(value).sort(),
+    };
+  }
+
+  return { type: typeof value };
+}
+
+function describeModel(model: LanguageModel) {
+  const maybeModel = model as LanguageModel & {
+    provider?: unknown;
+    modelId?: unknown;
+    specificationVersion?: unknown;
+  };
+  return {
+    provider: maybeModel.provider,
+    modelId: maybeModel.modelId,
+    specificationVersion: maybeModel.specificationVersion,
+  };
+}
+
+function summarizeError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  if (typeof error === "string") {
+    return {
+      name: "Error",
+      message: error,
+    };
+  }
+
+  return summarizeUnknown(error);
+}
+
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown error.";
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "Unknown error.";
 }

@@ -41,6 +41,13 @@ function tokenUsage() {
   };
 }
 
+function emptyOutputUsage() {
+  return {
+    inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+    outputTokens: { total: 0, text: 0, reasoning: 0 },
+  };
+}
+
 function textChunks(text: string): LanguageModelV3StreamPart[] {
   return [
     { type: "stream-start" as const, warnings: [] },
@@ -51,6 +58,26 @@ function textChunks(text: string): LanguageModelV3StreamPart[] {
       type: "finish" as const,
       finishReason: { unified: "stop", raw: "stop" },
       usage: tokenUsage(),
+    },
+  ];
+}
+
+function emptyTextChunks(): LanguageModelV3StreamPart[] {
+  return [
+    {
+      type: "stream-start" as const,
+      warnings: [
+        {
+          type: "unsupported" as const,
+          feature: "empty-output-test",
+          details: "diagnostic warning",
+        },
+      ],
+    },
+    {
+      type: "finish" as const,
+      finishReason: { unified: "stop", raw: "stop" },
+      usage: emptyOutputUsage(),
     },
   ];
 }
@@ -700,6 +727,58 @@ describe("generateFolderSlugWithReport", () => {
     const report = (reportCall![0] as any).report;
     expect(report.attempts.length).toBe(MAX_ATTEMPTS);
     expect(report.status).toBe("rejected");
+  });
+
+  it("logs AI SDK diagnostics when the model stream finishes with empty text", async () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => ({
+        content: [],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: emptyOutputUsage(),
+        warnings: [],
+      }),
+      doStream: async (): Promise<LanguageModelV3StreamResult> => ({
+        stream: simulateReadableStream({ chunks: emptyTextChunks() }),
+      }),
+    });
+
+    try {
+      await expect(
+        generateFolderSlugWithReport(model, "Research ACME"),
+      ).rejects.toThrow("Research could not start");
+
+      const streamCompletedCall = debugSpy.mock.calls.find(([message]) =>
+        String(message).includes("attempt 1 stream completed"),
+      );
+
+      expect(streamCompletedCall).toBeDefined();
+      expect(streamCompletedCall?.[1]).toEqual(
+        expect.objectContaining({
+          chunksReceived: 0,
+          textLength: 0,
+          finishReason: "stop",
+          rawFinishReason: "stop",
+          usage: expect.objectContaining({
+            outputTokens: 0,
+            totalTokens: 10,
+          }),
+          warnings: [
+            expect.objectContaining({
+              type: "unsupported",
+              feature: "empty-output-test",
+            }),
+          ],
+          content: [],
+        }),
+      );
+    } finally {
+      debugSpy.mockRestore();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 
   it("error message reports model failure reason", async () => {
