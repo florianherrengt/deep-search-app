@@ -242,12 +242,22 @@ function getMessageText(message: UIMessage | undefined): string {
     .trim();
 }
 
-function getLatestUserText(messages: UIMessage[]): string {
-  const latestUserMessage = [...messages]
-    .reverse()
-    .find((message) => message.role === "user");
+// The core orchestrator injects guardrail retries as a synthetic user message
+// with this prefix (`Internal guardrail retry. <instruction>`). It only lives
+// in model prompts today, not in UI messages, but defensively skip any user
+// message that carries it so it can never be mistaken for the user's request.
+const INTERNAL_GUARDRAIL_RETRY_PREFIX = "Internal guardrail retry";
 
-  return getMessageText(latestUserMessage);
+function getLatestUserText(messages: UIMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== "user") continue;
+    const text = getMessageText(message);
+    if (!text) continue; // skip attachment-only / text-less follow-ups
+    if (text.startsWith(INTERNAL_GUARDRAIL_RETRY_PREFIX)) continue;
+    return text;
+  }
+  return "";
 }
 
 function internalResearchRetryInstruction(

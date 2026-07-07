@@ -270,7 +270,14 @@ export function getAvailableTools(
 
     describeTool(
       TOOL_NAMES.switch_research_folder,
-      createSwitchResearchFolderTool(() => {}),
+      // The Tools panel has no hook into the app's research-folder state, so
+      // there is nothing to switch. Surface that explicitly instead of the
+      // tool silently returning success via a no-op callback.
+      createSwitchResearchFolderTool(() => {
+        throw new Error(
+          "switch_research_folder cannot change the active folder from the Tools panel. Use the research sidebar instead.",
+        );
+      }),
       switchResearchFolderInputSchema,
       true,
     ),

@@ -298,6 +298,61 @@ describe("evaluateAssistantStep", () => {
     });
   });
 
+  it("uses the earlier research request when the latest user message has no text", () => {
+    const decision = evaluateAssistantStep({
+      messages: [
+        userMessage("Find the latest pricing for Acme Search"),
+        assistantWithSearchTool(),
+        {
+          id: "user-attachment",
+          role: "user",
+          parts: [{ type: "file", mediaType: "image/png", url: "data:" }],
+        },
+      ],
+      responseMessage: assistantMessage("Acme Search costs about 10 pounds."),
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "research_checkpoint",
+    });
+    expect(
+      decision.action === "retry" && decision.retryInstruction,
+    ).toContain("Find the latest pricing for Acme Search");
+  });
+
+  it("treats a synthetic Internal guardrail retry as app-generated, not the user request", () => {
+    const decision = evaluateAssistantStep({
+      messages: [
+        userMessage("Find the latest pricing for Acme Search"),
+        assistantWithSearchTool(),
+        {
+          id: "user-retry-injection",
+          role: "user",
+          parts: [
+            {
+              type: "text",
+              text: "Internal guardrail retry. This is an internal guardrail retry from the app, not a new user request.",
+            },
+          ],
+        },
+      ],
+      responseMessage: assistantMessage("Acme Search costs about 10 pounds."),
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "research_checkpoint",
+    });
+    const retryInstruction =
+      decision.action === "retry" && decision.retryInstruction;
+    // The "latest real user request" line must reference the original user
+    // request, not the injected retry wrapper text.
+    expect(retryInstruction).toMatch(
+      /The latest real user request remains:\s+Find the latest pricing for Acme Search/,
+    );
+  });
+
   it("requests advisory checkpoint guidance after research tool use", () => {
     const decision = evaluateAssistantStep({
       messages: [
