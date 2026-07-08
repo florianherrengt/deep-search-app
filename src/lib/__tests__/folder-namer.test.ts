@@ -7,6 +7,7 @@ const slugifyName = vi.hoisted(() => vi.fn());
 const validateName = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/transport/research-folder", () => ({
+  MAX_RESEARCH_FOLDER_WORDS: 8,
   slugifyFolderName: slugifyName,
   resolveUniqueFolderName: resolveUnique,
   validateResearchFolderName: validateName,
@@ -208,7 +209,7 @@ describe("generateFolderSlug", () => {
     expect(name).toBe("acme-earnings");
   });
 
-  it("throws when all model attempts fail validation", async () => {
+  it("uses deterministic title fallback when all model attempts fail validation", async () => {
     slugifyName.mockImplementation((t: string) =>
       t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     );
@@ -225,10 +226,10 @@ describe("generateFolderSlug", () => {
 
     await expect(
       generateFolderSlug(model, "Find best compact vans under 2m")
-    ).rejects.toThrow("Research could not start");
+    ).resolves.toBe("best-compact-vans-2m");
   });
 
-  it("throws when all model attempts fail and no fallback exists", async () => {
+  it("throws when all model attempts fail and the deterministic fallback is invalid", async () => {
     slugifyName.mockImplementation((t: string) =>
       t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     );
@@ -241,7 +242,7 @@ describe("generateFolderSlug", () => {
     resolveUnique.mockImplementation(async (c: string) => c);
 
     await expect(
-      generateFolderSlug(modelReturning("bad output"), "Find best compact vans")
+      generateFolderSlug(modelReturning("bad output"), "2026-06-11")
     ).rejects.toThrow("Research could not start");
   });
 
@@ -305,7 +306,7 @@ describe("generateFolderSlug validation", () => {
     expect(name).toBe("2026");
   });
 
-  it("treats timestamp-only generated names as rejected and throws after all attempts fail", async () => {
+  it("treats timestamp-only generated names as rejected and falls back to the title", async () => {
     slugifyName.mockImplementation((t: string) =>
       t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     );
@@ -320,7 +321,7 @@ describe("generateFolderSlug validation", () => {
     const model = modelReturning("2026-06-11");
     await expect(
       generateFolderSlug(model, "Research ACME"),
-    ).rejects.toThrow("Research could not start");
+    ).resolves.toBe("acme");
   });
 
   it("retries with different failure reasons on each attempt", async () => {
@@ -580,6 +581,37 @@ describe("generateFolderSlug abort", () => {
     expect(capturedSignal).toBe(controller.signal);
   });
 
+  it("disables provider reasoning for Zhipu folder naming calls", async () => {
+    slugifyName.mockReturnValue("test");
+    resolveUnique.mockResolvedValueOnce("test");
+    let capturedProviderOptions: unknown;
+    const model = new MockLanguageModelV3({
+      doGenerate: async ({ providerOptions }) => {
+        capturedProviderOptions = providerOptions;
+        return {
+          content: [{ type: "text", text: "test" }],
+          finishReason: { unified: "stop", raw: "stop" },
+          usage: tokenUsage(),
+          warnings: [],
+        };
+      },
+      doStream: async ({ providerOptions }) => {
+        capturedProviderOptions = providerOptions;
+        return {
+          stream: simulateReadableStream({ chunks: textChunks("test") }),
+        };
+      },
+    });
+
+    await generateFolderSlug(model, "test");
+
+    expect(capturedProviderOptions).toMatchObject({
+      deepseek: { thinking: { type: "disabled" } },
+      openrouter: { reasoning: { max_tokens: 0 } },
+      zhipu: { thinking: { type: "disabled" } },
+    });
+  });
+
   it("emits both report and cancelled events on abort", async () => {
     const controller = new AbortController();
     controller.abort();
@@ -703,7 +735,7 @@ describe("generateFolderSlugWithReport", () => {
     expect(result.report.attempts[1].accepted).toBe(true);
   });
 
-  it("report shows all failed attempts after model failures", async () => {
+  it("report shows failed model attempts and deterministic fallback success", async () => {
     slugifyName.mockImplementation((t: string) =>
       t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     );
@@ -715,18 +747,19 @@ describe("generateFolderSlugWithReport", () => {
     });
     resolveUnique.mockImplementation(async (c: string) => c);
 
-    await expect(
-      generateFolderSlugWithReport(
-        modelReturning("invalid output here"),
-        "Best compact vans",
-      ),
-    ).rejects.toThrow();
+    const result = await generateFolderSlugWithReport(
+      modelReturning("invalid output here"),
+      "Best compact vans",
+    );
 
     const reportCall = mockedEmit.mock.calls.find((c) => c[0].type === "report");
     expect(reportCall).toBeDefined();
     const report = (reportCall![0] as any).report;
+    expect(result.folderName).toBe("best-compact-vans");
     expect(report.attempts.length).toBe(MAX_ATTEMPTS);
-    expect(report.status).toBe("rejected");
+    expect(report.status).toBe("success");
+    expect(report.finalAcceptedValue).toBe("best-compact-vans");
+    expect(report.debugSummary).toContain("Fallback: accepted (best-compact-vans)");
   });
 
   it("logs AI SDK diagnostics when the model stream finishes with empty text", async () => {
@@ -746,9 +779,10 @@ describe("generateFolderSlugWithReport", () => {
     });
 
     try {
-      await expect(
-        generateFolderSlugWithReport(model, "Research ACME"),
-      ).rejects.toThrow("Research could not start");
+      const result = await generateFolderSlugWithReport(model, "Research ACME");
+      expect(result.folderName).toBe("acme");
+      expect(result.report.status).toBe("success");
+      expect(result.report.debugSummary).toContain("Fallback: accepted (acme)");
 
       const streamCompletedCall = debugSpy.mock.calls.find(([message]) =>
         String(message).includes("attempt 1 stream completed"),
@@ -786,7 +820,7 @@ describe("generateFolderSlugWithReport", () => {
     validateName.mockImplementation((_name: string) => {
       callCount++;
       if (callCount <= MAX_ATTEMPTS) return "too short (min 2 characters)";
-      return "too many words (max 8)"; // should never reach this since we throw before fallback
+      return "too many words (max 8)";
     });
     slugifyName.mockImplementation((t: string) =>
       t.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),

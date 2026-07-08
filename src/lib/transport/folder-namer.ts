@@ -10,6 +10,7 @@ import {
   type ToolSet,
 } from "ai";
 import {
+  MAX_RESEARCH_FOLDER_WORDS,
   resolveUniqueFolderName,
   slugifyFolderName,
   validateResearchFolderName,
@@ -30,6 +31,48 @@ const STARTUP_NAME_ERROR_PREFIX =
   "Research could not start because the research folder name could not be generated.";
 
 const LOG_PREFIX = "[folder-naming]";
+
+const FALLBACK_STOP_WORDS = new Set([
+  "a",
+  "about",
+  "am",
+  "an",
+  "and",
+  "are",
+  "can",
+  "could",
+  "did",
+  "do",
+  "does",
+  "find",
+  "for",
+  "how",
+  "i",
+  "im",
+  "in",
+  "is",
+  "looking",
+  "me",
+  "of",
+  "on",
+  "or",
+  "please",
+  "research",
+  "s",
+  "should",
+  "tell",
+  "the",
+  "to",
+  "under",
+  "what",
+  "whats",
+  "when",
+  "where",
+  "who",
+  "why",
+  "with",
+  "would",
+]);
 
 function logDebug(message: string, ...args: unknown[]) {
   console.debug(`${LOG_PREFIX} ${message}`, ...args);
@@ -161,6 +204,7 @@ export async function generateFolderSlugWithReport(
         providerOptions: {
           deepseek: { thinking: { type: "disabled" } },
           openrouter: { reasoning: { max_tokens: 0 } },
+          zhipu: { thinking: { type: "disabled" } },
         },
         includeRawChunks: true,
         experimental_onStart: (event) => {
@@ -423,7 +467,58 @@ export async function generateFolderSlugWithReport(
     return { folderName: resolved, report };
   }
 
-  logError("all model attempts exhausted, failing");
+  const fallbackSlug = deterministicFallbackSlug(title);
+  const fallbackValidationReason = validateResearchFolderName(fallbackSlug);
+  if (!fallbackValidationReason) {
+    let resolved: string;
+    try {
+      resolved = await resolveUniqueFolderName(fallbackSlug);
+    } catch (error) {
+      const errMsg = errorMessage(error);
+      logError("fallback unique name resolution failed", { error: errMsg });
+
+      const report = buildReport(
+        reportStartedAt,
+        attempts,
+        undefined,
+        "failed",
+        "filesystem_error",
+        `${STARTUP_NAME_ERROR_PREFIX} The generated folder name could not be resolved. ${errMsg}`,
+        `Folder naming fell back to a deterministic name, but it could not be resolved: ${errMsg}`,
+        formatDebugSummary(attempts, `Fallback: rejected (${REASON_CODES.FOLDER_ALREADY_EXISTS})`),
+      );
+
+      emitSubAgentEvent({ type: "report", id: saId, report });
+      const finalError = `${STARTUP_NAME_ERROR_PREFIX} The generated folder name could not be resolved. ${errMsg}`;
+      emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+      throw new Error(finalError);
+    }
+
+    logWarn("all model attempts exhausted, using deterministic fallback", {
+      fallbackSlugPreview: truncatePreview(fallbackSlug),
+      resolved,
+    });
+
+    const report = buildReport(
+      reportStartedAt,
+      attempts,
+      resolved,
+      "success",
+      undefined,
+      undefined,
+      "Folder naming used a deterministic fallback after model attempts failed.",
+      formatDebugSummary(attempts, `Fallback: accepted (${resolved})`),
+    );
+
+    emitSubAgentEvent({ type: "report", id: saId, report });
+    emitSubAgentEvent({ type: "complete", id: saId });
+    return { folderName: resolved, report };
+  }
+
+  logError("all model attempts exhausted, failing", {
+    fallbackSlugPreview: truncatePreview(fallbackSlug),
+    fallbackValidationReason,
+  });
   const finalError = `${STARTUP_NAME_ERROR_PREFIX} Failed to generate a valid folder name after ${MAX_ATTEMPTS} attempts.`;
   const report = buildReport(
     reportStartedAt,
@@ -433,11 +528,21 @@ export async function generateFolderSlugWithReport(
     "validation_error",
     finalError,
     `Folder naming failed after ${MAX_ATTEMPTS} LLM attempts.`,
-    formatDebugSummary(attempts),
+    formatDebugSummary(attempts, `Fallback: rejected (${classifyRejection(fallbackValidationReason)})`),
   );
   emitSubAgentEvent({ type: "report", id: saId, report });
   emitSubAgentEvent({ type: "error", id: saId, error: finalError });
   throw new Error(finalError);
+}
+
+function deterministicFallbackSlug(title: string): string {
+  const slug = slugifyFolderName(title);
+  const words = slug.split("-").filter(Boolean);
+  if (words.length === 0) return "";
+
+  const meaningfulWords = words.filter((word) => !FALLBACK_STOP_WORDS.has(word));
+  const selectedWords = meaningfulWords.length > 0 ? meaningfulWords : words;
+  return selectedWords.slice(0, MAX_RESEARCH_FOLDER_WORDS).join("-");
 }
 
 function buildReport(
@@ -467,14 +572,22 @@ function buildReport(
   };
 }
 
-function formatDebugSummary(attempts: SubAgentAttemptReport[]): string {
-  return attempts
+function formatDebugSummary(
+  attempts: SubAgentAttemptReport[],
+  finalLine?: string,
+): string {
+  const lines = attempts
     .map((a) => {
       if (a.accepted) return `Attempt ${a.attempt}: accepted (${a.sanitizedOutputPreview ?? "unknown"})`;
       const reason = a.rejectedReasonCode ?? a.errorMessage ?? "unknown";
       return `Attempt ${a.attempt}: rejected (${reason})`;
-    })
-    .join("\n");
+    });
+
+  if (finalLine) {
+    lines.push(finalLine);
+  }
+
+  return lines.join("\n");
 }
 function summarizeChunk(chunk: unknown) {
   if (!chunk || typeof chunk !== "object") {

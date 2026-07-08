@@ -536,7 +536,7 @@ describe("DirectTransport research folder lifecycle", () => {
     let streamCallIndex = 0;
     const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {
       streamCallIndex++;
-      const text = streamCallIndex === 1
+      const text = streamCallIndex <= 3
         ? "The folder should be named something very descriptive with many words"
         : "Done.";
       return {
@@ -569,16 +569,19 @@ describe("DirectTransport research folder lifecycle", () => {
       (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "finish",
     );
     expect(finishChunks.length).toBeGreaterThanOrEqual(1);
-    expect(fsMocks.mkdir).toHaveBeenCalled();
+    expect(fsMocks.mkdir).toHaveBeenCalledWith(
+      "search-results/acme",
+      { recursive: true },
+    );
     expect(fsMocks.writeTextFile).toHaveBeenCalled();
-    expect(onFolderChange).toHaveBeenCalled();
+    expect(onFolderChange).toHaveBeenCalledWith("acme", {});
   });
 
   it("uses deterministic fallback when model returns empty output", async () => {
     let streamCallIndex = 0;
     const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {
       streamCallIndex++;
-      const text = streamCallIndex === 1 ? "" : "Done.";
+      const text = streamCallIndex <= 3 ? "" : "Done.";
       return {
         stream: simulateReadableStream({ chunks: textChunks(text) }),
       };
@@ -608,7 +611,10 @@ describe("DirectTransport research folder lifecycle", () => {
       (c) => typeof c === "object" && c !== null && "type" in c && (c as { type: string }).type === "finish",
     );
     expect(finishChunks.length).toBeGreaterThanOrEqual(1);
-    expect(fsMocks.mkdir).toHaveBeenCalled();
+    expect(fsMocks.mkdir).toHaveBeenCalledWith(
+      "search-results/acme",
+      { recursive: true },
+    );
     expect(fsMocks.writeTextFile).toHaveBeenCalled();
     expect(doStream).toHaveBeenCalled();
   });
@@ -836,9 +842,13 @@ describe("DirectTransport coffee beans scenario", () => {
     );
   });
 
-  it("streams error when model fails all naming attempts with no fallback", async () => {
+  it("uses deterministic fallback when model fails all coffee-beans naming attempts", async () => {
+    let streamCallIndex = 0;
     const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {
-      const text = "invalid output with spaces and special chars plus extra filler words here more";
+      streamCallIndex++;
+      const text = streamCallIndex <= 3
+        ? "invalid output with spaces and special chars plus extra filler words here more"
+        : "Done.";
       return {
         stream: simulateReadableStream({ chunks: textChunks(text) }),
       };
@@ -865,10 +875,13 @@ describe("DirectTransport coffee beans scenario", () => {
     });
     const chunks = await collectChunks(stream);
 
-    expect(onFolderChange).not.toHaveBeenCalled();
     const errorChunk = chunks.find((c: unknown) => (c as any)?.type === "error");
-    expect(errorChunk).toBeDefined();
-    expect((errorChunk as any).errorText).toContain("Research could not start");
+    expect(errorChunk).toBeUndefined();
+    expect(fsMocks.mkdir).toHaveBeenCalledWith(
+      "search-results/best-coffee-beans-espresso",
+      { recursive: true },
+    );
+    expect(onFolderChange).toHaveBeenCalledWith("best-coffee-beans-espresso", {});
   });
 
   it("does not extract memory from assistant or tool messages", async () => {
