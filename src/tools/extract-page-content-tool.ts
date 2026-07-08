@@ -23,9 +23,9 @@ import { validateUrl, UrlValidationError } from "@/lib/url-validation";
 // main bundle so app startup and chat rendering don't pay for code that
 // only runs when a page extraction is invoked.
 import type {
-  SearchExtractEngine,
   PageLoader,
   YouTubeSubtitlesResult,
+  PageExtractor,
 } from "deep-search-core/search-extract/core";
 import { createAppPageLoader, createChromeMcpPageLoader } from "./extraction-page-loader";
 import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
@@ -72,70 +72,20 @@ type RawContentLocation = {
 let webviewExtractionQueue: Promise<void> = Promise.resolve();
 let nextWebviewTabId = 0;
 
-let _engine: SearchExtractEngine | null = null;
-let _engineKey: string | undefined;
-
-function getEngine(
+function createPageExtractors(
   core: CoreModule,
-  chromeMcp?: {
-    enabled: boolean;
-    connectionMode?: ChromeMcpConnectionMode;
-    browserUrl?: string;
-    nodePath?: string;
-    backend: WebExtractionBackend;
-  },
-  scrapeDoApiKey?: string | null,
   youtubeSubtitleDownload?: YouTubeSubtitleDownloadConfig,
-  method: ExtractionMethod = "auto",
-): SearchExtractEngine {
-  const backend = chromeMcp?.backend ?? "tauri-webview";
-  // The "chrome" method forces the Chrome MCP loader when MCP is enabled,
-  // regardless of the configured backend. Falls back to the configured loader
-  // when MCP is unavailable, so it never hard errors.
-  const forceChrome = method === "chrome";
-  const shouldUseChromeMcp = Boolean(chromeMcp?.enabled) && (backend === "chrome-mcp" || forceChrome);
-  const scrapeDoToken = scrapeDoApiKey?.trim() ?? "";
-  // scrape.do participates in "auto", or is preferred when "scrape.do" is chosen.
-  const useScrapeDo = (method === "auto" || method === "scrape.do") && scrapeDoToken.length > 0;
-  const engineKey = shouldUseChromeMcp
-    ? `chrome-mcp:${chromeMcp?.connectionMode ?? ""}:${chromeMcp?.nodePath?.trim() ?? ""}`
-    : "tauri-webview";
-  const remoteKey = useScrapeDo ? `:scrape-do:${hashSecret(scrapeDoToken)}` : "";
-  const youtubeSubtitleKey = youtubeSubtitleDownloadKey(youtubeSubtitleDownload);
-  const fullEngineKey = `${engineKey}${remoteKey}${youtubeSubtitleKey}`;
-
-  if (_engine && _engineKey === fullEngineKey) return _engine;
-
-  const pageLoader = createExtractionPageLoader({
-    chromeMcp,
-    scrapeDoApiKey,
-    method,
-  });
-
-  _engine = core.createSearchExtractEngine({
-    fetch: bridgeFetch,
-    pageLoader,
-    extractors: [
-      new core.RedditExtractor(),
-      new core.AmazonExtractor(),
-      new core.ShopifyExtractor(),
-      new core.TrustpilotExtractor(),
-      new core.GithubExtractor(),
-      new core.YouTubeExtractor({
-        subtitleDownloader: createYouTubeSubtitleDownloader(youtubeSubtitleDownload),
-      }),
-    ],
-  });
-  _engineKey = fullEngineKey;
-  return _engine;
-}
-
-function youtubeSubtitleDownloadKey(
-  config: YouTubeSubtitleDownloadConfig | undefined,
-): string {
-  const ytDlpPath = config?.ytDlpPath?.trim() ?? "";
-  if (!ytDlpPath) return "";
-  return `:youtube-subtitles:${ytDlpPath}`;
+): PageExtractor[] {
+  return [
+    new core.RedditExtractor(),
+    new core.AmazonExtractor(),
+    new core.ShopifyExtractor(),
+    new core.TrustpilotExtractor(),
+    new core.GithubExtractor(),
+    new core.YouTubeExtractor({
+      subtitleDownloader: createYouTubeSubtitleDownloader(youtubeSubtitleDownload),
+    }),
+  ];
 }
 
 function createYouTubeSubtitleDownloader(
@@ -161,14 +111,6 @@ function createYouTubeSubtitleDownloader(
       signal,
     );
   };
-}
-
-function hashSecret(value: string): string {
-  let hash = 5381;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(36);
 }
 
 function hasUsefulContent(core: CoreModule, html: string | null): html is string {
@@ -557,18 +499,23 @@ export async function extractPageContent(
   }
 
   const core = await loadCore();
-  const engine = getEngine(
-    core,
-    options.chromeMcp,
-    options.scrapeDoApiKey,
-    options.youtubeSubtitleDownload,
-    forced,
+  const extractResult = await core.extractPage(
+    url,
+    {
+      method: mapAppMethod(forced),
+      summarize: false,
+      signal: options.abortSignal,
+    },
+    {
+      fetch: bridgeFetch,
+      pageLoader: createExtractionPageLoader({
+        chromeMcp: options.chromeMcp,
+        scrapeDoApiKey: options.scrapeDoApiKey,
+        method: forced,
+      }),
+      extractors: createPageExtractors(core, options.youtubeSubtitleDownload),
+    },
   );
-  const extractResult = await engine.extract(url, {
-    method: mapAppMethod(forced),
-    summarize: false,
-    signal: options.abortSignal,
-  });
 
   const { content, html: rawHtml, usedCustomExtractor, warnings } = extractResult;
   const html = rawHtml ?? null;

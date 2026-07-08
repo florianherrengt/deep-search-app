@@ -278,6 +278,30 @@ describe("collectMemoryCandidates", () => {
     expect(candidates).toHaveLength(0);
   });
 
+  it("does not return for skipped MCP ask_questions output", () => {
+    const msg: UIMessage = {
+      id: "skipped-aq",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-ask_questions",
+          state: "output-available",
+          output: {
+            skipped: true,
+            answers: [
+              {
+                question: "Which format?",
+                answer: "Skipped by the Deep Search MCP runner.",
+              },
+            ],
+          },
+        } as unknown as UIMessage["parts"][number],
+      ],
+    };
+
+    expect(collectMemoryCandidates([msg])).toHaveLength(0);
+  });
+
   // GT-9: skips entry with missing question field
   it("skips entry with missing question field (GT-9)", () => {
     const msg: UIMessage = {

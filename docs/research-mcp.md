@@ -54,8 +54,8 @@ Optional:
 deep_search_cancel
 ```
 
-`deep_search` handles start, poll, question answers, and follow-up questions
-based on the input shape.
+`deep_search` handles start, polling, and follow-up questions based on the input
+shape.
 
 Start new research:
 
@@ -67,15 +67,6 @@ Poll an existing research session:
 
 ```json
 { "session_id": "abc" }
-```
-
-Answer pending questions:
-
-```json
-{
-  "session_id": "abc",
-  "answers": ["migration plan"]
-}
 ```
 
 Ask a follow-up after a completed answer:
@@ -144,7 +135,7 @@ If the proxy cannot find the config file automatically, set:
 
 ## 3. Return Shape
 
-`deep_search` returns one of three states.
+`deep_search` returns one of four states.
 
 Running:
 
@@ -156,23 +147,8 @@ Running:
 ```
 
 `running` is not a terminal response. The caller must call `deep_search` again
-with the same `session_id` until the response is `done`, `questions`, `failed`,
-or `cancelled`.
-
-Questions:
-
-```json
-{
-  "session_id": "abc",
-  "status": "questions",
-  "questions": [
-    {
-      "text": "Do you want a migration plan or a risk assessment?",
-      "options": ["migration plan", "risk assessment"]
-    }
-  ]
-}
-```
+with the same `session_id` until the response is `done`, `failed`, or
+`cancelled`.
 
 Done:
 
@@ -194,36 +170,28 @@ Failed:
 }
 ```
 
-Question answers are matched by order. If the app asks multiple questions, the
-caller returns one answer per question.
-
 After `done`, a follow-up uses the same `session_id` plus a new `question`. The
 app appends the question to the same chat history and starts another research
 turn in the same saved session.
 
 ---
 
-## 4. Split-Phase Questions
+## 4. Clarification Questions
 
-The MCP call must not stay open waiting for the user to answer questions.
+The MCP call does not pause for user clarification questions.
 
-When the app research agent calls `ask_questions`, the app pauses the run,
-persists the current chat transcript, and returns `status: "questions"` from
-`deep_search`.
-
-The coding agent then asks its user for the answer and calls `deep_search` again
-with `session_id` and `answers`.
+When the app research agent calls `ask_questions` during an MCP-created research
+session, the app marks that tool call as skipped and immediately continues the
+run. The model receives a tool result telling it to proceed with reasonable
+assumptions and finish the original request.
 
 ```text
 deep_search({ question })
-  -> { session_id, status: "questions", questions }
-
-deep_search({ session_id, answers })
-  -> { session_id, status: "running" | "questions" | "done" }
+  -> { session_id, status: "running" | "done" | "failed" | "cancelled" }
 ```
 
-This makes question handling work in ordinary MCP clients. It does not depend on
-server-pushed interactive prompts.
+This keeps the MCP flow single-user-prompt oriented: ask once, poll if needed,
+then read the final answer.
 
 ---
 
@@ -238,7 +206,6 @@ headless runner:
 DeepSearchSessionManager
   handle({ question })
   handle({ session_id })
-  handle({ session_id, answers })
   handle({ session_id, question })
   cancel(session_id)
 ```
@@ -250,7 +217,7 @@ The runner must preserve these behaviours:
 - Create or reuse a research folder through the existing folder lifecycle.
 - Save chat messages with `saveResearchChatMessages`.
 - Run the existing guarded stream and tool registry.
-- Keep `ask_questions` as the structured pause point.
+- Skip MCP `ask_questions` calls and continue without returning a question state.
 - Append follow-up questions to the same saved chat after a completed answer.
 - Save extracted HTML, cleaned text, and summaries into the research folder.
 - Use the configured extraction backend: fetch, webview, Scrape.do, or Chrome.
@@ -280,14 +247,13 @@ Internally, the app tracks at least these states:
 
 ```text
 running
-questions
 done
 failed
 cancelled
 ```
 
-Only `session_id`, `status`, `questions`, `result`, and `error` need to cross the
-MCP boundary.
+Only `session_id`, `status`, `result`, and `error` need to cross the MCP
+boundary.
 
 Everything else stays inside the app.
 
@@ -339,3 +305,61 @@ of Deep Search: enforced planning, reading, persistence, checkpointing, and
 fact-checking.
 
 The MCP should expose a research session, not a search toolbox.
+
+---
+
+## 10. Copy-Paste Skill Example
+
+Use this as a coding-agent skill when the agent supports reusable skills or
+instruction files. Replace only the MCP config path in your agent setup; the
+skill text can be copied as-is.
+
+````markdown
+---
+name: deep-search-mcp
+description: Use Deep Search MCP for web-backed research, source checking, product/company/API lookups, current facts, comparison research, and any task where a coding agent needs a cited answer from the running Deep Search desktop app.
+---
+
+# Deep Search MCP
+
+Use the `deep_search` MCP tool when the user asks for research that benefits
+from current web search, page reading, source comparison, or citations.
+
+## Workflow
+
+1. Start research with:
+
+   ```json
+   { "question": "<the user's full research request>" }
+   ```
+
+2. If the result is:
+
+   ```json
+   { "status": "running", "session_id": "..." }
+   ```
+
+   call `deep_search` again with only that `session_id` until the status is
+   `done`, `failed`, or `cancelled`.
+
+3. If the result is `done`, use `result` as the research answer. Preserve useful
+   citations and uncertainty from the result.
+
+4. If the user asks a follow-up, reuse the same session:
+
+   ```json
+   { "session_id": "<previous session_id>", "question": "<follow-up>" }
+   ```
+
+## Rules
+
+- Do not call lower-level search or extraction tools when `deep_search` can run
+  the research session.
+- Do not ask the user Deep Search clarification questions. The MCP runner skips
+  app-generated clarification questions and continues with reasonable
+  assumptions.
+- Do not treat `running` as a final answer. Poll with the same `session_id`.
+- Do not invent citations. If Deep Search returns uncertainty or a failure,
+  report that directly.
+- Keep the final response focused on the user's question, not on MCP mechanics.
+````

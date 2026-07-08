@@ -21,21 +21,18 @@ export type DeepSearchRequest = z.infer<typeof deepSearchRequestSchema>;
 
 export type DeepSearchResponse =
   | { session_id: string; status: "running" }
-  | { session_id: string; status: "questions"; questions: DeepSearchQuestion[] }
   | { session_id: string; status: "done"; result: string }
   | { session_id: string; status: "failed"; error: string }
   | { session_id: string; status: "cancelled" };
-
-export interface DeepSearchQuestion {
-  text: string;
-  options?: string[];
-}
 
 interface PendingQuestionsPart {
   type: "tool-ask_questions";
   state: "input-available";
   input?: unknown;
 }
+
+const SKIPPED_QUESTION_ANSWER =
+  "Skipped by the Deep Search MCP runner. Continue with reasonable assumptions and answer the original request without asking more questions.";
 
 export function createUserMessage(text: string): UIMessage {
   return {
@@ -45,79 +42,34 @@ export function createUserMessage(text: string): UIMessage {
   };
 }
 
-export function getPendingDeepSearchQuestions(
-  messages: UIMessage[],
-): DeepSearchQuestion[] {
-  const part = getLatestPendingQuestionsPart(messages);
-  if (!part) return [];
+export function skipPendingDeepSearchQuestions(messages: UIMessage[]): {
+  messages: UIMessage[];
+  skipped: boolean;
+} {
+  let skipped = false;
 
-  const input = part.input;
-  if (!isRecord(input) || !Array.isArray(input.questions)) return [];
+  const nextMessages = messages.map((message) => {
+    if (message.role !== "assistant") return message;
 
-  return input.questions.flatMap((question) => {
-    if (!isRecord(question) || typeof question.question !== "string") {
-      return [];
-    }
+    let messageSkipped = false;
+    const nextParts = message.parts.map((part) => {
+      if (!isPendingQuestionsPart(part)) return part;
 
-    const options = Array.isArray(question.candidates)
-      ? question.candidates.flatMap((candidate) => {
-          if (!isRecord(candidate) || typeof candidate.value !== "string") {
-            return [];
-          }
-          return [candidate.value];
-        })
-      : [];
+      skipped = true;
+      messageSkipped = true;
+      return {
+        ...part,
+        state: "output-available",
+        output: createSkippedQuestionsOutput(part.input),
+      } as UIMessage["parts"][number];
+    });
 
-    return [
-      {
-        text: question.question,
-        ...(options.length > 0 ? { options } : {}),
-      },
-    ];
-  });
-}
-
-export function answerPendingDeepSearchQuestions(
-  messages: UIMessage[],
-  answers: string[],
-): UIMessage[] {
-  const target = findLatestPendingQuestionsPart(messages);
-  if (!target) {
-    throw new Error("No pending questions for this research session.");
-  }
-
-  const input = target.part.input;
-  if (!isRecord(input) || !Array.isArray(input.questions)) {
-    throw new Error("Pending questions are malformed.");
-  }
-
-  const outputAnswers = input.questions.flatMap((question, index) => {
-    if (!isRecord(question) || typeof question.question !== "string") return [];
-    const answer = answers[index]?.trim();
-    if (!answer) return [];
-    return [{ question: question.question, answer }];
+    return messageSkipped ? { ...message, parts: nextParts } : message;
   });
 
-  if (outputAnswers.length === 0) {
-    throw new Error("At least one answer is required.");
-  }
-
-  return messages.map((message, messageIndex) => {
-    if (messageIndex !== target.messageIndex) return message;
-
-    return {
-      ...message,
-      parts: message.parts.map((part, partIndex) => {
-        if (partIndex !== target.partIndex) return part;
-
-        return {
-          ...part,
-          state: "output-available",
-          output: { answers: outputAnswers },
-        } as UIMessage["parts"][number];
-      }),
-    };
-  });
+  return skipped
+    ? { messages: nextMessages, skipped: true }
+    : { messages, skipped: false };
 }
 
 export function getDeepSearchResultText(messages: UIMessage[]): string {
@@ -175,26 +127,43 @@ function isGuardrailEventPart(part: UIMessage["parts"][number]): boolean {
   return isRecord(part) && part.type === "data-guardrail_event";
 }
 
-function getLatestPendingQuestionsPart(messages: UIMessage[]) {
-  return findLatestPendingQuestionsPart(messages)?.part ?? null;
+function isPendingQuestionsPart(
+  part: UIMessage["parts"][number],
+): part is UIMessage["parts"][number] & PendingQuestionsPart {
+  return (
+    isRecord(part) &&
+    part.type === "tool-ask_questions" &&
+    part.state === "input-available"
+  );
 }
 
-function findLatestPendingQuestionsPart(messages: UIMessage[]) {
-  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
-    const message = messages[messageIndex];
-    if (message.role !== "assistant") continue;
+function createSkippedQuestionsOutput(input: unknown) {
+  const questions = getQuestionTexts(input);
 
-    for (let partIndex = message.parts.length - 1; partIndex >= 0; partIndex--) {
-      const part = message.parts[partIndex];
-      if (!isRecord(part) || part.type !== "tool-ask_questions") continue;
-      if (part.state !== "input-available") continue;
-      return {
-        messageIndex,
-        partIndex,
-        part: part as unknown as PendingQuestionsPart,
-      };
+  return {
+    skipped: true,
+    reason:
+      "MCP sessions do not pause for clarification questions. The research agent must continue with reasonable assumptions.",
+    ...(questions.length > 0
+      ? {
+          answers: questions.map((question) => ({
+            question,
+            answer: SKIPPED_QUESTION_ANSWER,
+          })),
+        }
+      : {}),
+  };
+}
+
+function getQuestionTexts(input: unknown): string[] {
+  if (!isRecord(input) || !Array.isArray(input.questions)) return [];
+
+  return input.questions.flatMap((question) => {
+    if (!isRecord(question) || typeof question.question !== "string") {
+      return [];
     }
-  }
 
-  return null;
+    const text = question.question.trim();
+    return text ? [text] : [];
+  });
 }

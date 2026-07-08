@@ -6,7 +6,6 @@ import type { SearchToolKeys } from "@/lib/transport";
 const mocks = vi.hoisted(() => ({
   assistantResponses: [] as UIMessage[],
   createResearchChatId: vi.fn(),
-  hasPendingQuestionTool: vi.fn(),
   readUIMessageStream: vi.fn(),
   saveResearchChatMessages: vi.fn(),
   sendMessages: vi.fn(),
@@ -16,10 +15,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("ai", () => ({
   readUIMessageStream: mocks.readUIMessageStream,
-}));
-
-vi.mock("@/lib/chat-attention", () => ({
-  hasPendingQuestionTool: mocks.hasPendingQuestionTool,
 }));
 
 vi.mock("@/lib/research-history", () => ({
@@ -45,7 +40,6 @@ describe("DeepSearchSessionManager", () => {
     vi.clearAllMocks();
     mocks.assistantResponses.length = 0;
     mocks.createResearchChatId.mockReturnValue("chat-1");
-    mocks.hasPendingQuestionTool.mockReturnValue(false);
     mocks.readUIMessageStream.mockImplementation(() => {
       return (async function* () {
         const response = mocks.assistantResponses.shift();
@@ -107,20 +101,45 @@ describe("DeepSearchSessionManager", () => {
     ]);
   });
 
-  it("rejects follow-up questions while the session is waiting for answers", async () => {
+  it("skips pending questions and continues until the final answer", async () => {
     const manager = createManager();
-    mocks.hasPendingQuestionTool.mockReturnValueOnce(true);
-    mocks.assistantResponses.push(pendingQuestionMessage());
+    mocks.assistantResponses.push(
+      pendingQuestionMessage(),
+      assistantTextMessage("Final answer."),
+    );
+    mocks.shouldContinueAfterToolResult
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
 
-    const first = await manager.handle({ question: "Initial question" });
+    const result = await manager.handle({ question: "Initial question" });
 
-    expect(first.status).toBe("questions");
+    expect(result.status).toBe("done");
+    expect(result).toMatchObject({ result: "Final answer." });
+    expect(mocks.sendMessages).toHaveBeenCalledTimes(2);
+
+    const secondCall = mocks.sendMessages.mock.calls[1]?.[0];
+    const skippedQuestionPart = (secondCall?.messages as UIMessage[])[1]?.parts[0];
+    expect(skippedQuestionPart).toMatchObject({
+      type: "tool-ask_questions",
+      state: "output-available",
+      output: {
+        skipped: true,
+        answers: [
+          {
+            question: "Pick an answer style.",
+            answer: expect.stringContaining("Skipped"),
+          },
+        ],
+      },
+    });
+  });
+
+  it("rejects legacy question answers", async () => {
+    const manager = createManager();
+
     await expect(
-      manager.handle({
-        session_id: first.session_id,
-        question: "Follow-up question",
-      }),
-    ).rejects.toThrow("waiting for answers");
+      manager.handle({ session_id: "missing", answers: ["concise"] }),
+    ).rejects.toThrow("Question answers are no longer supported");
   });
 });
 

@@ -8,7 +8,6 @@ import {
   shouldContinueAfterToolResult,
   type SearchToolKeys,
 } from "@/lib/transport";
-import { hasPendingQuestionTool } from "@/lib/chat-attention";
 import {
   createResearchChatId,
   saveResearchChatMessages,
@@ -17,12 +16,11 @@ import type { ChatModelConfig as AppChatModelConfig } from "@/lib/chat-providers
 import type { SubAgentEvent } from "@/lib/sub-agent-types";
 import { setDirectEventHandler } from "@/lib/sub-agent-emitter";
 import {
-  answerPendingDeepSearchQuestions,
   createUserMessage,
   deepSearchRequestSchema,
   getDeepSearchResultText,
-  getPendingDeepSearchQuestions,
   normalizeDeepSearchAssistantMessage,
+  skipPendingDeepSearchQuestions,
   type DeepSearchResponse,
 } from "./deep-search-protocol";
 
@@ -30,7 +28,6 @@ const DEFAULT_WAIT_MS = 25_000;
 
 type SessionStatus =
   | "running"
-  | "questions"
   | "done"
   | "failed"
   | "cancelled";
@@ -77,6 +74,12 @@ export class DeepSearchSessionManager {
       return this.cancel(request.session_id ?? "");
     }
 
+    if (request.answers) {
+      throw new Error(
+        "Question answers are no longer supported by the Deep Search MCP. MCP research skips clarification questions and continues automatically.",
+      );
+    }
+
     if (request.question && !request.session_id) {
       const session = this.createSession(request.question);
       this.ensureRunning(session);
@@ -92,20 +95,7 @@ export class DeepSearchSessionManager {
       return this.waitAndDescribe(session);
     }
 
-    if (request.answers) {
-      if (session.status !== "questions") {
-        throw new Error("This research session is not waiting for answers.");
-      }
-      session.messages = answerPendingDeepSearchQuestions(
-        session.messages,
-        request.answers,
-      );
-      await this.saveSession(session);
-      session.status = "running";
-      session.error = undefined;
-      this.notify(session);
-      this.ensureRunning(session);
-    } else if (session.status === "running") {
+    if (session.status === "running") {
       this.ensureRunning(session);
     }
 
@@ -158,12 +148,6 @@ export class DeepSearchSessionManager {
   private appendFollowUpQuestion(session: DeepSearchSession, question: string) {
     if (session.status === "running") {
       throw new Error("This research session is still running.");
-    }
-
-    if (session.status === "questions") {
-      throw new Error(
-        "This research session is waiting for answers. Answer the pending questions before sending a follow-up.",
-      );
     }
 
     if (session.status === "cancelled") {
@@ -226,10 +210,10 @@ export class DeepSearchSessionManager {
         session.messages = await collectMessages(stream, session.messages);
         await this.saveSession(session);
 
-        if (hasPendingQuestionTool(session.messages)) {
-          session.status = "questions";
-          this.notify(session);
-          return;
+        const skippedQuestions = skipPendingDeepSearchQuestions(session.messages);
+        if (skippedQuestions.skipped) {
+          session.messages = skippedQuestions.messages;
+          await this.saveSession(session);
         }
 
         if (shouldContinueAfterToolResult({ messages: session.messages })) {
@@ -310,12 +294,6 @@ function describeSession(session: DeepSearchSession): DeepSearchResponse {
   switch (session.status) {
     case "running":
       return { session_id: session.sessionId, status: "running" };
-    case "questions":
-      return {
-        session_id: session.sessionId,
-        status: "questions",
-        questions: getPendingDeepSearchQuestions(session.messages),
-      };
     case "done":
       return {
         session_id: session.sessionId,

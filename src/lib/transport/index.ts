@@ -107,6 +107,7 @@ export function collectMemoryCandidates(
         if (!isRecord(part) || part.type !== "tool-ask_questions") continue;
         // Only answered questions are eligible; input-available/output-error are not.
         if (part.state !== "output-available") continue;
+        if (isRecord(part.output) && part.output.skipped === true) continue;
         if (!isRecord(part.output) || !Array.isArray(part.output.answers)) continue;
 
         for (const entry of part.output.answers) {
@@ -545,6 +546,7 @@ function getAskQuestionsAnswers(
 ): string[] | null {
   if (!isRecord(part) || part.type !== "tool-ask_questions") return null;
   if (part.state !== "output-available") return null;
+  if (isRecord(part.output) && part.output.skipped === true) return null;
   if (!isRecord(part.output) || !Array.isArray(part.output.answers)) {
     return null;
   }

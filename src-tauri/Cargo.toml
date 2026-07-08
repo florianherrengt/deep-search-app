@@ -1,8 +1,9 @@
 [package]
 name = "deep-search-app"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Local-first desktop deep research with MCP"
+authors = ["Florian Herrengt"]
+license = "MIT"
 default-run = "deep-search-app"
 edition = "2021"
 

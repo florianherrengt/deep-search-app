@@ -19,16 +19,12 @@ const TOOLS = [
     name: "deep_search",
     title: "Deep Search",
     description:
-      "Run or resume a Deep Search app research session. Use { question } to start, { session_id } to poll, { session_id, answers } to answer pending questions, or { session_id, question } after done to ask a follow-up. If the response status is running, call this tool again with the same session_id until it returns done, questions, failed, or cancelled.",
+      "Run or resume a Deep Search app research session. Use { question } to start, { session_id } to poll, or { session_id, question } after done to ask a follow-up. If the response status is running, call this tool again with the same session_id until it returns done, failed, or cancelled. Deep Search MCP does not ask clarification questions; the app skips them and continues.",
     inputSchema: {
       type: "object",
       properties: {
         question: { type: "string", minLength: 1 },
         session_id: { type: "string", minLength: 1 },
-        answers: {
-          type: "array",
-          items: { type: "string" },
-        },
       },
       additionalProperties: false,
     },
@@ -172,12 +168,11 @@ async function callAppBridge(body) {
 }
 
 function validateDeepSearchInput(input) {
-  if (
-    typeof input.question === "string" &&
-    input.question.trim() &&
-    Array.isArray(input.answers)
-  ) {
-    throw rpcError(-32602, "Provide question or answers, not both.");
+  if (Array.isArray(input.answers)) {
+    throw rpcError(
+      -32602,
+      "Question answers are no longer supported. Deep Search MCP skips clarification questions and continues automatically.",
+    );
   }
   if (typeof input.question === "string" && input.question.trim()) return;
   if (typeof input.session_id === "string" && input.session_id.trim()) return;
@@ -271,16 +266,7 @@ function formatToolResultText(value) {
   if (value.status === "running") {
     return [
       "Deep Search is still running.",
-      `Next step: call deep_search again with {"session_id":"${sessionId}"} until status is done, questions, failed, or cancelled.`,
-      "",
-      json,
-    ].join("\n");
-  }
-
-  if (value.status === "questions") {
-    return [
-      "Deep Search is waiting for user answers.",
-      `Next step: ask the user the returned questions, then call deep_search with {"session_id":"${sessionId}","answers":["..."]}.`,
+      `Next step: call deep_search again with {"session_id":"${sessionId}"} until status is done, failed, or cancelled.`,
       "",
       json,
     ].join("\n");

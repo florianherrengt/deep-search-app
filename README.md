@@ -1,21 +1,42 @@
 # Deep Search
 
-A desktop research agent that runs on your machine, with your API keys, storing everything on your disk.
+Local-first desktop deep research with MCP.
+
+Deep Search is a Tauri desktop app for AI-powered research. It runs on your
+machine, uses your API keys, stores research on your disk, and exposes a local
+MCP proxy so coding agents can run the same guarded research workflow.
 
 [![Deep Search demo](https://img.youtube.com/vi/bN8V7AK_ByE/maxresdefault.jpg)](https://www.youtube.com/watch?v=bN8V7AK_ByE)
 
+## Why it is different
+
+- **Local-first and BYOK**: you pick the LLM provider, search providers, and
+  storage location.
+- **No hosted middleman**: the desktop app talks directly to the services you
+  configure.
+- **Source-reading guardrails**: the agent has to search, fetch, read, and
+  cross-check sources before writing the final answer.
+- **Persistent research memory**: past research is saved into per-topic folders
+  and indexed for later search.
+- **MCP for coding agents**: use the same desktop research engine from Codex,
+  Claude Desktop, or any MCP-compatible client.
+
 ## Download
 
-[Get the latest release](https://github.com/example-user/deep-search-app/releases) for your platform.
+> **Alpha status:** the current public release is macOS Apple Silicon only.
+> Windows, Linux, and macOS Intel builds are planned but not published yet.
+
+[Download the latest release](https://github.com/florianherrengt/deep-search-app/releases/latest).
 
 | Platform              | Format               |
 | --------------------- | -------------------- |
-| macOS (Apple Silicon) | `.dmg`               |
-| macOS (Intel)         | `.dmg`               |
-| Windows               | `.msi` / `.exe`      |
-| Linux                 | `.deb` / `.AppImage` |
+| macOS (Apple Silicon) | Available as `.dmg`  |
+| macOS (Intel)         | Planned              |
+| Windows               | Planned              |
+| Linux                 | Planned              |
 
-The app auto-updates when new versions come out.
+The macOS app supports auto-updates when updater artifacts are published with a
+release.
 
 ## Getting started
 
@@ -24,9 +45,18 @@ The app auto-updates when new versions come out.
 3. Add at least one search provider API key.
 4. Ask a question.
 
+## Who it is for
+
+- People who want deep research without routing every question through a hosted
+  research product.
+- Developers who want a research MCP server backed by a real desktop app,
+  browser rendering, saved history, and configured providers.
+- Users who care more about source coverage, contradictions, and persistent
+  research folders than a generic chat UI.
+
 ## Why not use OpenCode directly?
 
-Everything this app does can be done with a custom OpenCode config — that's what [local-deep-search](https://github.com/example-user/local-deep-search) was before I built this app. But that route has tradeoffs.
+Everything this app does can be done with a custom OpenCode config — that's what [local-deep-search](https://github.com/florianherrengt/local-deep-search) was before I built this app. But that route has tradeoffs.
 
 Some agents don't always follow instructions — they skip currency conversions, forget to fact-check, or gloss over contradictions. You can add guardrails with OpenCode plugins, but once your config gets custom enough, you're maintaining what's effectively an app inside a config file.
 
@@ -86,6 +116,11 @@ same file path:
 You do not need to run `npm run mcp` manually. MCP clients start the configured
 command when they need the server.
 
+If your coding agent supports reusable skills, copy the [Deep Search MCP skill
+example](docs/research-mcp.md#10-copy-paste-skill-example) into the agent so it
+knows to start research, poll until completion, and reuse sessions for
+follow-ups.
+
 The MCP exposes:
 
 - `deep_search` - start, poll, resume, or follow up on a research session.
@@ -104,13 +139,6 @@ Use `deep_search` with one of these inputs:
 ```json
 {
   "session_id": "mcp-session-id",
-  "answers": ["migration plan"]
-}
-```
-
-```json
-{
-  "session_id": "mcp-session-id",
   "question": "Now compare that with the Vue migration risk."
 }
 ```
@@ -124,30 +152,27 @@ Responses are one of:
 ```json
 {
   "session_id": "mcp-session-id",
-  "status": "questions",
-  "questions": [
-    {
-      "text": "Do you want a migration plan or a risk assessment?",
-      "options": ["migration plan", "risk assessment"]
-    }
-  ]
+  "status": "done",
+  "result": "Final cited research answer..."
 }
 ```
 
 ```json
 {
   "session_id": "mcp-session-id",
-  "status": "done",
-  "result": "Final cited research answer..."
+  "status": "failed",
+  "error": "No chat model is configured."
 }
 ```
 
-When `status` is `running`, the research is still active. Call `deep_search`
-again with only `session_id` until it returns `done`, `questions`, `failed`, or
-`cancelled`. Do not treat `running` as the final answer.
+```json
+{ "session_id": "mcp-session-id", "status": "cancelled" }
+```
 
-When `status` is `questions`, ask the user and call `deep_search` again with
-`session_id` and `answers`.
+When `status` is `running`, the research is still active. Call `deep_search`
+again with only `session_id` until it returns `done`, `failed`, or `cancelled`.
+Do not treat `running` as the final answer. Deep Search MCP skips app-generated
+clarification questions and continues with reasonable assumptions.
 
 After `status` is `done`, ask a follow-up by calling `deep_search` again with
 the same `session_id` and a new `question`. Deep Search appends that message to
@@ -238,23 +263,30 @@ npm run tauri dev
 | `npm run test:e2e`             | E2E tests (Playwright/headless Chrome) |
 | `cargo test` (in `src-tauri/`) | Rust backend tests              |
 
+## Roadmap
+
+- Windows, Linux, and macOS Intel release builds.
+- More extraction backends and domain-specific extractors.
+- Better research run sharing/export.
+- More MCP client setup examples.
+- Additional local/self-hosted provider recipes.
+
 ## Architecture
 
 ```
-src/                          # React frontend (Vite + Tailwind CSS 4)
+src/                          # React frontend (Vite + Mantine)
   lib/
     transport/                # Chat transport, tool registry, guardrails
+    mcp/                      # MCP proxy bindings and sidecar integration
     system-prompt.md          # Agent system prompt
   tools/                      # AI tool definitions (search, extract, research...)
-  components/
-    assistant-ui/             # Chat UI (@assistant-ui/react)
-    ui/                       # shadcn/ui components
+  components/                 # App UI components
 src-tauri/                    # Rust backend (Tauri v2)
   src/
-    lib.rs                    # Tauri commands: tabs, fetch, content extraction
-    research_search/          # SQLite + sqlite-vec vector search
+    lib.rs                    # Tauri commands
+    main.rs                   # App entry point
 ```
 
 ## License
 
-MIT
+[MIT](LICENSE)

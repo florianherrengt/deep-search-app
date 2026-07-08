@@ -1,6 +1,5 @@
-import { streamText, type LanguageModel } from "ai";
+import { generateText, streamText, tool, zodSchema, type LanguageModel } from "ai";
 import {
-  createFactsCheckTool as createCoreFactsCheckTool,
   createResearchPlanTool as createCoreResearchPlanTool,
   RESEARCH_PLANNER_PROMPT,
 } from "deep-search-core/research-orchestrator";
@@ -8,9 +7,8 @@ import { z } from "zod";
 import { isAbortError } from "@/lib/abort";
 import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
 import { createSubAgentId } from "@/lib/sub-agent-types";
-import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
 import { SOCIAL_SOURCE_PLANNING_GUIDANCE } from "@/lib/research-source-guidance";
-import { createExtractionPageLoader } from "@/tools/extract-page-content-tool";
+import { extractPageContent } from "@/tools/extract-page-content-tool";
 
 export const researchPlanInputSchema = z.object({
   query: z.string().min(1).describe("The user's research question or request"),
@@ -33,6 +31,28 @@ export const factsCheckInputSchema = z.object({
 
 export const RESEARCH_PLANNER_SYSTEM = `${RESEARCH_PLANNER_PROMPT}\n\n${SOCIAL_SOURCE_PLANNING_GUIDANCE}`;
 
+const URL_PATTERN = /https?:\/\/[^\s)\]>"')]+/g;
+
+const FACTS_CHECK_SYSTEM = `You are a fact-checking assistant. You will receive:
+1. A research answer that contains factual claims and source URLs.
+2. The content extracted from each cited source.
+
+Your job is to check whether the high-risk factual claims in the research answer are supported by the cited sources. Focus on:
+- Exact numbers, prices, dimensions, dates, quantities, statistics
+- Named entities, product availability, regulatory/legal claims
+- Any claim that would materially change the answer if wrong
+
+Ignore narrative, style, opinions, and generic explanations.
+
+For each claim you check, state:
+- The claim from the research answer
+- What the source actually says (quote if possible)
+- Whether the claim is confirmed, contradicted, or unverifiable from the sources
+
+If all checked claims are confirmed, say so. If something is wrong or unsupported, state the incorrect claim, the corrected information, and the basis for the correction. If a source could not be fetched, say so explicitly.
+
+Return plain text, not JSON.`;
+
 type CoreResearchPlanTool = ReturnType<typeof createCoreResearchPlanTool>;
 
 function getToolCallId(options: unknown): string | undefined {
@@ -45,6 +65,12 @@ function isAbortSignalAborted(options: unknown): boolean {
   if (!options || typeof options !== "object") return false;
   const abortSignal = (options as { abortSignal?: unknown }).abortSignal;
   return abortSignal instanceof AbortSignal && abortSignal.aborted;
+}
+
+function extractUrls(text: string): string[] {
+  const matches = text.match(URL_PATTERN);
+  if (!matches) return [];
+  return [...new Set(matches.map((url) => url.replace(/[.,;:!?>]+$/, "")))];
 }
 
 export function createResearchPlanTool(model: LanguageModel): CoreResearchPlanTool {
@@ -117,8 +143,72 @@ export function createFactsCheckTool(
   model: LanguageModel,
   scrapeDoApiKey?: string | null,
 ) {
-  return createCoreFactsCheckTool(model, {
-    fetchFn: bridgeFetch,
-    pageLoader: createExtractionPageLoader({ scrapeDoApiKey }),
+  return tool({
+    description:
+      "Call this before giving the final answer. It extracts source URLs from the research text, opens each one, and checks whether the high-risk factual claims are supported by those sources.",
+    strict: true,
+    inputSchema: zodSchema(factsCheckInputSchema),
+    outputSchema: zodSchema(
+      z.string().describe("Plain-text fact-check notes"),
+    ),
+    execute: async (input, options) => {
+      const urls = extractUrls(input.finalResearch);
+
+      if (urls.length === 0) {
+        return "No source URLs found in the research text. Fact-check could not be performed.";
+      }
+
+      const fetchResults = await Promise.allSettled(
+        urls.map(async (url) => {
+          const content = await extractPageContent(url, {
+            summarize: false,
+            scrapeDoApiKey,
+            abortSignal: options?.abortSignal,
+          });
+          return { url, content };
+        }),
+      );
+
+      const sourceSections: string[] = [];
+      for (let i = 0; i < fetchResults.length; i += 1) {
+        const result = fetchResults[i];
+        const url = urls[i];
+        if (result.status === "fulfilled" && result.value.content) {
+          sourceSections.push(
+            `--- Source ${i + 1}: ${url} ---\n${result.value.content}`,
+          );
+        } else {
+          const reason =
+            result.status === "rejected"
+              ? result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason)
+              : "empty content";
+          sourceSections.push(
+            `--- Source ${i + 1}: ${url} ---\n[Could not fetch: ${reason}]`,
+          );
+        }
+      }
+
+      const prompt = [
+        "Original research objective:",
+        input.originalPrompt,
+        "",
+        "Research answer to fact-check:",
+        input.finalResearch,
+        "",
+        "Cited source contents:",
+        ...sourceSections,
+      ].join("\n");
+
+      const { text } = await generateText({
+        model,
+        system: FACTS_CHECK_SYSTEM,
+        prompt,
+        abortSignal: options?.abortSignal,
+      });
+
+      return text.trim() || "Fact-check completed, but no notes were returned.";
+    },
   });
 }

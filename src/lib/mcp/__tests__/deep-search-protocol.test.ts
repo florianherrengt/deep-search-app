@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import {
-  answerPendingDeepSearchQuestions,
   deepSearchRequestSchema,
   getDeepSearchResultText,
-  getPendingDeepSearchQuestions,
   normalizeDeepSearchAssistantMessage,
+  skipPendingDeepSearchQuestions,
 } from "@/lib/mcp/deep-search-protocol";
 import { SUB_AGENT_TEXT_PROVIDER_METADATA } from "@/lib/sub-agent-stream";
 
@@ -32,41 +31,33 @@ describe("deep search MCP protocol helpers", () => {
     ).toBe(false);
   });
 
-  it("extracts pending questions with option values", () => {
-    expect(getPendingDeepSearchQuestions([pendingQuestionMessage()])).toEqual([
-      {
-        text: "Do you want a migration plan or a risk assessment?",
-        options: ["migration plan", "risk assessment"],
-      },
-    ]);
-  });
+  it("marks pending questions as skipped tool output", () => {
+    const result = skipPendingDeepSearchQuestions([pendingQuestionMessage()]);
 
-  it("answers pending questions by order", () => {
-    const [message] = answerPendingDeepSearchQuestions(
-      [pendingQuestionMessage()],
-      ["migration plan"],
-    );
-
+    expect(result.skipped).toBe(true);
+    const [message] = result.messages;
     expect(message.parts[0]).toMatchObject({
       type: "tool-ask_questions",
       state: "output-available",
       output: {
+        skipped: true,
         answers: [
           {
             question: "Do you want a migration plan or a risk assessment?",
-            answer: "migration plan",
+            answer: expect.stringContaining("Skipped"),
           },
         ],
       },
     });
   });
 
-  it("throws when there is no pending question", () => {
-    expect(() =>
-      answerPendingDeepSearchQuestions([assistantTextMessage("Done.")], [
-        "answer",
-      ]),
-    ).toThrow("No pending questions");
+  it("does not change messages when there are no pending questions", () => {
+    const messages = [assistantTextMessage("Done.")];
+
+    expect(skipPendingDeepSearchQuestions(messages)).toEqual({
+      messages,
+      skipped: false,
+    });
   });
 
   it("extracts final assistant text without sub-agent progress text", () => {
