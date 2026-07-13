@@ -54,7 +54,6 @@ export class TauriStdioTransport implements Transport {
           `Chrome DevTools MCP sidecar exited with code ${code ?? "null"} signal ${signal ?? "null"}.${this._stderrTail ? ` Last stderr: ${this._stderrTail}` : ""}`,
         ),
       );
-      void this.dumpStderrToLogFile();
     });
 
     this.child = await this.command.spawn();
@@ -127,22 +126,4 @@ export class TauriStdioTransport implements Transport {
     console.warn("[chrome-devtools-mcp]", data);
   }
 
-  private async dumpStderrToLogFile() {
-    if (!this._stderrTail) return;
-    try {
-      const { isTauri } = await import("@/lib/tauri-bridge");
-      if (!isTauri()) return;
-      const { writeTextFile, mkdir } = await import("@tauri-apps/plugin-fs");
-      const { appDataDir, join } = await import("@tauri-apps/api/path");
-      const logDir = await join(await appDataDir(), "sidecar-logs");
-      await mkdir(logDir, { recursive: true });
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const logPath = await join(logDir, `sidecar-stderr-${timestamp}.log`);
-      const content = `[${new Date().toISOString()}] Sidecar exited unexpectedly.\n\nStderr tail:\n${this._stderrTail}\n`;
-      await writeTextFile(logPath, content);
-      console.info(`[sidecar] Stderr log written to ${logPath}`);
-    } catch (error) {
-      console.warn("[sidecar] Failed to write stderr log file:", error);
-    }
-  }
 }

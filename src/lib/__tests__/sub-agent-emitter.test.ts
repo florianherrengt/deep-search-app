@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   emitSubAgentEvent,
+  emitSubAgentEventToChat,
   getParentMessageId,
   setActiveSubAgentEmitter,
   setDirectEventHandler,
@@ -77,6 +78,26 @@ describe("emitSubAgentEvent", () => {
     setActiveSubAgentEmitter(vi.fn(), null, "chatA");
     emitSubAgentEvent(startEvent("1"));
     expect(handlerA).not.toHaveBeenCalled();
+  });
+
+  it("removes only its own same-chat subscription", () => {
+    const mcpHandler = vi.fn();
+    const chatHandler = vi.fn();
+    const unsubscribeMcp = setDirectEventHandler("chatA", mcpHandler);
+    const unsubscribeChat = setDirectEventHandler("chatA", chatHandler);
+
+    emitSubAgentEventToChat("chatA", startEvent("first"));
+    expect(chatHandler).toHaveBeenCalledTimes(1);
+    expect(mcpHandler).not.toHaveBeenCalled();
+
+    unsubscribeMcp();
+    emitSubAgentEventToChat("chatA", startEvent("second"));
+    expect(chatHandler).toHaveBeenCalledTimes(2);
+    expect(mcpHandler).not.toHaveBeenCalled();
+
+    unsubscribeChat();
+    emitSubAgentEventToChat("chatA", startEvent("third"));
+    expect(chatHandler).toHaveBeenCalledTimes(2);
   });
 
   it("emitSubAgentEvent stamps displayTarget on start events without one", () => {
@@ -167,14 +188,14 @@ describe("withEmitterAsync", () => {
   });
 });
 
-describe("concurrent chat isolation", () => {
+describe("ambient emitter compatibility", () => {
   afterEach(() => {
     setActiveSubAgentEmitter(null, null);
     setDirectEventHandler("chatA", null);
     setDirectEventHandler("chatB", null);
   });
 
-  it("events from one chat do not leak to another chat's emitter", () => {
+  it("routes unscoped events to the most recently activated chat", () => {
     const emitterA = vi.fn();
     const emitterB = vi.fn();
 

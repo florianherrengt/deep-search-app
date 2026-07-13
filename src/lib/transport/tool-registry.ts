@@ -28,6 +28,7 @@ import {
   GENERAL_WEB_SEARCH_SOURCE_GUIDANCE,
   YOUTUBE_SEARCH_SOURCE_GUIDANCE,
 } from "@/lib/research-source-guidance";
+import type { SubAgentEmitter } from "@/lib/sub-agent-emitter";
 
 type CoreLanguageModel = Parameters<typeof createResearchPlanTool>[0];
 
@@ -102,11 +103,13 @@ export async function createTools({
   getResearchFolder,
   switchResearchFolder,
   searchKeys,
+  emitEvent,
 }: {
   model: LanguageModel;
   getResearchFolder: () => Promise<string>;
   switchResearchFolder: (folderName: string) => void | Promise<void>;
   searchKeys?: SearchToolKeys;
+  emitEvent?: SubAgentEmitter;
 }) {
   const chromeDevToolsToolsRaw = await createChromeDevToolsMcpTools({
     enabled: Boolean(searchKeys?.chromeDevToolsMcpEnabled),
@@ -161,7 +164,7 @@ export async function createTools({
       ? { aggregate_search: asAppTool(aggregateSearchTool) }
       : {}),
     sequential_thinking: asAppTool(createSequentialThinkingTool()),
-    create_research_plan: asAppTool(createResearchPlanTool(coreModel)),
+    create_research_plan: asAppTool(createResearchPlanTool(coreModel, { emitEvent })),
     research_checkpoint: researchCheckpointTool,
 
     extract_page_content: createExtractPageContentTool(
@@ -180,6 +183,7 @@ export async function createTools({
       {
         ytDlpPath: searchKeys?.youtubeYtDlpPath ?? undefined,
       },
+      { emitEvent },
     ),
     facts_check: createFactsCheckTool(model, searchKeys?.scrapeDoApiKey ?? undefined),
     create_file: createCreateFileTool(getResearchFolder),

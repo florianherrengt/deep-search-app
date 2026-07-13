@@ -7,6 +7,9 @@ import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Keep locale-aware timestamps stable without changing production formatting.
+const snapshotTimezone = "Europe/London";
+const snapshotLocale = "en-US";
 
 const defaultOptions = {
   staticDir: path.resolve(rootDir, "storybook-static"),
@@ -250,12 +253,15 @@ async function updateBaselines(stories, baseUrl, options) {
 
   const browser = await chromium.launch({ headless: true });
   let updated = 0;
+  let failed = 0;
 
   try {
     for (const story of stories) {
       const context = await browser.newContext({
         colorScheme: options.colorScheme,
         deviceScaleFactor: 1,
+        locale: snapshotLocale,
+        timezoneId: snapshotTimezone,
         viewport: options.viewport,
       });
       const page = await context.newPage();
@@ -269,6 +275,7 @@ async function updateBaselines(stories, baseUrl, options) {
         updated += 1;
       } catch (error) {
         console.error(`  failed   ${story.id}: ${error instanceof Error ? error.message : error}`);
+        failed += 1;
       } finally {
         await context.close();
       }
@@ -278,6 +285,9 @@ async function updateBaselines(stories, baseUrl, options) {
   }
 
   console.log(`\nUpdated ${updated} baseline${updated === 1 ? "" : "s"} in ${displayPath(options.baselineDir)}`);
+  if (failed > 0) {
+    throw new Error(`Failed to update ${failed} visual baseline${failed === 1 ? "" : "s"}.`);
+  }
 }
 
 async function compareSnapshots(stories, baseUrl, options) {
@@ -295,6 +305,8 @@ async function compareSnapshots(stories, baseUrl, options) {
       const context = await browser.newContext({
         colorScheme: options.colorScheme,
         deviceScaleFactor: 1,
+        locale: snapshotLocale,
+        timezoneId: snapshotTimezone,
         viewport: options.viewport,
       });
       const page = await context.newPage();
@@ -306,11 +318,13 @@ async function compareSnapshots(stories, baseUrl, options) {
         let baselineBuffer;
         try {
           baselineBuffer = await fs.readFile(baselinePath);
-        } catch {
-          await fs.writeFile(baselinePath, actualBuffer);
-          results.push({ id: story.id, status: "added", filename });
-          console.log(`  added    ${filename} (no baseline found, created new)`);
-          continue;
+        } catch (error) {
+          if (error && error.code === "ENOENT") {
+            results.push({ id: story.id, status: "missing", filename });
+            console.log(`  FAIL     ${filename} (baseline is missing)`);
+            continue;
+          }
+          throw error;
         }
 
         const diff = comparePng(baselineBuffer, actualBuffer, options.threshold);
@@ -347,17 +361,18 @@ async function compareSnapshots(stories, baseUrl, options) {
 
   const passed = results.filter((r) => r.status === "pass").length;
   const failed = results.filter((r) => r.status === "fail").length;
-  const added = results.filter((r) => r.status === "added").length;
+  const missing = results.filter((r) => r.status === "missing").length;
   const errors = results.filter((r) => r.status === "error").length;
 
   console.log("");
-  console.log(`Results: ${passed} passed, ${failed} failed, ${added} added, ${errors} errors`);
+  console.log(`Results: ${passed} passed, ${failed} failed, ${missing} missing, ${errors} errors`);
 
-  if (failed > 0) {
+  const problems = failed + missing + errors;
+  if (problems > 0) {
     console.log(`\nDiff images written to ${displayPath(diffDir)}`);
     console.log("\nTo update baselines, run:");
     console.log("  npm run test:visual:update\n");
-    throw new Error(`${failed} visual snapshot${failed === 1 ? "" : "s"} failed.`);
+    throw new Error(`${problems} visual snapshot${problems === 1 ? "" : "s"} failed.`);
   }
 }
 

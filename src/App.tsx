@@ -52,6 +52,7 @@ function AppInner() {
   const { tabs, activeTabId, switchToTab, closeTab } = useBrowserTabs();
   const [selectedModelId, setSelectedModelId] = useState("");
   const [subAgentSidebarOpen, setSubAgentSidebarOpen] = useState(false);
+  const menuSetupStartedRef = useRef(false);
   const chatModelOptions = useMemo(
     () => getChatModelOptions(settings),
     [settings],
@@ -188,11 +189,17 @@ function AppInner() {
   );
 
   useEffect(() => {
-    setupMenu(
+    if (menuSetupStartedRef.current) return;
+    menuSetupStartedRef.current = true;
+
+    void setupMenu(
       () => switchToTab("settings"),
       handleNewChat,
       { onZoomIn: zoomIn, onZoomOut: zoomOut, onResetZoom: resetZoom },
-    );
+    ).catch((error) => {
+      menuSetupStartedRef.current = false;
+      console.error("[menu] Failed to initialize the app menu:", error);
+    });
   }, [switchToTab, handleNewChat, zoomIn, zoomOut, resetZoom]);
 
   useDesktopNotifications({

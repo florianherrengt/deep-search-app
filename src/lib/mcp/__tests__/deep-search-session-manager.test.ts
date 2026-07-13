@@ -48,6 +48,7 @@ describe("DeepSearchSessionManager", () => {
     });
     mocks.saveResearchChatMessages.mockResolvedValue(undefined);
     mocks.sendMessages.mockResolvedValue(closedStream());
+    mocks.setDirectEventHandler.mockReturnValue(() => undefined);
     mocks.shouldContinueAfterToolResult.mockReturnValue(false);
   });
 

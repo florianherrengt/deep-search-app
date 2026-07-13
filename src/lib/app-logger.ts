@@ -18,6 +18,7 @@ const FLUSH_DELAY_MS = 250;
 const ERROR_FLUSH_DELAY_MS = 0;
 const MAX_PENDING_ENTRIES = 500;
 const MAX_SERIALIZED_ARG_CHARS = 16_000;
+const REDACTED_LOG_VALUE = "[REDACTED]";
 
 interface LoggerInstall {
   originalConsole: OriginalConsole;
@@ -204,15 +205,25 @@ function formatWindowError(event: ErrorEvent): string {
   if (event.error) {
     parts.push(serializeLogArg(event.error));
   }
-  return parts.join(" | ");
+  return truncateSerializedArg(redactSerializedText(parts.join(" | ")));
 }
 
 export function serializeLogArg(value: unknown): string {
   if (value instanceof Error) {
-    return value.stack || `${value.name}: ${value.message}`;
+    return truncateSerializedArg(
+      redactSerializedText(value.stack || `${value.name}: ${value.message}`),
+    );
   }
   if (typeof value === "string") {
-    return truncateSerializedArg(value);
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (typeof parsed === "object" && parsed !== null) {
+        return serializeLogArg(parsed);
+      }
+    } catch {
+      // Plain log text is handled by the credential patterns below.
+    }
+    return truncateSerializedArg(redactSerializedText(value));
   }
   if (value === undefined) {
     return "undefined";
@@ -229,7 +240,10 @@ export function serializeLogArg(value: unknown): string {
 
   try {
     const seen = new WeakSet<object>();
-    const serialized = JSON.stringify(value, (_key, nestedValue: unknown) => {
+    const serialized = JSON.stringify(value, (key, nestedValue: unknown) => {
+      if (key && isSensitiveLogKey(key)) {
+        return REDACTED_LOG_VALUE;
+      }
       if (typeof nestedValue === "bigint") {
         return `${nestedValue.toString()}n`;
       }
@@ -240,6 +254,9 @@ export function serializeLogArg(value: unknown): string {
           stack: nestedValue.stack,
         };
       }
+      if (typeof nestedValue === "string") {
+        return redactSerializedText(nestedValue);
+      }
       if (typeof nestedValue === "object" && nestedValue !== null) {
         if (seen.has(nestedValue)) {
           return "[Circular]";
@@ -248,10 +265,58 @@ export function serializeLogArg(value: unknown): string {
       }
       return nestedValue;
     });
-    return truncateSerializedArg(serialized ?? String(value));
+    return truncateSerializedArg(
+      redactSerializedText(serialized ?? String(value)),
+    );
   } catch {
-    return truncateSerializedArg(String(value));
+    return truncateSerializedArg(redactSerializedText(String(value)));
   }
+}
+
+function isSensitiveLogKey(key: string): boolean {
+  const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  return (
+    normalized.endsWith("preview") ||
+    normalized.endsWith("apikey") ||
+    normalized.endsWith("password") ||
+    normalized.endsWith("secret") ||
+    normalized.endsWith("token") ||
+    normalized.endsWith("accesskey") ||
+    normalized.endsWith("privatekey") ||
+    normalized.endsWith("passphrase") ||
+    normalized.endsWith("authorizationheader") ||
+    normalized.endsWith("cookieheader") ||
+    normalized === "authorization" ||
+    normalized === "credential" ||
+    normalized === "credentials" ||
+    normalized === "cookie" ||
+    normalized === "cookies" ||
+    normalized === "setcookie"
+  );
+}
+
+function redactSerializedText(value: string): string {
+  return value
+    .replace(
+      /("([^"\\]+)"\s*:\s*")((?:\\.|[^"\\])*)"/g,
+      (match, prefix: string, key: string) =>
+        isSensitiveLogKey(key)
+          ? `${prefix}${REDACTED_LOG_VALUE}"`
+          : match,
+    )
+    .replace(
+      /([?&](?:api[-_]?key|access[-_]?token|refresh[-_]?token|token|key|secret|password)=)[^&#\s"']*/gi,
+      `$1${REDACTED_LOG_VALUE}`,
+    )
+    .replace(
+      /(\b(?:authorization|proxy-authorization|cookie|set-cookie)\b\s*[:=]\s*)[^\r\n]*/gi,
+      `$1${REDACTED_LOG_VALUE}`,
+    )
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, `Bearer ${REDACTED_LOG_VALUE}`)
+    .replace(
+      /(\b(?:api[-_ ]?key|password|client[-_ ]?secret|access[-_ ]?token|refresh[-_ ]?token)\b\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;&"']+)/gi,
+      `$1${REDACTED_LOG_VALUE}`,
+    );
 }
 
 function truncateSerializedArg(value: string): string {

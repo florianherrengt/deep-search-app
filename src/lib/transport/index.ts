@@ -8,7 +8,6 @@ import { throwIfAborted } from "@/lib/abort";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import {
   emitSubAgentEventToChat,
-  setActiveSubAgentEmitter,
 } from "@/lib/sub-agent-emitter";
 import type { SubAgentEvent } from "@/lib/sub-agent-types";
 import { createGuardedStream } from "./guarded-stream";
@@ -225,8 +224,6 @@ export class DirectTransport implements ChatTransport<UIMessage> {
           emitSubAgentEventToChat(transport.researchChatId, event);
         };
 
-        setActiveSubAgentEmitter(null, null, transport.researchChatId);
-
         try {
           if (!transport.researchFolder) {
             if (firstMessage) {
@@ -235,7 +232,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
               const folderName = await generateFolderSlug(
                 model,
                 firstMessage,
-                { abortSignal },
+                { abortSignal, emitEvent: subAgentEmitter },
               );
 
               await initializeResearchFolderOrThrow(folderName, "created");
@@ -334,6 +331,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
             onResearchFolderChange: async (folderName) => {
               await transport.switchResearchFolder(folderName, effectiveMessages);
             },
+            emitEvent: subAgentEmitter,
             controller,
           });
 
@@ -353,7 +351,6 @@ export class DirectTransport implements ChatTransport<UIMessage> {
             controller.enqueue({ type: "finish", finishReason: "error" });
           }
         } finally {
-          setActiveSubAgentEmitter(null, null, null);
           controller.close();
         }
       },

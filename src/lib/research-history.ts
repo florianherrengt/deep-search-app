@@ -22,24 +22,69 @@ const CHAT_FILE_EXTENSION = ".json";
 const CHAT_INDEX_FILENAME = "index.json";
 const CHAT_INDEX_VERSION = 1;
 
-const indexQueues = new Map<string, Promise<unknown>>();
+type WriteQueues = Map<string, Promise<unknown>>;
 
-function serializedIndexWrite<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prev = indexQueues.get(key) ?? Promise.resolve();
+const indexQueues: WriteQueues = new Map();
+const folderMutationQueues: WriteQueues = new Map();
+
+function serializedWrite<T>(
+  queues: WriteQueues,
+  queueName: "index",
+  key: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const prev = queues.get(key) ?? Promise.resolve();
   const next = prev.then(
     () => fn(),
     (prevError) => {
       console.warn(
-        `[research-history] previous index write failed for "${key}", proceeding`,
+        `[research-history] previous ${queueName} write failed for "${key}", proceeding`,
         prevError instanceof Error ? prevError.message : prevError,
       );
       return fn();
     },
   );
-  indexQueues.set(key, next);
+  queues.set(key, next);
   void next.finally(() => {
-    if (indexQueues.get(key) === next) indexQueues.delete(key);
+    if (queues.get(key) === next) queues.delete(key);
   }).catch(() => {});
+  return next;
+}
+
+function serializedIndexWrite<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  return serializedWrite(indexQueues, "index", key, fn);
+}
+
+function serializedFolderMutation<T>(
+  folderNames: readonly string[],
+  fn: () => Promise<T>,
+): Promise<T> {
+  const keys = [...new Set(folderNames)].sort((a, b) => a.localeCompare(b));
+  const previous = keys.map((key) => {
+    const pending = folderMutationQueues.get(key) ?? Promise.resolve();
+    return pending.catch((prevError) => {
+      console.warn(
+        `[research-history] previous folder mutation failed for "${key}", proceeding`,
+        prevError instanceof Error ? prevError.message : prevError,
+      );
+    });
+  });
+  const next = Promise.all(previous).then(() => fn());
+
+  // Reserve every folder synchronously behind the same barrier. Sorting makes
+  // multi-folder operations deterministic, while the shared promise prevents
+  // lock-order inversion for concurrent moves in opposite directions.
+  for (const key of keys) {
+    folderMutationQueues.set(key, next);
+  }
+  void next.finally(() => {
+    for (const key of keys) {
+      if (folderMutationQueues.get(key) === next) {
+        folderMutationQueues.delete(key);
+      }
+    }
+  }).catch(() => {});
+
   return next;
 }
 
@@ -220,26 +265,28 @@ export async function listResearchChats(
   folderName: string,
 ): Promise<ResearchChatSummary[]> {
   const parsedFolderName = SafePathSegmentSchema.parse(folderName);
-  const indexedChats = await readResearchChatIndex(parsedFolderName);
+  return serializedFolderMutation([parsedFolderName], async () => {
+    const indexedChats = await readResearchChatIndex(parsedFolderName);
 
-  if (indexedChats) {
-    return indexedChats.sort(compareResearchChats);
-  }
+    if (indexedChats) {
+      return indexedChats.sort(compareResearchChats);
+    }
 
-  const chats = await collectResearchChatSummaries(parsedFolderName);
-  if (chats.length > 0) {
-    await serializedIndexWrite(parsedFolderName, async () => {
-      const current = await readResearchChatIndex(parsedFolderName);
-      if (current) return;
-      await writeResearchChatIndex(parsedFolderName, chats).catch((error) => {
-        console.error(
-          `[research-history] Failed to write chat index for "${parsedFolderName}" after rebuild:`,
-          error,
-        );
+    const chats = await collectResearchChatSummaries(parsedFolderName);
+    if (chats.length > 0) {
+      await serializedIndexWrite(parsedFolderName, async () => {
+        const current = await readResearchChatIndex(parsedFolderName);
+        if (current) return;
+        await writeResearchChatIndex(parsedFolderName, chats).catch((error) => {
+          console.error(
+            `[research-history] Failed to write chat index for "${parsedFolderName}" after rebuild:`,
+            error,
+          );
+        });
       });
-    });
-  }
-  return chats;
+    }
+    return chats;
+  });
 }
 
 export async function readResearchChatMessages(
@@ -316,8 +363,28 @@ export async function saveResearchChatMessages(
   options?: { title?: string },
 ): Promise<void> {
   const parsedFolderName = SafePathSegmentSchema.parse(folderName);
+  const parsedChatId =
+    chatId === LEGACY_CHAT_TRANSCRIPT_ID
+      ? LEGACY_CHAT_TRANSCRIPT_ID
+      : SafePathSegmentSchema.parse(chatId);
 
-  if (chatId === LEGACY_CHAT_TRANSCRIPT_ID) {
+  await serializedFolderMutation([parsedFolderName], () =>
+    saveResearchChatMessagesUnlocked(
+      parsedFolderName,
+      parsedChatId,
+      messages,
+      options,
+    ),
+  );
+}
+
+async function saveResearchChatMessagesUnlocked(
+  parsedFolderName: string,
+  parsedChatId: string,
+  messages: UIMessage[],
+  options?: { title?: string },
+): Promise<void> {
+  if (parsedChatId === LEGACY_CHAT_TRANSCRIPT_ID) {
     await writeAppFile({
       subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
       filename: LEGACY_CHAT_TRANSCRIPT_FILENAME,
@@ -334,7 +401,6 @@ export async function saveResearchChatMessages(
     return;
   }
 
-  const parsedChatId = SafePathSegmentSchema.parse(chatId);
   const now = new Date().toISOString();
   const subfolder = researchChatsSubfolder(parsedFolderName);
   const filename = researchChatFilename(parsedChatId);
@@ -398,9 +464,11 @@ export async function initializeResearchFolder(
 ): Promise<void> {
   const parsedFolderName = SafePathSegmentSchema.parse(folderName);
 
-  await createAppSubfolder({
-    subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
-  });
+  await serializedFolderMutation([parsedFolderName], () =>
+    createAppSubfolder({
+      subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
+    }),
+  );
 }
 
 export async function moveResearchChatToFolder({
@@ -416,15 +484,46 @@ export async function moveResearchChatToFolder({
 }): Promise<void> {
   const parsedFromFolderName = SafePathSegmentSchema.parse(fromFolderName);
   const parsedToFolderName = SafePathSegmentSchema.parse(toFolderName);
+  const parsedChatId = SafePathSegmentSchema.parse(chatId);
 
+  await serializedFolderMutation(
+    [parsedFromFolderName, parsedToFolderName],
+    () =>
+      moveResearchChatToFolderUnlocked({
+        parsedFromFolderName,
+        parsedToFolderName,
+        parsedChatId,
+        messages,
+      }),
+  );
+}
+
+async function moveResearchChatToFolderUnlocked({
+  parsedFromFolderName,
+  parsedToFolderName,
+  parsedChatId,
+  messages,
+}: {
+  parsedFromFolderName: string;
+  parsedToFolderName: string;
+  parsedChatId: string;
+  messages: UIMessage[];
+}): Promise<void> {
   if (parsedFromFolderName === parsedToFolderName) {
-    await saveResearchChatMessages(parsedToFolderName, chatId, messages);
+    await saveResearchChatMessagesUnlocked(
+      parsedToFolderName,
+      parsedChatId,
+      messages,
+    );
     return;
   }
 
-  await saveResearchChatMessages(parsedToFolderName, chatId, messages);
+  await saveResearchChatMessagesUnlocked(
+    parsedToFolderName,
+    parsedChatId,
+    messages,
+  );
 
-  const parsedChatId = SafePathSegmentSchema.parse(chatId);
   try {
     await deleteAppFile({
       subfolder: researchChatsSubfolder(parsedFromFolderName),
@@ -486,7 +585,35 @@ export async function moveResearchChatToFolder({
 }
 
 export function createResearchChatId(date = new Date()): string {
-  return date.toISOString().replace(/:/g, "-");
+  const timestamp = date.toISOString().replace(/:/g, "-");
+  return `${timestamp}--${createUuid()}`;
+}
+
+function createUuid(): string {
+  const webCrypto = globalThis.crypto;
+  if (typeof webCrypto?.randomUUID === "function") {
+    return webCrypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (typeof webCrypto?.getRandomValues === "function") {
+    webCrypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+  return [
+    hex.slice(0, 4).join(""),
+    hex.slice(4, 6).join(""),
+    hex.slice(6, 8).join(""),
+    hex.slice(8, 10).join(""),
+    hex.slice(10).join(""),
+  ].join("-");
 }
 
 async function readStoredResearchChat(
@@ -539,17 +666,35 @@ export async function renameResearchFolder(
   const parsedOldFolderName = SafePathSegmentSchema.parse(oldFolderName);
   const parsedNewFolderName = SafePathSegmentSchema.parse(newFolderName.trim());
 
+  await serializedFolderMutation(
+    [parsedOldFolderName, parsedNewFolderName],
+    () => renameResearchFolderUnlocked(parsedOldFolderName, parsedNewFolderName),
+  );
+
+  return { name: parsedNewFolderName };
+}
+
+async function renameResearchFolderUnlocked(
+  parsedOldFolderName: string,
+  parsedNewFolderName: string,
+): Promise<void> {
   await renameAppSubfolder({
     oldSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedOldFolderName}`,
     newSubfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedNewFolderName}`,
   });
-
-  return { name: parsedNewFolderName };
 }
 
 export async function deleteResearchFolder(folderName: string): Promise<void> {
   const parsedFolderName = SafePathSegmentSchema.parse(folderName);
 
+  await serializedFolderMutation([parsedFolderName], () =>
+    deleteResearchFolderUnlocked(parsedFolderName),
+  );
+}
+
+async function deleteResearchFolderUnlocked(
+  parsedFolderName: string,
+): Promise<void> {
   await deleteAppSubfolder({
     subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
   });
@@ -806,7 +951,12 @@ function getTextFromMessagePart(part: unknown) {
 }
 
 function dateFromResearchChatId(chatId: string) {
-  const normalized = chatId.replace(
+  const match = chatId.match(
+    /^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z)(?:--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i,
+  );
+  if (!match) return null;
+
+  const normalized = match[1].replace(
     /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2}\.\d{3}Z)$/,
     "$1:$2:$3",
   );

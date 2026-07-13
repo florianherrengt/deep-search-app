@@ -130,16 +130,35 @@ export function useResearchWorkspace({
   const searchKeysRef = useRef(searchKeys);
   searchKeysRef.current = searchKeys;
 
+  const latestResearchNavigationRef = useRef<object | null>(null);
+  const beginResearchNavigation = useCallback(() => {
+    const request = {};
+    latestResearchNavigationRef.current = request;
+    return () => latestResearchNavigationRef.current !== request;
+  }, []);
+  const invalidateResearchNavigation = useCallback(() => {
+    latestResearchNavigationRef.current = {};
+  }, []);
+
   const activateSession = useCallback(
     (input: CreateChatSessionInput & { forceNew?: boolean }) => {
+      activeResearchFolderRef.current = input.researchFolder;
       setChatSessionState((current) =>
         activateChatSessionState(current, input),
       );
     },
     [],
   );
+  const activateExternalSession = useCallback(
+    (input: CreateChatSessionInput & { forceNew?: boolean }) => {
+      invalidateResearchNavigation();
+      activateSession(input);
+    },
+    [activateSession, invalidateResearchNavigation],
+  );
 
   const handleNewChat = useCallback(() => {
+    invalidateResearchNavigation();
     activateSession({
       researchChatId: createResearchChatId(),
       researchFolder: null,
@@ -148,7 +167,7 @@ export function useResearchWorkspace({
     setResearchChats([]);
     setResearchChatsStatus("idle");
     switchToTab("main");
-  }, [activateSession, switchToTab]);
+  }, [activateSession, invalidateResearchNavigation, switchToTab]);
 
   const refreshResearchFolders = useCallback(
     async (options: { showLoading?: boolean } = {}) => {
@@ -170,13 +189,25 @@ export function useResearchWorkspace({
     [],
   );
 
+  const latestResearchChatsRefreshRef = useRef<object | null>(null);
   const refreshResearchChats = useCallback(async (folderName: string) => {
+    const request = {};
+    latestResearchChatsRefreshRef.current = request;
+    const navigation = latestResearchNavigationRef.current;
+    const isStale = () =>
+      latestResearchChatsRefreshRef.current !== request ||
+      latestResearchNavigationRef.current !== navigation ||
+      activeResearchFolderRef.current !== folderName;
+
     try {
-      setResearchChats(await listResearchChats(folderName));
+      const chats = await listResearchChats(folderName);
+      if (isStale()) return;
+      setResearchChats(chats);
       if (researchChatsStatusRef.current === "idle") {
         setResearchChatsStatus("ready");
       }
     } catch (error) {
+      if (isStale()) return;
       console.error("[App] Failed to refresh research chats:", error);
       if (researchChatsStatusRef.current !== "ready") {
         setResearchChats([]);
@@ -185,12 +216,9 @@ export function useResearchWorkspace({
     }
   }, []);
 
-  const latestMcpChatOpenRef = useRef<object | null>(null);
   const openMcpResearchChat = useCallback(
     async (folderName: string, chatId: string) => {
-      const request = {};
-      latestMcpChatOpenRef.current = request;
-      const isStale = () => latestMcpChatOpenRef.current !== request;
+      const isStale = beginResearchNavigation();
 
       setResearchFolders((folders) =>
         upsertRecentResearchFolder(folders, folderName),
@@ -223,7 +251,7 @@ export function useResearchWorkspace({
         });
       }
     },
-    [activateSession, switchToTab],
+    [activateSession, beginResearchNavigation, switchToTab],
   );
 
   useEffect(() => {
@@ -380,11 +408,8 @@ export function useResearchWorkspace({
     [researchFolders],
   );
 
-  const latestFolderSelectionRef = useRef<string | null>(null);
-
   const handleSelectResearchFolder = async (folderName: string) => {
-    latestFolderSelectionRef.current = folderName;
-    const isStale = () => latestFolderSelectionRef.current !== folderName;
+    const isStale = beginResearchNavigation();
 
     setResearchChatsStatus("loading");
     switchToTab("main");
@@ -448,15 +473,18 @@ export function useResearchWorkspace({
     folderName: string,
     chatId: string,
   ) => {
+    const isStale = beginResearchNavigation();
     switchToTab("main");
     try {
       const messages = await readResearchChatMessages(folderName, chatId);
+      if (isStale()) return;
       activateSession({
         researchChatId: chatId,
         researchFolder: folderName,
         initialMessages: messages,
       });
     } catch (error) {
+      if (isStale()) return;
       console.error("[App] Failed to open research chat:", error);
       activateSession({
         researchChatId: chatId,
@@ -466,6 +494,7 @@ export function useResearchWorkspace({
   };
 
   const handleNewResearchChat = (folderName: string) => {
+    invalidateResearchNavigation();
     const nextChatId = createResearchChatId();
 
     activateSession({
@@ -493,6 +522,7 @@ export function useResearchWorkspace({
     );
     void refreshResearchFolders();
     if (sessionId === chatSessionState.activeSessionId) {
+      activeResearchFolderRef.current = folderName;
       void refreshResearchChats(folderName);
     }
   };
@@ -504,6 +534,8 @@ export function useResearchWorkspace({
     if (hasRunningResearchFolder(chatSessionsRef.current, oldFolderName)) {
       throw new Error("Stop the running research before renaming this search.");
     }
+
+    invalidateResearchNavigation();
 
     const renamed = await renameResearchFolder(oldFolderName, newFolderName);
 
@@ -526,6 +558,7 @@ export function useResearchWorkspace({
     }));
 
     if (activeResearchFolder === oldFolderName) {
+      activeResearchFolderRef.current = renamed.name;
       void refreshResearchChats(renamed.name);
     }
 
@@ -536,6 +569,8 @@ export function useResearchWorkspace({
     if (hasRunningResearchFolder(chatSessionsRef.current, folderName)) {
       throw new Error("Stop the running research before deleting this search.");
     }
+
+    invalidateResearchNavigation();
 
     await deleteResearchFolder(folderName);
 
@@ -619,7 +654,7 @@ export function useResearchWorkspace({
     activeResearchChatId,
     activeResearchFolder,
     activeSessionId,
-    activateSession,
+    activateSession: activateExternalSession,
     attentionChatIds,
     attentionFolderNames,
     chatSessions,

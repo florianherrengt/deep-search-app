@@ -12,7 +12,6 @@ dist
 dist-ssr
 storybook-static
 storybook-screenshots
-visual-snapshots/__diff_output__
 *.local
 .env
 
@@ -26,7 +25,7 @@ visual-snapshots/__diff_output__
 *.njsproj
 *.sln
 *.sw?
-visual-snapshots
+visual-snapshots/__diff_output__/
 .playwright-mcp
 __vis__
 benchmarks/research-search/results/

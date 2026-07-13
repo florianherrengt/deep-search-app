@@ -5,7 +5,10 @@ import {
 } from "deep-search-core/research-orchestrator";
 import { z } from "zod";
 import { isAbortError } from "@/lib/abort";
-import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
+import {
+  emitSubAgentEvent,
+  type SubAgentEmitter,
+} from "@/lib/sub-agent-emitter";
 import { createSubAgentId } from "@/lib/sub-agent-types";
 import { SOCIAL_SOURCE_PLANNING_GUIDANCE } from "@/lib/research-source-guidance";
 import { extractPageContent } from "@/tools/extract-page-content-tool";
@@ -73,7 +76,11 @@ function extractUrls(text: string): string[] {
   return [...new Set(matches.map((url) => url.replace(/[.,;:!?>]+$/, "")))];
 }
 
-export function createResearchPlanTool(model: LanguageModel): CoreResearchPlanTool {
+export function createResearchPlanTool(
+  model: LanguageModel,
+  deps?: { emitEvent?: SubAgentEmitter },
+): CoreResearchPlanTool {
+  const emitEvent = deps?.emitEvent ?? emitSubAgentEvent;
   const coreTool = createCoreResearchPlanTool(model);
   const execute = coreTool.execute;
 
@@ -85,7 +92,7 @@ export function createResearchPlanTool(model: LanguageModel): CoreResearchPlanTo
       const saId = createSubAgentId();
       const toolCallId = getToolCallId(options);
 
-      emitSubAgentEvent({
+      emitEvent({
         type: "start",
         id: saId,
         source: "sub-agent",
@@ -106,28 +113,28 @@ export function createResearchPlanTool(model: LanguageModel): CoreResearchPlanTo
         });
 
         for await (const textPart of result.textStream) {
-          emitSubAgentEvent({ type: "text-delta", id: saId, delta: textPart });
+          emitEvent({ type: "text-delta", id: saId, delta: textPart });
         }
 
         const text = await result.text;
 
         if (!text || !text.trim()) {
-          emitSubAgentEvent({
+          emitEvent({
             type: "error",
             id: saId,
             error: "Research plan was empty. The model returned no content.",
           });
           return "Error: Research plan was empty. Please try again with a more specific query.";
         } else {
-          emitSubAgentEvent({ type: "complete", id: saId });
+          emitEvent({ type: "complete", id: saId });
         }
 
         return text;
       } catch (error) {
         if (isAbortError(error) || isAbortSignalAborted(options)) {
-          emitSubAgentEvent({ type: "cancelled", id: saId });
+          emitEvent({ type: "cancelled", id: saId });
         } else {
-          emitSubAgentEvent({
+          emitEvent({
             type: "error",
             id: saId,
             error: error instanceof Error ? error.message : String(error),

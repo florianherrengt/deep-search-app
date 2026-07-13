@@ -5,6 +5,7 @@ import { MantineProvider } from "@mantine/core";
 import type { UIMessage } from "ai";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SubAgentProvider } from "@/lib/sub-agent-store";
+import type { ConfiguredChatModelOption } from "@/lib/chat-providers";
 
 const chatMocks = vi.hoisted(() => ({
   currentChat: null as unknown,
@@ -14,6 +15,7 @@ const chatMocks = vi.hoisted(() => ({
   questionsTool: vi.fn(() => <div data-testid="questions-tool" />),
   directTransportSetResearchFolder: vi.fn(),
   saveResearchChatMessages: vi.fn(async () => undefined),
+  fetchChatModelContextWindowTokens: vi.fn(async () => null),
 }));
 
 vi.mock("@ai-sdk/react", () => ({
@@ -53,7 +55,8 @@ vi.mock("@/lib/chat-providers", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/chat-providers")>();
   return {
     ...actual,
-    fetchChatModelContextWindowTokens: vi.fn(async () => null),
+    fetchChatModelContextWindowTokens:
+      chatMocks.fetchChatModelContextWindowTokens,
   };
 });
 
@@ -76,7 +79,7 @@ vi.mock("@/lib/sub-agent-profiler", () => ({
 import { Chat } from "@/components/chat";
 import { shouldContinueAfterToolResult } from "@/lib/transport";
 
-const modelOptions = [
+const modelOptions: ConfiguredChatModelOption[] = [
   {
     id: "openrouter:test",
     provider: "openrouter" as const,
@@ -175,6 +178,25 @@ describe("Chat visibility", () => {
     expect(screen.getByTestId("chat-thread")).toBeTruthy();
     expect(screen.getByTestId("questions-tool")).toBeTruthy();
     expect(chatMocks.useAISDKRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not tie shared context metadata requests to the view lifecycle", async () => {
+    const modelWithoutContextWindow = {
+      ...modelOptions[0],
+      contextWindowTokens: undefined,
+    };
+
+    renderChat({
+      visible: true,
+      chatModelOptions: [modelWithoutContextWindow],
+    });
+
+    await waitFor(() => {
+      expect(chatMocks.fetchChatModelContextWindowTokens).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      chatMocks.fetchChatModelContextWindowTokens.mock.calls[0],
+    ).toHaveLength(1);
   });
 });
 
@@ -285,10 +307,12 @@ function completedSearchToolMessage(
 
 function renderChat({
   visible,
+  chatModelOptions = modelOptions,
   onRunStateChange = vi.fn(),
   onAttentionStateChange = vi.fn(),
 }: {
   visible: boolean;
+  chatModelOptions?: typeof modelOptions;
   onRunStateChange?: (sessionId: string, running: boolean) => void;
   onAttentionStateChange?: (sessionId: string, needsAttention: boolean) => void;
 }) {
@@ -301,9 +325,9 @@ function renderChat({
           researchChatId="research-chat-one"
           researchFolder={null}
           researchApiKey="test-key"
-          modelOptions={modelOptions}
-          defaultModelId={modelOptions[0].id}
-          selectedModelId={modelOptions[0].id}
+          modelOptions={chatModelOptions}
+          defaultModelId={chatModelOptions[0].id}
+          selectedModelId={chatModelOptions[0].id}
           visible={visible}
           onSelectedModelIdChange={() => undefined}
           onRunStateChange={onRunStateChange}

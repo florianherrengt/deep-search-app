@@ -36,7 +36,7 @@ describe("useAsyncResource", () => {
     expect(result.current.data).toBe("loaded data");
   });
 
-  it("refresh sets error on failure and clears error on success", async () => {
+  it("keeps hydrated data usable after a failed refresh", async () => {
     const load = vi
       .fn()
       .mockResolvedValueOnce("loaded data")
@@ -56,7 +56,7 @@ describe("useAsyncResource", () => {
       await result.current.refresh();
     });
 
-    expect(result.current.error).toEqual(new Error("refresh failed"));
+    expect(result.current.error).toBeNull();
     expect(result.current.data).toBe("loaded data");
 
     await act(async () => {
@@ -64,6 +64,42 @@ describe("useAsyncResource", () => {
     });
 
     expect(result.current.error).toBeNull();
+    expect(result.current.data).toBe("refreshed data");
+  });
+
+  it("keeps loaded data hydrated while an explicit refresh is pending", async () => {
+    let resolveRefresh: (value: string) => void;
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce("loaded data")
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+
+    const { result } = renderHook(() =>
+      useAsyncResource("initial", load, []),
+    );
+
+    await flushPromises();
+
+    let refreshPromise: Promise<void> | undefined;
+    await act(async () => {
+      refreshPromise = result.current.refresh();
+      await Promise.resolve();
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toBe("loaded data");
+
+    await act(async () => {
+      resolveRefresh("refreshed data");
+      await refreshPromise;
+    });
+
+    expect(result.current.loading).toBe(false);
     expect(result.current.data).toBe("refreshed data");
   });
 

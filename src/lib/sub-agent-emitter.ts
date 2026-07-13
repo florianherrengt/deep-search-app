@@ -6,13 +6,14 @@ import {
   startSubAgentProfileMeasure,
 } from "./sub-agent-profiler";
 
-type SubAgentEmitter = (event: SubAgentEvent) => void;
+export type SubAgentEmitter = (event: SubAgentEvent) => void;
 
 let currentEmitter: SubAgentEmitter | null = null;
 let currentMessageId: string | null = null;
 let currentChatId: string | null = null;
 let nextEventSequence = 0;
-const directHandlers = new Map<string, SubAgentEmitter>();
+type DirectSubscription = { handler: SubAgentEmitter };
+const directHandlers = new Map<string, DirectSubscription[]>();
 
 function resolveDisplayTarget(event: SubAgentEvent): SubAgentDisplayTarget {
   if (event.type === "start" && event.displayTarget) return event.displayTarget;
@@ -32,17 +33,44 @@ export function setActiveSubAgentEmitter(
 export function setDirectEventHandler(
   chatId: string,
   handler: SubAgentEmitter | null,
-): void {
+): () => void {
   if (handler) {
-    if (!directHandlers.has(chatId)) {
+    const subscriptions = directHandlers.get(chatId) ?? [];
+    if (subscriptions.length === 0) {
       recordSubAgentSubscription(`direct:${chatId}`, "create");
     }
-    directHandlers.set(chatId, handler);
+    const subscription = { handler };
+    subscriptions.push(subscription);
+    directHandlers.set(chatId, subscriptions);
+    return () => removeDirectEventHandler(chatId, subscription);
   } else {
-    if (directHandlers.delete(chatId)) {
+    const removed = directHandlers.delete(chatId);
+    if (removed) {
       recordSubAgentSubscription(`direct:${chatId}`, "destroy");
     }
+    return () => {};
   }
+}
+
+function removeDirectEventHandler(
+  chatId: string,
+  subscription: DirectSubscription,
+): void {
+  const subscriptions = directHandlers.get(chatId);
+  if (!subscriptions) return;
+
+  const index = subscriptions.indexOf(subscription);
+  if (index === -1) return;
+  subscriptions.splice(index, 1);
+  if (subscriptions.length === 0) {
+    directHandlers.delete(chatId);
+    recordSubAgentSubscription(`direct:${chatId}`, "destroy");
+  }
+}
+
+function getDirectEventHandler(chatId: string): SubAgentEmitter | null {
+  const subscriptions = directHandlers.get(chatId);
+  return subscriptions?.[subscriptions.length - 1]?.handler ?? null;
 }
 
 export function emitSubAgentEvent(event: SubAgentEvent): void {
@@ -57,7 +85,7 @@ export function emitSubAgentEvent(event: SubAgentEvent): void {
     recordSubAgentHandlerDuration("emitter.controller", startedAt);
   }
   if (currentChatId) {
-    const handler = directHandlers.get(currentChatId);
+    const handler = getDirectEventHandler(currentChatId);
     if (handler) {
       const startedAt = startSubAgentProfileMeasure();
       handler(resolved);
@@ -76,7 +104,7 @@ export function emitSubAgentEventToChat(
     : sequencedEvent;
   recordSubAgentEvent(chatId, resolved);
 
-  const handler = directHandlers.get(chatId);
+  const handler = getDirectEventHandler(chatId);
   if (!handler) return;
 
   const startedAt = startSubAgentProfileMeasure();

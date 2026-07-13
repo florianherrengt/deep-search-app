@@ -63,7 +63,7 @@ function parseReleaseVersion(rawInput) {
     return {
       tag,
       version: semverInput,
-      prerelease: false,
+      prerelease: semverInput.includes("-"),
     };
   }
 
@@ -82,7 +82,7 @@ function parseReleaseVersion(rawInput) {
       return {
         tag,
         version,
-        prerelease: false,
+        prerelease: true,
       };
     }
   }

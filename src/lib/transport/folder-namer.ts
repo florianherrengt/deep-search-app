@@ -16,7 +16,10 @@ import {
   validateResearchFolderName,
 } from "./research-folder";
 import { createSubAgentId } from "../sub-agent-types";
-import { emitSubAgentEvent } from "../sub-agent-emitter";
+import {
+  emitSubAgentEvent,
+  type SubAgentEmitter,
+} from "../sub-agent-emitter";
 import {
   type SubAgentReport,
   type SubAgentAttemptReport,
@@ -142,10 +145,15 @@ export interface FolderNamingResult {
   report: SubAgentReport;
 }
 
+interface FolderNamingOptions {
+  abortSignal?: AbortSignal;
+  emitEvent?: SubAgentEmitter;
+}
+
 export async function generateFolderSlug(
   model: LanguageModel,
   title: string,
-  options?: { abortSignal?: AbortSignal },
+  options?: FolderNamingOptions,
 ): Promise<string> {
   const result = await generateFolderSlugWithReport(model, title, options);
   return result.folderName;
@@ -154,12 +162,13 @@ export async function generateFolderSlug(
 export async function generateFolderSlugWithReport(
   model: LanguageModel,
   title: string,
-  options?: { abortSignal?: AbortSignal },
+  options?: FolderNamingOptions,
 ): Promise<FolderNamingResult> {
+  const emitEvent = options?.emitEvent ?? emitSubAgentEvent;
   const saId = createSubAgentId();
   const reportStartedAt = new Date().toISOString();
 
-  emitSubAgentEvent({
+  emitEvent({
     type: "start",
     id: saId,
     source: "sub-agent",
@@ -269,7 +278,7 @@ export async function generateFolderSlugWithReport(
       let chunksReceived = 0;
       for await (const textPart of result.textStream) {
         chunksReceived++;
-        emitSubAgentEvent({ type: "text-delta", id: saId, delta: textPart });
+        emitEvent({ type: "text-delta", id: saId, delta: textPart });
       }
 
       raw = await result.text;
@@ -308,8 +317,8 @@ export async function generateFolderSlugWithReport(
           "Folder naming was cancelled.",
           "Folder naming was cancelled by the user.",
         );
-        emitSubAgentEvent({ type: "report", id: saId, report });
-        emitSubAgentEvent({ type: "cancelled", id: saId });
+        emitEvent({ type: "report", id: saId, report });
+        emitEvent({ type: "cancelled", id: saId });
         throw error;
       }
 
@@ -339,9 +348,9 @@ export async function generateFolderSlugWithReport(
         formatDebugSummary(attempts),
       );
 
-      emitSubAgentEvent({ type: "report", id: saId, report });
+      emitEvent({ type: "report", id: saId, report });
       const finalError = `${STARTUP_NAME_ERROR_PREFIX} ${errMsg}`;
-      emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+      emitEvent({ type: "error", id: saId, error: finalError });
       throw new Error(finalError);
     }
 
@@ -427,9 +436,9 @@ export async function generateFolderSlugWithReport(
         formatDebugSummary(attempts),
       );
 
-      emitSubAgentEvent({ type: "report", id: saId, report });
+      emitEvent({ type: "report", id: saId, report });
       const finalError = `${STARTUP_NAME_ERROR_PREFIX} The generated folder name could not be resolved. ${errMsg}`;
-      emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+      emitEvent({ type: "error", id: saId, error: finalError });
       throw new Error(finalError);
     }
 
@@ -461,8 +470,8 @@ export async function generateFolderSlugWithReport(
       formatDebugSummary(attempts),
     );
 
-    emitSubAgentEvent({ type: "report", id: saId, report });
-    emitSubAgentEvent({ type: "complete", id: saId });
+    emitEvent({ type: "report", id: saId, report });
+    emitEvent({ type: "complete", id: saId });
 
     return { folderName: resolved, report };
   }
@@ -488,9 +497,9 @@ export async function generateFolderSlugWithReport(
         formatDebugSummary(attempts, `Fallback: rejected (${REASON_CODES.FOLDER_ALREADY_EXISTS})`),
       );
 
-      emitSubAgentEvent({ type: "report", id: saId, report });
+      emitEvent({ type: "report", id: saId, report });
       const finalError = `${STARTUP_NAME_ERROR_PREFIX} The generated folder name could not be resolved. ${errMsg}`;
-      emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+      emitEvent({ type: "error", id: saId, error: finalError });
       throw new Error(finalError);
     }
 
@@ -510,8 +519,8 @@ export async function generateFolderSlugWithReport(
       formatDebugSummary(attempts, `Fallback: accepted (${resolved})`),
     );
 
-    emitSubAgentEvent({ type: "report", id: saId, report });
-    emitSubAgentEvent({ type: "complete", id: saId });
+    emitEvent({ type: "report", id: saId, report });
+    emitEvent({ type: "complete", id: saId });
     return { folderName: resolved, report };
   }
 
@@ -530,8 +539,8 @@ export async function generateFolderSlugWithReport(
     `Folder naming failed after ${MAX_ATTEMPTS} LLM attempts.`,
     formatDebugSummary(attempts, `Fallback: rejected (${classifyRejection(fallbackValidationReason)})`),
   );
-  emitSubAgentEvent({ type: "report", id: saId, report });
-  emitSubAgentEvent({ type: "error", id: saId, error: finalError });
+  emitEvent({ type: "report", id: saId, report });
+  emitEvent({ type: "error", id: saId, error: finalError });
   throw new Error(finalError);
 }
 

@@ -532,6 +532,118 @@ describe("DirectTransport research folder lifecycle", () => {
     }
   });
 
+  it("isolates folder-naming events between concurrent transports", async () => {
+    const chatA = "2026-05-22T10-11-12.123Z-a";
+    const chatB = "2026-05-22T10-11-12.123Z-b";
+    const handlerA = vi.fn();
+    const handlerB = vi.fn();
+    setDirectEventHandler(chatA, handlerA);
+    setDirectEventHandler(chatB, handlerB);
+
+    let releaseA!: () => void;
+    let releaseB!: () => void;
+    const gateA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    const gateB = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    let markStartedA!: () => void;
+    let markStartedB!: () => void;
+    const startedA = new Promise<void>((resolve) => {
+      markStartedA = resolve;
+    });
+    const startedB = new Promise<void>((resolve) => {
+      markStartedB = resolve;
+    });
+
+    const createGatedModel = (
+      folderName: string,
+      gate: Promise<void>,
+      markStarted: () => void,
+    ) => {
+      let streamCallCount = 0;
+      return new MockLanguageModelV3({
+        doGenerate: async () => ({
+          content: [{ type: "text", text: folderName }],
+          finishReason: { unified: "stop", raw: "stop" },
+          usage: tokenUsage(),
+          warnings: [],
+        }),
+        doStream: async (): Promise<LanguageModelV3StreamResult> => {
+          streamCallCount++;
+          if (streamCallCount === 1) {
+            markStarted();
+            await gate;
+            return {
+              stream: simulateReadableStream({ chunks: textChunks(folderName) }),
+            };
+          }
+          return {
+            stream: simulateReadableStream({ chunks: textChunks("Done.") }),
+          };
+        },
+      });
+    };
+
+    const modelA = createGatedModel("chat-a-topic", gateA, markStartedA);
+    const modelB = createGatedModel("chat-b-topic", gateB, markStartedB);
+    chatProviderMocks.createChatLanguageModel.mockImplementation(
+      (config: { model: string }) => config.model === "model-a" ? modelA : modelB,
+    );
+
+    const transportA = new DirectTransport(
+      () => ({ provider: "openrouter", apiKey: "chat-key", model: "model-a" }) as never,
+      () => ({}),
+      chatA,
+    );
+    const transportB = new DirectTransport(
+      () => ({ provider: "openrouter", apiKey: "chat-key", model: "model-b" }) as never,
+      () => ({}),
+      chatB,
+    );
+
+    try {
+      const doneA = consumeStream(await transportA.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-a",
+        messageId: "user-a",
+        messages: [userMessage("Research topic A")],
+        abortSignal: undefined,
+      }));
+      await startedA;
+
+      const doneB = consumeStream(await transportB.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-b",
+        messageId: "user-b",
+        messages: [userMessage("Research topic B")],
+        abortSignal: undefined,
+      }));
+      await startedB;
+
+      releaseA();
+      await doneA;
+      releaseB();
+      await doneB;
+
+      const textDeltas = (handler: typeof handlerA) => handler.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.type === "text-delta")
+        .map((event) => event.delta);
+
+      expect(textDeltas(handlerA)).toContain("chat-a-topic");
+      expect(textDeltas(handlerA)).not.toContain("chat-b-topic");
+      expect(textDeltas(handlerB)).toContain("chat-b-topic");
+      expect(textDeltas(handlerB)).not.toContain("chat-a-topic");
+    } finally {
+      releaseA();
+      releaseB();
+      setDirectEventHandler(chatA, null);
+      setDirectEventHandler(chatB, null);
+    }
+  });
+
   it("uses deterministic fallback when model output fails validation", async () => {
     let streamCallIndex = 0;
     const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => {

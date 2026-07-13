@@ -110,6 +110,49 @@ describe("createTools", () => {
     );
   });
 
+  it("passes an injected chat-scoped emitter to sub-agent-producing tools", async () => {
+    aiMocks.streamText.mockReturnValueOnce(mockStreamText(["scoped plan"]));
+    const emitEvent = vi.fn();
+
+    const tools = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+      emitEvent,
+    });
+
+    await tools.create_research_plan.execute?.(
+      { query: "test" },
+      {
+        toolCallId: "plan-call-scoped",
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "ask-questions-scoped",
+                toolName: "ask_questions",
+                input: {},
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "start", id: "sa-registry-1" }),
+    );
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "text-delta", delta: "scoped plan" }),
+    );
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "complete", id: "sa-registry-1" }),
+    );
+    expect(emitterMocks.emitSubAgentEvent).not.toHaveBeenCalled();
+  });
+
   it("registers YouTube search from the configured key without exposing subtitle-only extraction", async () => {
     const toolsWithoutKey = await createTools({
       model: makeModel(),

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -26,6 +26,8 @@ const APP_LOG_DIR: &str = "logs";
 const APP_LOG_FILENAME: &str = "deep-search.log";
 const MAX_RENDERER_LOG_ENTRIES: usize = 200;
 const MAX_LOG_MESSAGE_CHARS: usize = 32_000;
+const MAX_APP_LOG_BYTES: u64 = 5 * 1024 * 1024;
+static APP_LOG_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 struct SidecarState {
     pid: Mutex<Option<u32>>,
@@ -964,21 +966,63 @@ fn append_log_lines<I>(app: &AppHandle, lines: I) -> Result<PathBuf, String>
 where
     I: IntoIterator<Item = String>,
 {
+    let lines: Vec<String> = lines.into_iter().collect();
+    let _write_guard = APP_LOG_WRITE_LOCK
+        .lock()
+        .map_err(|_| "App log write lock is poisoned.".to_string())?;
     let log_path = ensure_app_log_file(app)?;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .map_err(|e| {
+    append_lines_to_log_file(&log_path, lines, MAX_APP_LOG_BYTES)?;
+
+    Ok(log_path)
+}
+
+fn append_lines_to_log_file<I>(log_path: &Path, lines: I, max_bytes: u64) -> Result<(), String>
+where
+    I: IntoIterator<Item = String>,
+{
+    let file_name = log_path
+        .file_name()
+        .ok_or_else(|| "App log path has no filename.".to_string())?
+        .to_string_lossy();
+    let backup_path = log_path.with_file_name(format!("{file_name}.1"));
+
+    cap_log_file_to_bytes(log_path, max_bytes)?;
+    cap_log_file_to_bytes(&backup_path, max_bytes)?;
+
+    if max_bytes == 0 {
+        return Ok(());
+    }
+
+    let max_line_bytes = usize::try_from(max_bytes.saturating_sub(1)).unwrap_or(usize::MAX);
+
+    for line in lines {
+        let mut end = line.len().min(max_line_bytes);
+        while !line.is_char_boundary(end) {
+            end -= 1;
+        }
+        let line = &line[..end];
+        let incoming_bytes = line.len() as u64 + 1;
+
+        rotate_log_file_if_needed(log_path, incoming_bytes, max_bytes)?;
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+            .map_err(|e| {
+                format!(
+                    "Failed to open app log file at {}: {}",
+                    log_path.to_string_lossy(),
+                    e
+                )
+            })?;
+        file.write_all(line.as_bytes()).map_err(|e| {
             format!(
-                "Failed to open app log file at {}: {}",
+                "Failed to write app log file at {}: {}",
                 log_path.to_string_lossy(),
                 e
             )
         })?;
-
-    for line in lines {
-        writeln!(file, "{}", line).map_err(|e| {
+        file.write_all(b"\n").map_err(|e| {
             format!(
                 "Failed to write app log file at {}: {}",
                 log_path.to_string_lossy(),
@@ -987,7 +1031,132 @@ where
         })?;
     }
 
-    Ok(log_path)
+    Ok(())
+}
+
+fn cap_log_file_to_bytes(log_path: &Path, max_bytes: u64) -> Result<(), String> {
+    let file_bytes = match fs::metadata(log_path) {
+        Ok(metadata) if metadata.len() > max_bytes => metadata.len(),
+        Ok(_) => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "Failed to inspect app log file at {}: {}",
+                log_path.to_string_lossy(),
+                error
+            ));
+        }
+    };
+
+    if max_bytes == 0 {
+        return fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(log_path)
+            .map(|_| ())
+            .map_err(|error| {
+                format!(
+                    "Failed to cap app log file at {}: {}",
+                    log_path.to_string_lossy(),
+                    error
+                )
+            });
+    }
+
+    // Historical versions did not cap this file. Read only a bounded suffix
+    // so migrating a very large legacy log cannot allocate its full size.
+    // The extra bytes are enough to recover if the suffix starts in the
+    // middle of a UTF-8 code point.
+    let read_bytes = file_bytes.min(max_bytes.saturating_add(3));
+    let mut file = fs::File::open(log_path).map_err(|error| {
+        format!(
+            "Failed to open app log file at {}: {}",
+            log_path.to_string_lossy(),
+            error
+        )
+    })?;
+    file.seek(SeekFrom::Start(file_bytes - read_bytes))
+        .map_err(|error| {
+            format!(
+                "Failed to seek app log file at {}: {}",
+                log_path.to_string_lossy(),
+                error
+            )
+        })?;
+    let mut bytes = Vec::with_capacity(usize::try_from(read_bytes).unwrap_or(0));
+    file.take(read_bytes)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            format!(
+                "Failed to read app log file at {}: {}",
+                log_path.to_string_lossy(),
+                error
+            )
+        })?;
+
+    let contents = String::from_utf8_lossy(&bytes);
+    let max_bytes = usize::try_from(max_bytes).unwrap_or(usize::MAX);
+    let mut start = contents.len().saturating_sub(max_bytes);
+    while !contents.is_char_boundary(start) {
+        start += 1;
+    }
+
+    fs::write(log_path, &contents.as_bytes()[start..]).map_err(|error| {
+        format!(
+            "Failed to cap app log file at {}: {}",
+            log_path.to_string_lossy(),
+            error
+        )
+    })
+}
+
+fn rotate_log_file_if_needed(
+    log_path: &Path,
+    incoming_bytes: u64,
+    max_bytes: u64,
+) -> Result<(), String> {
+    let current_bytes = match fs::metadata(log_path) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => {
+            return Err(format!(
+                "Failed to inspect app log file at {}: {}",
+                log_path.to_string_lossy(),
+                error
+            ));
+        }
+    };
+
+    if current_bytes == 0 || current_bytes.saturating_add(incoming_bytes) <= max_bytes {
+        return Ok(());
+    }
+
+    let file_name = log_path
+        .file_name()
+        .ok_or_else(|| "App log path has no filename.".to_string())?
+        .to_string_lossy();
+    let backup_path = log_path.with_file_name(format!("{file_name}.1"));
+
+    match fs::remove_file(&backup_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(format!(
+                "Failed to replace rotated app log at {}: {}",
+                backup_path.to_string_lossy(),
+                error
+            ));
+        }
+    }
+
+    fs::rename(log_path, &backup_path).map_err(|error| {
+        format!(
+            "Failed to rotate app log from {} to {}: {}",
+            log_path.to_string_lossy(),
+            backup_path.to_string_lossy(),
+            error
+        )
+    })
 }
 
 fn write_native_log(app: &AppHandle, level: &str, target: &str, message: &str) {
@@ -1744,6 +1913,87 @@ mod tests {
 
         assert!(sanitized.ends_with("... [truncated]"));
         assert!(sanitized.len() < long.len() + "... [truncated]".len());
+    }
+
+    #[test]
+    fn log_rotation_replaces_the_single_backup_before_size_limit() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_dir = std::env::temp_dir().join(format!("deep-search-log-{unique}"));
+        let log_path = test_dir.join(APP_LOG_FILENAME);
+        let backup_path = test_dir.join(format!("{APP_LOG_FILENAME}.1"));
+        fs::create_dir_all(&test_dir).unwrap();
+        fs::write(&log_path, b"current").unwrap();
+        fs::write(&backup_path, b"stale-backup").unwrap();
+
+        rotate_log_file_if_needed(&log_path, 4, 10).unwrap();
+
+        assert!(!log_path.exists());
+        assert_eq!(fs::read(&backup_path).unwrap(), b"current");
+        fs::remove_dir_all(test_dir).unwrap();
+    }
+
+    #[test]
+    fn log_rotation_keeps_current_file_within_size_limit() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_dir = std::env::temp_dir().join(format!("deep-search-log-{unique}"));
+        let log_path = test_dir.join(APP_LOG_FILENAME);
+        fs::create_dir_all(&test_dir).unwrap();
+        fs::write(&log_path, b"current").unwrap();
+
+        rotate_log_file_if_needed(&log_path, 3, 10).unwrap();
+
+        assert_eq!(fs::read(&log_path).unwrap(), b"current");
+        assert!(!test_dir.join(format!("{APP_LOG_FILENAME}.1")).exists());
+        fs::remove_dir_all(test_dir).unwrap();
+    }
+
+    #[test]
+    fn log_append_caps_oversized_batches_by_bytes() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_dir = std::env::temp_dir().join(format!("deep-search-log-{unique}"));
+        let log_path = test_dir.join(APP_LOG_FILENAME);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        append_lines_to_log_file(
+            &log_path,
+            vec!["é".repeat(20), "x".repeat(30), "latest".to_string()],
+            16,
+        )
+        .unwrap();
+
+        assert!(fs::metadata(&log_path).unwrap().len() <= 16);
+        let backup_path = test_dir.join(format!("{APP_LOG_FILENAME}.1"));
+        assert!(fs::metadata(backup_path).unwrap().len() <= 16);
+        fs::remove_dir_all(test_dir).unwrap();
+    }
+
+    #[test]
+    fn log_append_caps_an_oversized_legacy_file_to_a_utf8_tail() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_dir = std::env::temp_dir().join(format!("deep-search-log-{unique}"));
+        let log_path = test_dir.join(APP_LOG_FILENAME);
+        fs::create_dir_all(&test_dir).unwrap();
+        fs::write(&log_path, format!("{}é-tail", "prefix".repeat(100))).unwrap();
+
+        append_lines_to_log_file(&log_path, Vec::<String>::new(), 16).unwrap();
+
+        let capped = fs::read(&log_path).unwrap();
+        assert!(capped.len() <= 16);
+        assert!(std::str::from_utf8(&capped).is_ok());
+        assert!(String::from_utf8(capped).unwrap().ends_with("é-tail"));
+        fs::remove_dir_all(test_dir).unwrap();
     }
 
     #[test]

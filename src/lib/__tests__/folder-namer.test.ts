@@ -341,6 +341,27 @@ describe("generateFolderSlug validation", () => {
 });
 
 describe("generateFolderSlug sub-agent events", () => {
+  it("uses an injected chat-scoped emitter instead of the ambient emitter", async () => {
+    slugifyName.mockReturnValue("acme-research");
+    resolveUnique.mockResolvedValueOnce("acme-research");
+    const emitEvent = vi.fn();
+
+    await generateFolderSlug(modelReturning("acme-research"), "Research ACME", {
+      emitEvent,
+    });
+
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "start", toolName: "name_folder" }),
+    );
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "text-delta", delta: "acme-research" }),
+    );
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "complete" }),
+    );
+    expect(mockedEmit).not.toHaveBeenCalled();
+  });
+
   it("emits start, text-delta, and complete on success", async () => {
     slugifyName.mockReturnValue("acme-research");
     resolveUnique.mockResolvedValueOnce("acme-research");

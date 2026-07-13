@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { act, renderHook } from "@testing-library/react";
+import { createElement, StrictMode, type ReactNode } from "react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import {
   APP_UPDATE_CHECK_INTERVAL_MS,
@@ -320,6 +321,27 @@ describe("getErrorMessage", () => {
 });
 
 describe("useAppUpdate", () => {
+  it("keeps the latest automatic check mounted under React StrictMode", async () => {
+    bridgeMocks.isTauri.mockReturnValue(true);
+    const staleUpdate = createUpdate();
+    const currentUpdate = createUpdate();
+    bridgeMocks.checkForUpdate
+      .mockResolvedValueOnce(staleUpdate)
+      .mockResolvedValueOnce(currentUpdate);
+
+    const { result } = renderHook(() => useAppUpdate(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        createElement(StrictMode, null, children)
+      ),
+    });
+
+    await waitFor(() => {
+      expect(bridgeMocks.checkForUpdate).toHaveBeenCalledTimes(2);
+      expect(result.current.state.status).toBe("available");
+    });
+    expect(currentUpdate.close).not.toHaveBeenCalled();
+  });
+
   it("automatically checks immediately and then every hour", async () => {
     vi.useFakeTimers();
     bridgeMocks.isTauri.mockReturnValue(true);

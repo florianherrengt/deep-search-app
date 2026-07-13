@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "lint": "eslint .",
-    "build": "tsc && vite build",
+    "build": "tsc && tsc --project tsconfig.node.json --noEmit && vite build",
     "mcp": "node scripts/deep-search-mcp.mjs",
     "preview": "vite preview",
     "verify": "npm run lint && npm test && npm run build && npm run build-storybook && npm run test:browser && cargo test --manifest-path src-tauri/Cargo.toml && npm run test:e2e && npm run test:visual && npm run benchmark:subagents",
@@ -19,7 +19,7 @@
     "tauri": "tauri",
     "tauri:build:release": "tauri build --config src-tauri/tauri.release.conf.json",
     "test": "vitest run --project unit",
-    "test:unit:quiet": "mkdir -p .agent-logs && vitest run --project unit --reporter=minimal --silent=passed-only --bail=1 2>&1 | tee .agent-logs/vitest.log | tail -n 80",
+    "test:unit:quiet": "node scripts/run-vitest-quiet.mjs",
     "test:unit:focused": "vitest run --project unit --reporter=minimal --silent=passed-only --bail=1",
     "test:browser": "vitest run --project storybook",
     "test:all": "vitest run",

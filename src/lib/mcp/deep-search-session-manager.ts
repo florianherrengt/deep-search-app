@@ -193,9 +193,12 @@ export class DeepSearchSessionManager {
   }
 
   private async runUntilPause(session: DeepSearchSession) {
-    setDirectEventHandler(session.researchChatId, (event) => {
-      this.config.onSubAgentEvent?.(session.researchChatId, event);
-    });
+    const unsubscribeSubAgentEvents = setDirectEventHandler(
+      session.researchChatId,
+      (event) => {
+        this.config.onSubAgentEvent?.(session.researchChatId, event);
+      },
+    );
 
     try {
       while (!session.abortController.signal.aborted) {
@@ -228,7 +231,7 @@ export class DeepSearchSessionManager {
 
       session.status = "cancelled";
     } finally {
-      setDirectEventHandler(session.researchChatId, null);
+      unsubscribeSubAgentEvents();
     }
   }
 

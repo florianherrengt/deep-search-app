@@ -326,17 +326,15 @@ function ChatVisibleView({
     );
     if (missingModels.length === 0) return;
 
-    const abortController = new AbortController();
+    let active = true;
     void Promise.all(
       missingModels.map(async (option) => ({
         id: option.id,
         contextWindowTokens:
-          (await fetchChatModelContextWindowTokens(option, {
-            abortSignal: abortController.signal,
-          })) ?? null,
+          (await fetchChatModelContextWindowTokens(option)) ?? null,
       })),
     ).then((results) => {
-      if (abortController.signal.aborted) return;
+      if (!active) return;
 
       setFetchedContextWindows((current) => {
         let changed = false;
@@ -351,13 +349,13 @@ function ChatVisibleView({
         return changed ? next : current;
       });
     }).catch((err) => {
-      if (!abortController.signal.aborted) {
+      if (active) {
         console.error("[chat] Failed to fetch context windows:", err);
       }
     });
 
     return () => {
-      abortController.abort();
+      active = false;
     };
   }, [enabledModels, fetchedContextWindows]);
 
@@ -472,8 +470,7 @@ function SubAgentEventBridge({
     const handler = (event: SubAgentEvent) => {
       processEvent(researchChatId, event);
     };
-    setDirectEventHandler(researchChatId, handler);
-    return () => setDirectEventHandler(researchChatId, null);
+    return setDirectEventHandler(researchChatId, handler);
   }, [processEvent, researchChatId]);
 
   const processedPartsByMessageRef = useRef<Record<string, number>>(

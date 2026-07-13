@@ -155,7 +155,6 @@ export function getKnownChatModelContextWindowTokens({
 export async function fetchChatModelContextWindowTokens(
   config: Pick<ChatModelConfig, "provider" | "model"> &
     Partial<Pick<ChatModelConfig, "apiKey">>,
-  options: { abortSignal?: AbortSignal } = {},
 ): Promise<number | undefined> {
   const known = getKnownChatModelContextWindowTokens(config);
   if (known) return known;
@@ -168,7 +167,6 @@ export async function fetchChatModelContextWindowTokens(
   const promise = fetchOpenRouterModelContextWindowTokens(
     modelId,
     config.provider === "openrouter" ? config.apiKey : undefined,
-    options.abortSignal,
   )
     .catch(() => undefined)
     .then((tokens) => {
@@ -186,14 +184,12 @@ export async function fetchChatModelContextWindowTokens(
 async function fetchOpenRouterModelContextWindowTokens(
   modelId: string,
   apiKey: string | undefined,
-  abortSignal: AbortSignal | undefined,
 ): Promise<number | undefined> {
   const trimmedApiKey = apiKey?.trim();
   const response = await providerFetch(OPENROUTER_MODELS_URL, {
     ...(trimmedApiKey
       ? { headers: { Authorization: `Bearer ${trimmedApiKey}` } }
       : {}),
-    signal: abortSignal,
   });
   if (!response.ok) {
     console.warn("[context-window] OpenRouter models fetch failed:", response.status);
@@ -250,4 +246,3 @@ function normalizeZhipuBaseURL(baseURL: string | undefined): string | undefined 
 }
 
 const providerFetch: typeof fetch = bridgeFetch;
-

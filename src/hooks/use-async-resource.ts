@@ -16,20 +16,24 @@ export function useAsyncResource<T>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const generationRef = useRef(0);
+  const hasHydratedDataRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const gen = ++generationRef.current;
-    setLoading(true);
+    // Keep hydrated consumers mounted while revalidating existing data.
     try {
       const next = await load();
       if (gen === generationRef.current) {
+        hasHydratedDataRef.current = true;
         setData(next);
         setError(null);
         setLoading(false);
       }
     } catch (err) {
       if (gen === generationRef.current) {
-        setError(err instanceof Error ? err : new Error(String(err)));
+        if (!hasHydratedDataRef.current) {
+          setError(err instanceof Error ? err : new Error(String(err)));
+        }
         setLoading(false);
       }
     }
@@ -43,6 +47,7 @@ export function useAsyncResource<T>(
     load()
       .then((d) => {
         if (!cancelled && gen === generationRef.current) {
+          hasHydratedDataRef.current = true;
           setData(d);
           setLoading(false);
         }

@@ -139,6 +139,25 @@ describe("createResearchPlanTool", () => {
     );
   });
 
+  it("uses an injected chat-scoped emitter instead of the ambient emitter", async () => {
+    aiMocks.streamText.mockReturnValueOnce(mockStreamText(["plan", " chunk"]));
+    const emitEvent = vi.fn();
+
+    const t = createResearchPlanTool(makeModel(), { emitEvent }) as unknown as ExecutablePlanTool;
+    await t.execute({ query: "test" });
+
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "start", id: "sa-test-1" }),
+    );
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "text-delta", delta: "plan" }),
+    );
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "complete", id: "sa-test-1" }),
+    );
+    expect(emitterMocks.emitSubAgentEvent).not.toHaveBeenCalled();
+  });
+
   it("targets the main-chat tool call when toolCallId is available", async () => {
     const model = makeModel();
     aiMocks.streamText.mockReturnValueOnce(mockStreamText(["chunk"]));

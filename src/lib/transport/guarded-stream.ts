@@ -24,6 +24,7 @@ import {
   repairInterruptedToolCallMessages,
 } from "@/lib/tool-call-repair";
 import { SOCIAL_SOURCE_EXECUTION_GUIDANCE } from "@/lib/research-source-guidance";
+import type { SubAgentEmitter } from "@/lib/sub-agent-emitter";
 
 const INTERNAL_GUARDRAIL_RETRY_GUIDANCE = [
   "## Internal guardrail retries",
@@ -40,6 +41,7 @@ export function createGuardedStream({
   abortSignal,
   onResearchFolderChange,
   searchKeys,
+  emitEvent,
   controller,
 }: {
   model: LanguageModel;
@@ -48,6 +50,7 @@ export function createGuardedStream({
   abortSignal: AbortSignal | undefined;
   onResearchFolderChange?: (folderName: string) => void | Promise<void>;
   searchKeys?: SearchToolKeys;
+  emitEvent?: SubAgentEmitter;
   controller: ReadableStreamDefaultController<UIMessageChunk>;
 }): Promise<void> {
   return (async () => {
@@ -65,6 +68,7 @@ export function createGuardedStream({
           await onResearchFolderChange?.(activeResearchFolder);
         },
         searchKeys,
+        emitEvent,
       });
 
       const repair = repairInterruptedToolCallMessages(messages);

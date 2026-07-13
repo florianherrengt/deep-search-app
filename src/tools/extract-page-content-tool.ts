@@ -1,7 +1,10 @@
 import { tool, zodSchema, streamText, type LanguageModel } from "ai";
 import { z } from "zod";
 import { fetch as bridgeFetch, invoke } from "@/lib/tauri-bridge";
-import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
+import {
+  emitSubAgentEvent,
+  type SubAgentEmitter,
+} from "@/lib/sub-agent-emitter";
 import { createSubAgentId } from "@/lib/sub-agent-types";
 import {
   abortableDelay,
@@ -58,6 +61,7 @@ interface ExtractPageContentOptions {
   };
   scrapeDoApiKey?: string | null;
   youtubeSubtitleDownload?: YouTubeSubtitleDownloadConfig;
+  emitEvent?: SubAgentEmitter;
 }
 
 export interface YouTubeSubtitleDownloadConfig {
@@ -303,6 +307,7 @@ async function summarizeContent(
   query?: string,
   abortSignal?: AbortSignal,
   subAgentId?: string,
+  emitEvent: SubAgentEmitter = emitSubAgentEvent,
 ): Promise<string> {
   if (!markdown.trim()) return "";
   const result = streamText({
@@ -314,7 +319,7 @@ async function summarizeContent(
   });
   if (subAgentId) {
     for await (const textPart of result.textStream) {
-      emitSubAgentEvent({ type: "text-delta", id: subAgentId, delta: textPart });
+      emitEvent({ type: "text-delta", id: subAgentId, delta: textPart });
     }
   }
   return result.text;
@@ -471,11 +476,19 @@ async function trySummarizeContent(
   query: string | undefined,
   abortSignal?: AbortSignal,
   subAgentId?: string,
+  emitEvent: SubAgentEmitter = emitSubAgentEvent,
 ): Promise<string | null> {
   if (!model || !content.trim()) return null;
 
   try {
-    return await summarizeContent(model, content, query, abortSignal, subAgentId);
+    return await summarizeContent(
+      model,
+      content,
+      query,
+      abortSignal,
+      subAgentId,
+      emitEvent,
+    );
   } catch (error) {
     if (isAbortError(error)) throw error;
     return null;
@@ -493,9 +506,10 @@ export async function extractPageContent(
 ): Promise<string> {
   const forced = options.method ?? "auto";
   const saId = options.subAgentId;
+  const emitEvent = options.emitEvent ?? emitSubAgentEvent;
 
   if (saId) {
-    emitSubAgentEvent({ type: "text-delta", id: saId, delta: `Extracting content from ${url}...\n\n` });
+    emitEvent({ type: "text-delta", id: saId, delta: `Extracting content from ${url}...\n\n` });
   }
 
   const core = await loadCore();
@@ -539,6 +553,7 @@ export async function extractPageContent(
         options.query,
         options.abortSignal,
         saId,
+        emitEvent,
       )) ??
       content
     );
@@ -560,6 +575,7 @@ export async function extractPageContent(
       options.query,
       options.abortSignal,
       saId,
+      emitEvent,
     );
     if (summary) {
       try {
@@ -619,7 +635,9 @@ export function createExtractPageContentTool(
   },
   scrapeDoApiKey?: string | null,
   youtubeSubtitleDownload?: YouTubeSubtitleDownloadConfig,
+  deps?: { emitEvent?: SubAgentEmitter },
 ) {
+  const emitEvent = deps?.emitEvent ?? emitSubAgentEvent;
   return tool({
     description:
       "Extract the plain-text content of a web page with scripts, styles, hidden UI, and obvious boilerplate stripped. Use this to read the content of a URL found during research. Raw HTML and cleaned text are automatically saved to the research folder.\n\nBy default the page is summarized. Provide a `query` to focus the summary on specific information — for example `query: \"price and availability\"` returns a summary centered on those details. Set `summarize: false` when you need the full page content.",
@@ -636,7 +654,7 @@ export function createExtractPageContentTool(
 
       const saId = createSubAgentId();
       const toolCallId = options?.toolCallId;
-      emitSubAgentEvent({
+      emitEvent({
         type: "start",
         id: saId,
         source: "sub-agent",
@@ -660,9 +678,10 @@ export function createExtractPageContentTool(
           chromeMcp,
           scrapeDoApiKey,
           youtubeSubtitleDownload,
+          emitEvent,
         });
 
-        emitSubAgentEvent({ type: "complete", id: saId });
+        emitEvent({ type: "complete", id: saId });
         return result;
       } catch (error) {
         // Distinguish cancellation from real failures so the sub-agent UI
@@ -670,9 +689,9 @@ export function createExtractPageContentTool(
         // the run. The underlying error is still re-thrown so the abort
         // propagates to the orchestrator.
         if (isAbortError(error) || options?.abortSignal?.aborted) {
-          emitSubAgentEvent({ type: "cancelled", id: saId });
+          emitEvent({ type: "cancelled", id: saId });
         } else {
-          emitSubAgentEvent({
+          emitEvent({
             type: "error",
             id: saId,
             error: error instanceof Error ? error.message : String(error),

@@ -93,6 +93,7 @@ export function useAppUpdate(options?: { manual?: boolean }) {
   const isMountedRef = useRef(true);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       latestCheckIdRef.current += 1;

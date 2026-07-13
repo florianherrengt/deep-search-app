@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { ReactNode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import type { UIMessage } from "ai";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -27,7 +27,7 @@ const appMocks = vi.hoisted(() => ({
   })),
   resetAll: vi.fn(async () => undefined),
   researchSidebar: vi.fn(),
-  setupMenu: vi.fn(),
+  setupMenu: vi.fn(async () => undefined),
   subscribeResearchLibraryChanged: vi.fn(() => () => undefined),
   switchToTab: vi.fn(),
   updateSetting: vi.fn(async () => undefined),
@@ -213,6 +213,18 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("initializes the native app menu once under React StrictMode", async () => {
+    appMocks.settingsLoading = false;
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(appMocks.setupMenu).toHaveBeenCalledTimes(1));
+  });
+
   it("keeps AppInner hook order stable when settings finish loading", () => {
     const { rerender } = render(<App />);
 

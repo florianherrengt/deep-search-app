@@ -26,6 +26,7 @@ vi.mock("@/lib/tauri-bridge", () => ({
 import {
   createResearchChatId,
   deleteResearchFolder,
+  initializeResearchFolder,
   listResearchChats,
   listResearchFolders,
   moveResearchChatToFolder,
@@ -344,18 +345,61 @@ describe("research history", () => {
       { recursive: true },
     );
     expect(fsMocks.writeTextFile).toHaveBeenCalledWith(
-      "search-results/market-map/chats/2026-05-22T10-11-12.123Z.json",
+      `search-results/market-map/chats/${chatId}.json`,
       expect.any(String),
     );
     const written = parseWrittenChat(fsMocks.writeTextFile.mock.calls[0][1]);
     expect(written.meta).toEqual(
       expect.objectContaining({
-        id: "2026-05-22T10-11-12.123Z",
+        id: chatId,
         title: "Hello",
         createdAt: "2026-05-22T10:11:12.123Z",
       }),
     );
     expect(written.messages).toEqual(messages);
+  });
+
+  it("creates unique chat ids within the same millisecond", () => {
+    const date = new Date("2026-05-22T10:11:12.123Z");
+
+    const first = createResearchChatId(date);
+    const second = createResearchChatId(date);
+
+    expect(first).not.toBe(second);
+    expect(first).toMatch(
+      /^2026-05-22T10-11-12\.123Z--[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it("creates collision-resistant chat ids without crypto.randomUUID", () => {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis.crypto,
+      "randomUUID",
+    );
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      const id = createResearchChatId(
+        new Date("2026-05-22T10:11:12.123Z"),
+      );
+
+      expect(id).toMatch(
+        /^2026-05-22T10-11-12\.123Z--[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/,
+      );
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(
+          globalThis.crypto,
+          "randomUUID",
+          originalDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(globalThis.crypto, "randomUUID");
+      }
+    }
   });
 
   it("renames research folders", async () => {
@@ -1467,6 +1511,304 @@ describe("incremental JSONL chat persistence", () => {
     appends: allWrites.filter(
       (w) => w.path === chatPath(chatId) && w.append,
     ),
+  });
+
+  function configureDirectoryAwareStorage() {
+    fsMocks.exists.mockImplementation(async (candidatePath: string) =>
+      files.has(candidatePath) ||
+      [...files.keys()].some((path) => path.startsWith(`${candidatePath}/`)),
+    );
+    fsMocks.remove.mockImplementation(
+      async (candidatePath: string, options?: { recursive?: boolean }) => {
+        if (options?.recursive) {
+          for (const path of [...files.keys()]) {
+            if (path === candidatePath || path.startsWith(`${candidatePath}/`)) {
+              files.delete(path);
+            }
+          }
+          return;
+        }
+        files.delete(candidatePath);
+      },
+    );
+    fsMocks.rename.mockImplementation(
+      async (oldPath: string, newPath: string) => {
+        const entries = [...files.entries()].filter(
+          ([path]) => path === oldPath || path.startsWith(`${oldPath}/`),
+        );
+        for (const [path] of entries) {
+          files.delete(path);
+        }
+        for (const [path, content] of entries) {
+          files.set(`${newPath}${path.slice(oldPath.length)}`, content);
+        }
+      },
+    );
+  }
+
+  function gateFirstChatRewrite(path: string) {
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const canFinish = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let blocked = false;
+
+    fsMocks.writeTextFile.mockImplementation(
+      async (
+        candidatePath: string,
+        content: string,
+        opts?: { append?: boolean },
+      ) => {
+        const append = opts?.append === true;
+        allWrites.push({ path: candidatePath, content, append });
+        if (candidatePath === path && !append && !blocked) {
+          blocked = true;
+          markStarted();
+          await canFinish;
+        }
+        files.set(
+          candidatePath,
+          append ? (files.get(candidatePath) ?? "") + content : content,
+        );
+      },
+    );
+
+    return { started, release };
+  }
+
+  async function settledBeforeNextTurn(promise: Promise<unknown>) {
+    return Promise.race([
+      promise.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 0)),
+    ]);
+  }
+
+  it("serializes overlapping saves for the same chat", async () => {
+    const chatId = "2026-05-22T10-11-12.123Z";
+    const path = chatPath(chatId);
+    let chatExistsChecks = 0;
+    let releaseFirstWrite!: () => void;
+    let markFirstWriteStarted!: () => void;
+    let markSecondSaveAccessedTranscript!: () => void;
+    const firstWriteStarted = new Promise<void>((resolve) => {
+      markFirstWriteStarted = resolve;
+    });
+    const secondSaveAccessedTranscript = new Promise<void>((resolve) => {
+      markSecondSaveAccessedTranscript = resolve;
+    });
+    const firstWriteCanFinish = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+
+    fsMocks.exists.mockImplementation(async (candidatePath: string) => {
+      if (candidatePath === path) {
+        chatExistsChecks += 1;
+        if (chatExistsChecks === 2) {
+          markSecondSaveAccessedTranscript();
+        }
+      }
+      return files.has(candidatePath);
+    });
+
+    let chatRewriteCount = 0;
+    fsMocks.writeTextFile.mockImplementation(
+      async (
+        candidatePath: string,
+        content: string,
+        opts?: { append?: boolean },
+      ) => {
+        const append = opts?.append === true;
+        allWrites.push({ path: candidatePath, content, append });
+
+        if (candidatePath === path && !append) {
+          chatRewriteCount += 1;
+          if (chatRewriteCount === 1) {
+            markFirstWriteStarted();
+            await firstWriteCanFinish;
+          }
+        }
+
+        files.set(
+          candidatePath,
+          append ? (files.get(candidatePath) ?? "") + content : content,
+        );
+      },
+    );
+
+    const firstSave = saveResearchChatMessages("folder", chatId, [
+      msg("u1", "hello"),
+    ] as never);
+    await firstWriteStarted;
+
+    const secondSave = saveResearchChatMessages("folder", chatId, [
+      msg("u1", "hello"),
+      msg("a1", "answer"),
+    ] as never);
+    const secondStartedBeforeRelease = await Promise.race([
+      secondSaveAccessedTranscript.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 0)),
+    ]);
+
+    releaseFirstWrite();
+    await Promise.all([firstSave, secondSave]);
+
+    expect(secondStartedBeforeRelease).toBe(false);
+    await expect(readResearchChatMessages("folder", chatId)).resolves.toEqual([
+      msg("u1", "hello"),
+      msg("a1", "answer"),
+    ]);
+  });
+
+  it("waits for a pending chat save before deleting its folder", async () => {
+    configureDirectoryAwareStorage();
+    files.set("search-results/folder/existing.txt", "existing");
+    const chatId = "2026-05-22T10-11-12.123Z";
+    const gate = gateFirstChatRewrite(chatPath(chatId));
+
+    const save = saveResearchChatMessages("folder", chatId, [
+      msg("u1", "hello"),
+    ] as never);
+    await gate.started;
+
+    const deletion = deleteResearchFolder("folder");
+    const deletedBeforeSaveFinished = await settledBeforeNextTurn(deletion);
+
+    gate.release();
+    await Promise.all([save, deletion]);
+
+    expect(deletedBeforeSaveFinished).toBe(false);
+    expect(
+      [...files.keys()].some((path) => path.startsWith("search-results/folder/")),
+    ).toBe(false);
+  });
+
+  it("waits for pending folder initialization before deleting the folder", async () => {
+    let releaseInitialization!: () => void;
+    let markInitializationStarted!: () => void;
+    const initializationStarted = new Promise<void>((resolve) => {
+      markInitializationStarted = resolve;
+    });
+    const canFinishInitialization = new Promise<void>((resolve) => {
+      releaseInitialization = resolve;
+    });
+    fsMocks.mkdir.mockImplementation(async (candidatePath: string) => {
+      if (candidatePath === "search-results/folder") {
+        markInitializationStarted();
+        await canFinishInitialization;
+      }
+    });
+    fsMocks.exists.mockImplementation(
+      async (candidatePath: string) => candidatePath === "search-results/folder",
+    );
+
+    const initialization = initializeResearchFolder("folder");
+    await initializationStarted;
+    const deletion = deleteResearchFolder("folder");
+    const deletedBeforeInitializationFinished =
+      await settledBeforeNextTurn(deletion);
+
+    releaseInitialization();
+    await Promise.all([initialization, deletion]);
+
+    expect(deletedBeforeInitializationFinished).toBe(false);
+    expect(fsMocks.remove).toHaveBeenCalledWith("search-results/folder", {
+      recursive: true,
+    });
+  });
+
+  it("waits for pending folder initialization before renaming the folder", async () => {
+    let releaseInitialization!: () => void;
+    let markInitializationStarted!: () => void;
+    const initializationStarted = new Promise<void>((resolve) => {
+      markInitializationStarted = resolve;
+    });
+    const canFinishInitialization = new Promise<void>((resolve) => {
+      releaseInitialization = resolve;
+    });
+    fsMocks.mkdir.mockImplementation(async (candidatePath: string) => {
+      if (candidatePath === "search-results/folder") {
+        markInitializationStarted();
+        await canFinishInitialization;
+      }
+    });
+    fsMocks.exists.mockResolvedValue(false);
+
+    const initialization = initializeResearchFolder("folder");
+    await initializationStarted;
+    const rename = renameResearchFolder("folder", "renamed-folder");
+    const renamedBeforeInitializationFinished =
+      await settledBeforeNextTurn(rename);
+
+    releaseInitialization();
+    await Promise.all([initialization, rename]);
+
+    expect(renamedBeforeInitializationFinished).toBe(false);
+    expect(fsMocks.rename).toHaveBeenCalledWith(
+      "search-results/folder",
+      "search-results/renamed-folder",
+    );
+  });
+
+  it("waits for a pending chat save before renaming its folder", async () => {
+    configureDirectoryAwareStorage();
+    files.set("search-results/folder/existing.txt", "existing");
+    const chatId = "2026-05-22T10-11-12.123Z";
+    const gate = gateFirstChatRewrite(chatPath(chatId));
+
+    const save = saveResearchChatMessages("folder", chatId, [
+      msg("u1", "hello"),
+    ] as never);
+    await gate.started;
+
+    const rename = renameResearchFolder("folder", "renamed-folder");
+    const renamedBeforeSaveFinished = await settledBeforeNextTurn(rename);
+
+    gate.release();
+    await Promise.all([save, rename]);
+
+    expect(renamedBeforeSaveFinished).toBe(false);
+    expect(
+      [...files.keys()].some((path) => path.startsWith("search-results/folder/")),
+    ).toBe(false);
+    expect(
+      files.has(`search-results/renamed-folder/chats/${chatId}.json`),
+    ).toBe(true);
+  });
+
+  it("waits for a pending source save before moving a chat across folders", async () => {
+    configureDirectoryAwareStorage();
+    files.set("search-results/source-folder/existing.txt", "existing");
+    const chatId = "2026-05-22T10-11-12.123Z";
+    const sourcePath = `search-results/source-folder/chats/${chatId}.json`;
+    const destinationPath = `search-results/destination-folder/chats/${chatId}.json`;
+    const gate = gateFirstChatRewrite(sourcePath);
+    const messages = [msg("u1", "hello")];
+
+    const save = saveResearchChatMessages(
+      "source-folder",
+      chatId,
+      messages as never,
+    );
+    await gate.started;
+
+    const move = moveResearchChatToFolder({
+      fromFolderName: "source-folder",
+      toFolderName: "destination-folder",
+      chatId,
+      messages: messages as never,
+    });
+    const movedBeforeSaveFinished = await settledBeforeNextTurn(move);
+
+    gate.release();
+    await Promise.all([save, move]);
+
+    expect(movedBeforeSaveFinished).toBe(false);
+    expect(files.has(sourcePath)).toBe(false);
+    expect(files.has(destinationPath)).toBe(true);
   });
 
   it("appends only new messages on subsequent saves", async () => {
