@@ -55,12 +55,13 @@ describe("ResearchSidebar", () => {
       chatsStatus: "ready" as const,
     });
 
-    expect(html).toContain("New Chat");
+    expect(html).toContain("New chat");
     expect(html).toContain("Previous Searches");
     expect(html).toContain("acme-market-map");
     expect(html).toContain("pricing-review");
     expect(html).toContain("Previous Chats");
     expect(html).toContain("Pricing options");
+    expect(html).toContain('aria-label="New chat in pricing-review"');
     expect(html).toContain('aria-current="page"');
   });
 
@@ -81,7 +82,7 @@ describe("ResearchSidebar", () => {
     });
 
     expect(html).toContain("pricing-review");
-    expect(html).not.toContain("Loading...");
+    expect(html).not.toContain("Loading research folders");
   });
 
   it("keeps existing folders visible after background refresh errors", () => {
@@ -96,7 +97,7 @@ describe("ResearchSidebar", () => {
   });
 
   it("renders empty loading, error, and ready states", () => {
-    expect(renderSidebar({ status: "loading" as const })).toContain("Loading...");
+    expect(renderSidebar({ status: "loading" as const })).toContain("Loading research folders");
     expect(renderSidebar({ status: "error" as const })).toContain(
       "Could not load searches.",
     );
@@ -160,6 +161,99 @@ describe("ResearchSidebar", () => {
     });
 
     expect(html).toContain('aria-keyshortcuts="Ctrl+Tab Ctrl+Shift+Tab"');
+  });
+
+  it("activates a folder through the button click contract", () => {
+    const onSelectFolder = vi.fn();
+    const view = renderCyclingWrapper({
+      folders: [{ name: "acme-market-map" }, { name: "pricing-review" }],
+      activeFolderName: null,
+      onSelectFolder,
+    });
+
+    fireEvent.click(view.getByRole("button", { name: "pricing-review" }));
+
+    expect(onSelectFolder).toHaveBeenCalledWith("pricing-review");
+  });
+
+  it("opens folder actions with Shift+F10", async () => {
+    const view = renderCyclingWrapper({
+      folders: [{ name: "pricing-review" }],
+      activeFolderName: null,
+      onSelectFolder: vi.fn(),
+    });
+
+    fireEvent.keyDown(view.getByRole("button", { name: "pricing-review" }), {
+      key: "F10",
+      shiftKey: true,
+    });
+
+    await waitFor(() => {
+      expect(view.getByRole("menuitem", { name: "Rename" })).toBeTruthy();
+    });
+  });
+
+  it("restores focus to the folder after closing its actions", async () => {
+    const view = renderCyclingWrapper({
+      folders: [{ name: "pricing-review" }],
+      activeFolderName: null,
+      onSelectFolder: vi.fn(),
+    });
+    const folderButton = view.getByRole("button", { name: "pricing-review" });
+
+    folderButton.focus();
+    fireEvent.keyDown(folderButton, { key: "F10", shiftKey: true });
+
+    const renameItem = await waitFor(() =>
+      view.getByRole("menuitem", { name: "Rename" }),
+    );
+    renameItem.focus();
+    fireEvent.keyDown(renameItem, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(view.queryByRole("menuitem", { name: "Rename" })).toBeNull();
+      expect(document.activeElement).toBe(folderButton);
+    });
+  });
+
+  it("searches while typing and opens the exact matched chat", async () => {
+    const searchChats = vi.fn().mockResolvedValue([
+      {
+        folderName: "coffee-market",
+        chatId: "chat-espresso",
+        title: "Coffee prices",
+        matchedText: "Compare espresso demand in France",
+        updatedAt: "2026-07-10T10:00:00.000Z",
+        score: 0.9,
+      },
+    ]);
+    const onSelectChat = vi.fn();
+    const view = renderInteractiveSidebar({ searchChats, onSelectChat });
+
+    fireEvent.change(view.getByRole("textbox", { name: "Search chat history" }), {
+      target: { value: "espresso" },
+    });
+
+    await waitFor(() => {
+      expect(searchChats).toHaveBeenCalledWith("espresso", expect.any(AbortSignal));
+      expect(view.getByText("Coffee prices")).toBeTruthy();
+    });
+
+    fireEvent.click(view.getByRole("button", { name: /Coffee prices/ }));
+    expect(onSelectChat).toHaveBeenCalledWith("coffee-market", "chat-espresso");
+  });
+
+  it("clears search results with Escape", async () => {
+    const searchChats = vi.fn().mockResolvedValue([]);
+    const view = renderInteractiveSidebar({ searchChats });
+    const input = view.getByRole("textbox", { name: "Search chat history" });
+
+    fireEvent.change(input, { target: { value: "missing" } });
+    await waitFor(() => expect(view.getByText("No results found")).toBeTruthy());
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(view.queryByText("No results found")).toBeNull();
+    expect((input as HTMLInputElement).value).toBe("");
   });
 });
 
@@ -327,7 +421,7 @@ function renderSidebar(props: Partial<ResearchSidebarProps> = {}) {
         activeFolderName={null}
         chats={[]}
         activeChatId={null}
-        searchFolders={vi.fn().mockResolvedValue([])}
+        searchChats={vi.fn().mockResolvedValue([])}
         status="ready"
         chatsStatus="idle"
         onNewChat={vi.fn()}
@@ -389,7 +483,7 @@ function CyclingWrapper({ folders, activeFolderName, onSelectFolder }: CyclingWr
         activeFolderName={activeFolderName}
         chats={[]}
         activeChatId={null}
-        searchFolders={vi.fn().mockResolvedValue([])}
+        searchChats={vi.fn().mockResolvedValue([])}
         status="ready"
         chatsStatus="idle"
         onNewChat={vi.fn()}
@@ -405,4 +499,27 @@ function CyclingWrapper({ folders, activeFolderName, onSelectFolder }: CyclingWr
 
 function renderCyclingWrapper(props: CyclingWrapperProps) {
   return render(<CyclingWrapper {...props} />);
+}
+
+function renderInteractiveSidebar(props: Partial<ResearchSidebarProps> = {}) {
+  return render(
+    <MantineProvider>
+      <ResearchSidebar
+        folders={[]}
+        activeFolderName={null}
+        chats={[]}
+        activeChatId={null}
+        searchChats={vi.fn().mockResolvedValue([])}
+        status="ready"
+        chatsStatus="idle"
+        onNewChat={vi.fn()}
+        onSelectFolder={vi.fn()}
+        onNewResearchChat={vi.fn()}
+        onSelectChat={vi.fn()}
+        onRenameFolder={vi.fn()}
+        onDeleteFolder={vi.fn()}
+        {...props}
+      />
+    </MantineProvider>,
+  );
 }

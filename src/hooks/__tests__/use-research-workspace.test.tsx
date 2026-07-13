@@ -6,6 +6,7 @@ import type {
   ResearchChatSummary,
   ResearchFolder,
 } from "@/lib/research-history";
+import type { ChatHistorySearchResult } from "@/lib/chat-history-search";
 
 const workspaceMocks = vi.hoisted(() => ({
   chatIdCounter: 0,
@@ -21,17 +22,18 @@ const workspaceMocks = vi.hoisted(() => ({
   renameResearchFolder: vi.fn<
     (oldFolderName: string, newFolderName: string) => Promise<ResearchFolder>
   >(),
+  searchChatHistoryKeyword: vi.fn<
+    () => Promise<ChatHistorySearchResult[]>
+  >(async () => []),
+  warmChatHistorySearch: vi.fn(async () => undefined),
   onResearchChatSaved: null as
     | ((folderName: string, chatId: string) => void)
     | null,
 }));
 
-vi.mock("@/lib/chat-providers", () => ({
-  createChatLanguageModel: vi.fn(),
-}));
-
-vi.mock("@/lib/folder-search", () => ({
-  searchFoldersWithLLMSafe: vi.fn(async () => []),
+vi.mock("@/lib/chat-history-search", () => ({
+  searchChatHistoryKeyword: workspaceMocks.searchChatHistoryKeyword,
+  warmChatHistorySearch: workspaceMocks.warmChatHistorySearch,
 }));
 
 vi.mock("@/lib/research-history", () => ({
@@ -130,6 +132,8 @@ describe("useResearchWorkspace navigation", () => {
       .mockImplementation(async (_oldFolderName, newFolderName) => ({
         name: newFolderName,
       }));
+    workspaceMocks.searchChatHistoryKeyword.mockReset().mockResolvedValue([]);
+    workspaceMocks.warmChatHistorySearch.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -206,7 +210,11 @@ describe("useResearchWorkspace navigation", () => {
 
   it("lets a chat selection invalidate a pending folder selection", async () => {
     const staleFolderChats = deferred<ResearchChatSummary[]>();
-    workspaceMocks.listResearchChats.mockReturnValue(staleFolderChats.promise);
+    workspaceMocks.listResearchChats.mockImplementation(async (folderName) =>
+      folderName === "stale-folder"
+        ? staleFolderChats.promise
+        : [chatSummary("latest-chat")],
+    );
     const { result } = renderWorkspace();
     await waitFor(() => expect(result.current.researchFoldersStatus).toBe("ready"));
 
@@ -228,6 +236,56 @@ describe("useResearchWorkspace navigation", () => {
 
     expect(result.current.activeResearchFolder).toBe("latest-folder");
     expect(result.current.activeResearchChatId).toBe("latest-chat");
+  });
+
+  it("loads the destination chat list when opening a cross-folder search result", async () => {
+    workspaceMocks.listResearchChats.mockResolvedValue([
+      chatSummary("destination-chat"),
+      chatSummary("other-chat"),
+    ]);
+    const { result } = renderWorkspace();
+    await waitFor(() => expect(result.current.researchFoldersStatus).toBe("ready"));
+
+    await act(async () => {
+      await result.current.handleSelectResearchChat(
+        "destination-folder",
+        "destination-chat",
+      );
+    });
+
+    expect(workspaceMocks.listResearchChats).toHaveBeenCalledWith("destination-folder");
+    expect(result.current.activeResearchFolder).toBe("destination-folder");
+    expect(result.current.activeResearchChatId).toBe("destination-chat");
+    expect(result.current.researchChats).toEqual([
+      chatSummary("destination-chat"),
+      chatSummary("other-chat"),
+    ]);
+  });
+
+  it("searches chat history locally without a configured language model", async () => {
+    workspaceMocks.searchChatHistoryKeyword.mockResolvedValueOnce([
+      {
+        folderName: "coffee",
+        chatId: "espresso-chat",
+        title: "Coffee market",
+        matchedText: "Espresso demand",
+        updatedAt: null,
+        score: 1,
+      },
+    ]);
+    const { result } = renderWorkspace();
+    await waitFor(() => expect(result.current.researchFoldersStatus).toBe("ready"));
+
+    const controller = new AbortController();
+    await expect(
+      result.current.handleSearchChats("espresso", controller.signal),
+    ).resolves.toEqual([
+      expect.objectContaining({ chatId: "espresso-chat" }),
+    ]);
+    expect(workspaceMocks.searchChatHistoryKeyword).toHaveBeenCalledWith(
+      "espresso",
+      { abortSignal: controller.signal, limit: 10 },
+    );
   });
 
   it("lets an external session activation invalidate a pending folder selection", async () => {

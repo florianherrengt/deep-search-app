@@ -1,9 +1,24 @@
-import type { ReactNode } from "react";
-import { XIcon } from "lucide-react";
-import { Button, Group, Box } from "@mantine/core";
+import type { ComponentType, ReactNode } from "react";
+import {
+  BotIcon,
+  FileTextIcon,
+  MessageSquareIcon,
+  PanelLeftIcon,
+  SettingsIcon,
+  SparklesIcon,
+  WrenchIcon,
+  XIcon,
+} from "lucide-react";
+import {
+  ActionIcon,
+  Box,
+  Button,
+  Divider,
+  Group,
+  Tooltip,
+} from "@mantine/core";
 import type { BrowserTab } from "@/hooks/use-browser-tabs";
-
-const TAB_BAR_HEIGHT = 40;
+import classes from "./tab-panel.module.css";
 
 interface TabPanelProps {
   chatPanel: ReactNode;
@@ -12,13 +27,30 @@ interface TabPanelProps {
   promptsPanel: ReactNode;
   skillsPanel: ReactNode;
   toolbarEnd?: ReactNode;
+  navigationOpen?: boolean;
+  onToggleNavigation?: () => void;
   subAgentSidebarOpen?: boolean;
+  subAgentSidebarDisabled?: boolean;
   onToggleSubAgentSidebar?: () => void;
   tabs: BrowserTab[];
   activeTabId: string;
   onSwitchTab: (id: string) => void;
   onCloseTab: (id: string) => void;
 }
+
+type AppTabId = "main" | "settings" | "prompts" | "skills" | "tools";
+
+const APP_TABS: ReadonlyArray<{
+  id: AppTabId;
+  label: string;
+  icon: ComponentType<{ size?: string | number }>;
+}> = [
+  { id: "main", label: "Chat", icon: MessageSquareIcon },
+  { id: "settings", label: "Settings", icon: SettingsIcon },
+  { id: "prompts", label: "Prompts", icon: FileTextIcon },
+  { id: "skills", label: "Skills", icon: SparklesIcon },
+  { id: "tools", label: "Tools", icon: WrenchIcon },
+];
 
 export function TabPanel({
   chatPanel,
@@ -27,7 +59,10 @@ export function TabPanel({
   promptsPanel,
   skillsPanel,
   toolbarEnd,
+  navigationOpen,
+  onToggleNavigation,
   subAgentSidebarOpen,
+  subAgentSidebarDisabled = false,
   onToggleSubAgentSidebar,
   tabs,
   activeTabId,
@@ -36,100 +71,126 @@ export function TabPanel({
 }: TabPanelProps) {
   return (
     <Box className="md-flex-col">
-      <Group
-        gap={4}
-        className="md-divider-bottom"
-        style={{
-          height: TAB_BAR_HEIGHT,
-          flexShrink: 0,
-          paddingLeft: 8,
-          paddingRight: 8,
-          backgroundColor: "var(--mantine-color-body)",
-        }}
-        wrap="nowrap"
-      >
-        {(["main", "settings", "prompts", "skills", "tools"] as const).map(
-          (tabId) => {
-            const label =
-              tabId === "main"
-                ? "Chat"
-                : tabId.charAt(0).toUpperCase() + tabId.slice(1);
-            return (
-              <Button
-                key={tabId}
-                variant={activeTabId === tabId ? "light" : "subtle"}
-                size="compact-sm"
-                data-testid="app-tab"
-                data-tab-id={tabId}
-                onClick={() => onSwitchTab(tabId)}
+      <Box component="header" className={classes.header}>
+        <Group h="100%" gap="xs" wrap="nowrap">
+          {onToggleNavigation ? (
+            <Tooltip label={navigationOpen ? "Close research navigation" : "Open research navigation"}>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                data-active={navigationOpen || undefined}
+                size="sm"
+                aria-label={navigationOpen ? "Close research navigation" : "Open research navigation"}
+                aria-expanded={navigationOpen}
+                onClick={onToggleNavigation}
               >
-                {label}
-              </Button>
-            );
-          },
-        )}
-        {tabs.map((tab) => (
-          <Group key={tab.id} gap={0} wrap="nowrap">
-            <Button
-              variant={activeTabId === tab.id ? "light" : "subtle"}
-              size="compact-sm"
-              data-testid="browser-tab"
-              data-tab-id={tab.id}
-              data-tab-url={tab.url}
-              onClick={() => onSwitchTab(tab.id)}
-              styles={{
-                root: { maxWidth: 160 },
-                inner: { justifyContent: "flex-start" },
-                label: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-              }}
-            >
-              {tab.title}
-            </Button>
-            <Button
-              variant="subtle"
-              size="compact-sm"
-              color="gray"
-              aria-label={`Close ${tab.title} tab`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onCloseTab(tab.id);
-              }}
-              styles={{ root: { padding: "0 4px", minWidth: 0, width: "auto" } }}
-            >
-              <XIcon size={12} />
-            </Button>
-          </Group>
-        ))}
-        {onToggleSubAgentSidebar && (
-          <Button
-            variant={subAgentSidebarOpen ? "light" : "subtle"}
-            size="compact-sm"
-            onClick={onToggleSubAgentSidebar}
-            style={{ marginLeft: "auto" }}
-          >
-            Sub agents
-          </Button>
-        )}
-        {toolbarEnd && (
-          <Box style={{ flexShrink: 0, display: "flex", alignItems: "center", marginLeft: onToggleSubAgentSidebar ? 0 : "auto" }}>
-            {toolbarEnd}
+                <PanelLeftIcon size={16} />
+              </ActionIcon>
+            </Tooltip>
+          ) : null}
+
+          <Box component="nav" aria-label="Application sections" className={classes.tabScroller}>
+            <Group gap={2} wrap="nowrap" className={classes.tabList}>
+              {APP_TABS.map(({ id, label, icon: Icon }) => {
+                const active = activeTabId === id;
+                return (
+                  <Button
+                    key={id}
+                    variant="subtle"
+                    color="gray"
+                    size="compact-sm"
+                    className={classes.appTab}
+                    data-active={active || undefined}
+                    leftSection={<Icon size={14} />}
+                    aria-label={label}
+                    aria-current={active ? "page" : undefined}
+                    data-testid="app-tab"
+                    data-tab-id={id}
+                    onClick={() => onSwitchTab(id)}
+                  >
+                    <span className={classes.appTabLabel}>{label}</span>
+                  </Button>
+                );
+              })}
+
+              {tabs.length > 0 ? (
+                <Divider orientation="vertical" className={classes.tabDivider} />
+              ) : null}
+
+              {tabs.map((tab) => {
+                const active = activeTabId === tab.id;
+                return (
+                  <Group key={tab.id} gap={0} wrap="nowrap" className={classes.browserTabGroup}>
+                    <Button
+                      variant="subtle"
+                      color="gray"
+                      size="compact-sm"
+                      className={classes.browserTab}
+                      data-active={active || undefined}
+                      data-testid="browser-tab"
+                      data-tab-id={tab.id}
+                      data-tab-url={tab.url}
+                      aria-current={active ? "page" : undefined}
+                      onClick={() => onSwitchTab(tab.id)}
+                    >
+                      {tab.title}
+                    </Button>
+                    <ActionIcon
+                      variant="subtle"
+                      size="sm"
+                      color="gray"
+                      aria-label={`Close ${tab.title} tab`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onCloseTab(tab.id);
+                      }}
+                    >
+                      <XIcon size={12} />
+                    </ActionIcon>
+                  </Group>
+                );
+              })}
+            </Group>
           </Box>
-        )}
-      </Group>
-      <Box className="md-flex-fill-overflow">
-        <Box style={{ height: "100%" }} hidden={activeTabId !== "main"}>
+
+          {onToggleSubAgentSidebar && !subAgentSidebarDisabled ? (
+            <Tooltip
+              label={subAgentSidebarOpen ? "Close sub-agents" : "Open sub-agents"}
+            >
+              <Button
+                variant="subtle"
+                color="gray"
+                size="compact-sm"
+                className={classes.toolbarAction}
+                data-active={subAgentSidebarOpen || undefined}
+                leftSection={<BotIcon size={14} />}
+                aria-label={subAgentSidebarOpen ? "Close sub-agents" : "Open sub-agents"}
+                aria-expanded={subAgentSidebarOpen}
+                onClick={onToggleSubAgentSidebar}
+              >
+                <span className={classes.toolbarActionLabel}>Sub-agents</span>
+              </Button>
+            </Tooltip>
+          ) : null}
+
+          {toolbarEnd ? <Box className={classes.toolbarEnd}>{toolbarEnd}</Box> : null}
+        </Group>
+      </Box>
+
+      <Box component="main" className="md-flex-fill-overflow">
+        <Box h="100%" hidden={activeTabId !== "main"}>
           {chatPanel}
         </Box>
-        <Box style={{ height: "100%" }} hidden={activeTabId !== "settings"}>
+        <Box h="100%" hidden={activeTabId !== "settings"}>
           {settingsPanel}
         </Box>
-        <Box style={{ height: "100%" }} hidden={activeTabId !== "prompts"}>
+        <Box h="100%" hidden={activeTabId !== "prompts"}>
           {promptsPanel}
         </Box>
-        <Box style={{ height: "100%" }} hidden={activeTabId !== "skills"}>
+        <Box h="100%" hidden={activeTabId !== "skills"}>
           {skillsPanel}
         </Box>
-        <Box style={{ height: "100%" }} hidden={activeTabId !== "tools"}>
+        <Box h="100%" hidden={activeTabId !== "tools"}>
           {toolsPanel}
         </Box>
       </Box>

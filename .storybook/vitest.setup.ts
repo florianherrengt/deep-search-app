@@ -29,11 +29,17 @@ beforeEach(() => {
     loadStore: async (filename: string, options: StoreOptions) => {
       const data = getStore(filename, options.defaults);
       return {
+        async entries() {
+          return Object.entries(data);
+        },
         async get<T>(key: string) {
           return (data[key] ?? null) as T | null;
         },
         async set(key: string, value: unknown) {
           data[key] = value;
+        },
+        async clear() {
+          for (const key of Object.keys(data)) delete data[key];
         },
         async save() {},
       };

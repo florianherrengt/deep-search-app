@@ -1,9 +1,10 @@
 import { useState, useCallback, useMemo } from "react";
 import { PencilIcon, TrashIcon, PlusIcon, XIcon, CheckIcon } from "lucide-react";
-import { Button, TextInput, Textarea, Box, Text, Group, Paper, Stack, ScrollArea, ActionIcon } from "@mantine/core";
+import { Button, TextInput, Textarea, Box, Text, Group, Paper, Stack, ActionIcon } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useSkills } from "@/hooks/use-skills";
 import { slugifySkillTitle, type Skill } from "@/lib/skills-store";
+import { PageHeader, PageLayout } from "@/components/page-layout";
 
 type EditingState =
   | { mode: "idle" }
@@ -90,31 +91,25 @@ export function SkillsSection() {
   );
 
   return (
-    <Box className="md-flex-col">
-      <Box maw={640} mx="auto" w="100%" px="md" py={32} style={{ flexShrink: 0 }}>
-        <Group justify="space-between">
-          <Box>
-            <Text size="lg" fw={600}>Skills</Text>
-            <Text size="sm" c="dimmed" mt={4}>
-              Create instruction blocks the AI can load when relevant.
-            </Text>
-          </Box>
-          <Button
+    <PageLayout size="sm">
+      <Stack gap="xl">
+        <PageHeader
+          title="Skills"
+          description="Create focused instruction blocks the assistant can load when they are relevant."
+          action={<Button
             variant="outline"
             size="sm"
             onClick={startAdd}
             disabled={editing.mode !== "idle"}
             leftSection={<PlusIcon size={14} />}
           >
-            Add
-          </Button>
-        </Group>
-      </Box>
+            Add skill
+          </Button>}
+        />
 
-      <ScrollArea className="md-flex-fill" pb={32}>
-        <Box maw={640} mx="auto" w="100%" px="md">
+        <Box>
           {editing.mode !== "idle" ? (
-            <Paper withBorder p="md">
+            <Paper withBorder p={{ base: "md", sm: "lg" }}>
               <form onSubmit={form.onSubmit(handleSubmit)} onKeyDown={(e) => { if (e.key === "Escape") cancelEdit(); }}>
                 <Stack gap="sm">
                   <Box>
@@ -136,17 +131,15 @@ export function SkillsSection() {
                     {...form.getInputProps("whenToUse")}
                     placeholder="When should the AI load this skill?"
                   />
-                  <Box>
-                    <Text size="sm" fw={500} mb={4}>Content</Text>
-                    <Textarea
-                      {...form.getInputProps("content")}
-                      placeholder="Skill instructions..."
-                      minRows={8}
-                      autosize
-                    />
-                  </Box>
+                  <Textarea
+                    label="Content"
+                    {...form.getInputProps("content")}
+                    placeholder="Skill instructions..."
+                    minRows={8}
+                    autosize
+                  />
                   {error && (
-                    <Text size="sm" c="red">{error}</Text>
+                    <Text role="alert" size="sm" c="red">{error}</Text>
                   )}
                   <Group gap="xs">
                     <Button type="submit" size="sm" leftSection={<CheckIcon size={14} />}>
@@ -200,12 +193,13 @@ export function SkillsSection() {
               ))}
             </Paper>
           ) : (
-            <Paper withBorder p="sm" style={{ borderStyle: "dashed" }}>
-              <Text size="sm" c="dimmed">No skills yet. Click Add to create one.</Text>
+            <Paper withBorder p="xl" style={{ textAlign: "center" }}>
+              <Text size="sm" fw={500}>No skills yet</Text>
+              <Text size="sm" c="dimmed" mt={4}>Add a skill to give the assistant reusable, task-specific guidance.</Text>
             </Paper>
           )}
         </Box>
-      </ScrollArea>
-    </Box>
+      </Stack>
+    </PageLayout>
   );
 }

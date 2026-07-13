@@ -69,7 +69,7 @@ export const AddForm: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: "Add" }));
+    await userEvent.click(canvas.getByRole("button", { name: "Add skill" }));
     await userEvent.type(canvas.getByLabelText("Title"), "Source Review");
   },
 };
@@ -80,7 +80,7 @@ export const ValidationError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: "Add" }));
+    await userEvent.click(canvas.getByRole("button", { name: "Add skill" }));
     await userEvent.click(canvas.getByRole("button", { name: "Save" }));
   },
 };

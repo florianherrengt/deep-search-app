@@ -1,124 +1,109 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const storageMocks = vi.hoisted(() => ({
-  listAppSubfolders: vi.fn(),
+const searchMocks = vi.hoisted(() => ({
+  searchChatHistoryHybrid: vi.fn(),
 }));
 
-const folderSearchMocks = vi.hoisted(() => ({
-  searchFoldersWithLLMSafe: vi.fn(),
-}));
-
-vi.mock("@/lib/app-file-storage", () => ({
-  listAppSubfolders: storageMocks.listAppSubfolders,
-  SafePathSegmentSchema: { parse: (v: string) => v },
-}));
-vi.mock("@/lib/folder-search", () => folderSearchMocks);
+vi.mock("@/lib/chat-history-search", () => searchMocks);
 
 import { createSearchResearchTool } from "@/tools/search-research-tool";
 
 type ExecutableSearchTool = {
-  execute: (input: {
-    query: string | string[];
-    limit?: number;
-  }) => Promise<Array<{ folder_name: string; relevant_memories: string[] }>>;
+  execute: (
+    input: { query: string | string[]; limit?: number },
+    options?: { abortSignal?: AbortSignal },
+  ) => Promise<
+    Array<{
+      folder_name: string;
+      chat_id: string;
+      title: string;
+      matched_query: string;
+      updated_at: string | null;
+      score: number;
+      relevant_memories: string[];
+    }>
+  >;
 };
-
-function mockModel() {
-  return {} as any;
-}
 
 beforeEach(() => {
   vi.clearAllMocks();
+  searchMocks.searchChatHistoryHybrid.mockResolvedValue([]);
 });
 
 describe("createSearchResearchTool", () => {
-  it("returns folders selected by the LLM with empty memories", async () => {
-    const tool = createSearchResearchTool(mockModel()) as unknown as ExecutableSearchTool;
-    storageMocks.listAppSubfolders.mockResolvedValueOnce([
-      "market-map",
-      "competitors",
-      "hiking-spots",
-    ]);
-    folderSearchMocks.searchFoldersWithLLMSafe.mockResolvedValueOnce([
-      "market-map",
-      "competitors",
+  it("returns exact chats from the local hybrid index", async () => {
+    const tool = createSearchResearchTool() as unknown as ExecutableSearchTool;
+    searchMocks.searchChatHistoryHybrid.mockResolvedValueOnce([
+      {
+        folderName: "market-map",
+        chatId: "chat-market-size",
+        title: "European market size",
+        matchedText: "Estimate the 2026 European market size",
+        updatedAt: "2026-07-12T10:00:00.000Z",
+        score: 0.91,
+      },
     ]);
 
     await expect(tool.execute({ query: "market size" })).resolves.toEqual([
-      { folder_name: "market-map", relevant_memories: [] },
-      { folder_name: "competitors", relevant_memories: [] },
+      {
+        folder_name: "market-map",
+        chat_id: "chat-market-size",
+        title: "European market size",
+        matched_query: "Estimate the 2026 European market size",
+        updated_at: "2026-07-12T10:00:00.000Z",
+        score: 0.91,
+        relevant_memories: [],
+      },
     ]);
-
-    expect(folderSearchMocks.searchFoldersWithLLMSafe).toHaveBeenCalledWith(
+    expect(searchMocks.searchChatHistoryHybrid).toHaveBeenCalledWith(
       "market size",
-      ["market-map", "competitors", "hiking-spots"],
-      expect.anything(),
-      undefined,
+      { abortSignal: undefined, exclude: undefined, limit: 8 },
     );
   });
 
-  it("returns empty when there are no research folders", async () => {
-    const tool = createSearchResearchTool(mockModel()) as unknown as ExecutableSearchTool;
-    storageMocks.listAppSubfolders.mockResolvedValueOnce([]);
+  it("passes multiple queries, the result limit, and cancellation through", async () => {
+    const tool = createSearchResearchTool() as unknown as ExecutableSearchTool;
+    const controller = new AbortController();
 
-    await expect(tool.execute({ query: "anything" })).resolves.toEqual([]);
-    expect(folderSearchMocks.searchFoldersWithLLMSafe).not.toHaveBeenCalled();
-  });
+    await tool.execute(
+      { query: ["market size", "competitor analysis"], limit: 3 },
+      { abortSignal: controller.signal },
+    );
 
-  it("joins multiple queries into a single string for the LLM", async () => {
-    const tool = createSearchResearchTool(mockModel()) as unknown as ExecutableSearchTool;
-    storageMocks.listAppSubfolders.mockResolvedValueOnce(["stocks"]);
-    folderSearchMocks.searchFoldersWithLLMSafe.mockResolvedValueOnce(["stocks"]);
-
-    await tool.execute({ query: ["market size", "competitor analysis"] });
-
-    expect(folderSearchMocks.searchFoldersWithLLMSafe).toHaveBeenCalledWith(
-      "market size competitor analysis",
-      ["stocks"],
-      expect.anything(),
-      undefined,
+    expect(searchMocks.searchChatHistoryHybrid).toHaveBeenCalledWith(
+      ["market size", "competitor analysis"],
+      { abortSignal: controller.signal, exclude: undefined, limit: 3 },
     );
   });
 
-  it("excludes the current research folder from matching and results", async () => {
+  it("excludes only the current chat, not its whole research folder", async () => {
     const tool = createSearchResearchTool(
-      mockModel(),
+      async () => "market-map",
+      async () => "current-chat",
+    ) as unknown as ExecutableSearchTool;
+
+    await tool.execute({ query: "market size" });
+
+    expect(searchMocks.searchChatHistoryHybrid).toHaveBeenCalledWith(
+      "market size",
+      {
+        abortSignal: undefined,
+        exclude: { folderName: "market-map", chatId: "current-chat" },
+        limit: 8,
+      },
+    );
+  });
+
+  it("does not exclude a folder when the current chat id is unknown", async () => {
+    const tool = createSearchResearchTool(
       async () => "market-map",
     ) as unknown as ExecutableSearchTool;
-    storageMocks.listAppSubfolders.mockResolvedValueOnce([
-      "market-map",
-      "competitors",
-      "hiking-spots",
-    ]);
-    folderSearchMocks.searchFoldersWithLLMSafe.mockResolvedValueOnce([
-      "market-map",
-      "competitors",
-    ]);
 
-    await expect(tool.execute({ query: "market size" })).resolves.toEqual([
-      { folder_name: "competitors", relevant_memories: [] },
-    ]);
+    await tool.execute({ query: "market size" });
 
-    expect(folderSearchMocks.searchFoldersWithLLMSafe).toHaveBeenCalledWith(
+    expect(searchMocks.searchChatHistoryHybrid).toHaveBeenCalledWith(
       "market size",
-      ["competitors", "hiking-spots"],
-      expect.anything(),
-      undefined,
+      expect.objectContaining({ exclude: undefined }),
     );
-  });
-
-  it("returns empty when listing folders fails", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const tool = createSearchResearchTool(mockModel()) as unknown as ExecutableSearchTool;
-    storageMocks.listAppSubfolders.mockRejectedValueOnce(new Error("disk error"));
-
-    await expect(tool.execute({ query: "best places to hike" })).resolves.toEqual(
-      [],
-    );
-    expect(errorSpy).toHaveBeenCalledWith(
-      "[search-research-tool] failed to list folders:",
-      expect.any(Error),
-    );
-    errorSpy.mockRestore();
   });
 });

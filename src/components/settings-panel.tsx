@@ -1,62 +1,86 @@
 import { useState } from "react";
-import { Modal, Button, Text, Group, Box, ScrollArea, Stack } from "@mantine/core";
+import { Alert, Modal, Button, Text, Group, Divider, Stack } from "@mantine/core";
 import { SettingsDiagnosticsSection, SettingsFields, SettingsUpdateSection } from "@/components/settings-fields";
 import { useSettings } from "@/hooks/use-settings";
+import { PageHeader, PageLayout } from "@/components/page-layout";
 
 export function SettingsPanel() {
   const { settings, updateSetting, resetAll } = useSettings();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [resetPending, setResetPending] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   async function handleConfirmReset() {
-    await resetAll();
-    setConfirmOpen(false);
+    setResetPending(true);
+    setResetError(null);
+    try {
+      await resetAll();
+      setConfirmOpen(false);
+    } catch (error) {
+      setResetError(error instanceof Error ? error.message : "Could not reset settings.");
+    } finally {
+      setResetPending(false);
+    }
   }
 
   return (
-    <ScrollArea style={{ height: "100%" }}>
-      <Box maw={512} mx="auto" p="md" py={32}>
-        <Text size="lg" fw={600}>Settings</Text>
-        <Text size="sm" c="dimmed" mt={4}>
-          Configure API keys and preferences. Provider changes are saved on demand.
-        </Text>
+    <PageLayout size="sm">
+      <Stack gap="xl">
+        <PageHeader
+          title="Settings"
+          description="Configure model providers, search services, integrations, and application preferences."
+        />
 
-        <Stack gap="md" mt="md">
+        <Stack gap="md">
           <SettingsFields settings={settings} updateSetting={updateSetting} />
         </Stack>
 
-        <Box mt="md" className="md-divider-top" pt={16}>
-          <Stack gap="md">
-            <SettingsUpdateSection />
-            <SettingsDiagnosticsSection />
-            <Button
-              color="red"
-              size="sm"
-              onClick={() => setConfirmOpen(true)}
-            >
-              Reset All Settings
-            </Button>
-          </Stack>
-        </Box>
+        <Divider />
+        <Stack gap="md">
+          <SettingsUpdateSection />
+          <SettingsDiagnosticsSection />
+          <Button
+            color="red"
+            variant="light"
+            size="sm"
+            w="fit-content"
+            onClick={() => {
+              setResetError(null);
+              setConfirmOpen(true);
+            }}
+          >
+            Reset all settings
+          </Button>
+        </Stack>
 
         <Modal
           opened={confirmOpen}
-          onClose={() => setConfirmOpen(false)}
-          title="Reset All Settings"
+          onClose={() => {
+            if (!resetPending) setConfirmOpen(false);
+          }}
+          title="Reset all settings"
           size="sm"
+          closeOnClickOutside={!resetPending}
+          closeOnEscape={!resetPending}
         >
           <Text size="sm">
             This will clear all API keys and preferences. This action cannot be undone.
           </Text>
+          {resetError ? (
+            <Alert color="red" variant="light" mt="md" role="alert">
+              {resetError}
+            </Alert>
+          ) : null}
           <Group justify="flex-end" mt="md">
-            <Button variant="outline" size="sm" onClick={() => setConfirmOpen(false)}>
+            <Button variant="default" size="sm" disabled={resetPending} onClick={() => setConfirmOpen(false)}>
               Cancel
             </Button>
-            <Button color="red" size="sm" onClick={handleConfirmReset}>
-              Confirm Reset
+            <Button color="red" size="sm" loading={resetPending} onClick={() => void handleConfirmReset()}>
+              Reset settings
             </Button>
           </Group>
         </Modal>
-      </Box>
-    </ScrollArea>
+      </Stack>
+    </PageLayout>
   );
 }

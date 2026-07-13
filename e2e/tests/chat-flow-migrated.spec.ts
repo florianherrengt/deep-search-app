@@ -9,7 +9,12 @@ import {
 
 test.describe("Migrated chat flow", () => {
   test("displays the chat UI", async ({ chatPage }) => {
-    await expect(chatPage.locator("h1")).toHaveText("Deep Search");
+    await expect(
+      chatPage.getByRole("heading", {
+        name: "What do you want to understand?",
+        exact: true,
+      }),
+    ).toBeVisible();
   });
 
   test("has a composer with input and send button", async ({ chatPage }) => {

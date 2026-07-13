@@ -1,15 +1,26 @@
 @import "@mantine/core/styles.css";
 
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 100%;
+  line-height: 1.5;
   font-weight: 400;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+  --app-shell-header-height: 2.5rem;
+  --app-sidebar-width: 17.5rem;
+  --app-content-gutter: 1.5rem;
+  --app-copy-max-width: 40rem;
+  --app-thread-max-width: 60rem;
+  --app-message-max-width: 50rem;
+  --app-focus-ring-color: var(--mantine-color-blue-8);
+}
+
+:root[data-mantine-color-scheme="dark"] {
+  --app-focus-ring-color: var(--mantine-color-blue-4);
 }
 
 html,
@@ -19,6 +30,25 @@ body,
   margin: 0;
 }
 
+body {
+  min-width: 20rem;
+  background: var(--mantine-color-body);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--mantine-primary-color-filled) 24%, transparent);
+}
+
+:where(button, a, input, textarea, select, [role="button"]):focus-visible {
+  outline: 0.125rem solid var(--app-focus-ring-color);
+  outline-offset: 0.125rem;
+}
+
+.mantine-focus-auto:focus-visible,
+.mantine-focus-always:focus {
+  outline-color: var(--app-focus-ring-color);
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -26,6 +56,17 @@ body,
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .md-code-bg {
@@ -276,23 +317,34 @@ body,
 
 .md-icon-btn {
   border-radius: var(--mantine-radius-sm);
-  padding: 4px;
+  padding: 0.25rem;
   color: var(--mantine-color-dimmed);
   background: none;
   border: none;
   cursor: pointer;
 }
 
+.md-icon-btn:hover {
+  color: var(--mantine-color-text);
+  background: var(--mantine-color-default-hover);
+}
+
 .md-code-block {
   overflow-x: auto;
   border-radius: var(--mantine-radius-sm);
-  padding: 8px;
+  padding: 0.5rem;
   font-size: var(--mantine-font-size-xs);
   white-space: pre-wrap;
   margin: 0;
 }
 
 .md-content-x {
-  padding-left: 24px;
-  padding-right: 24px;
+  padding-left: var(--app-content-gutter);
+  padding-right: var(--app-content-gutter);
+}
+
+@media (max-width: 48em) {
+  :root {
+    --app-content-gutter: 1rem;
+  }
 }

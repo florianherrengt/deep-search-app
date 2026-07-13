@@ -221,3 +221,12 @@ export const PreviousSearchCycling: Story = {
   },
 };
 
+export const NarrowConversation: Story = {
+  decorators: [
+    (Story) => (
+      <div style={{ width: 390, height: 844, margin: "0 auto", overflow: "hidden" }}>
+        <Story />
+      </div>
+    ),
+  ],
+};

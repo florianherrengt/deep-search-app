@@ -131,21 +131,20 @@ describe("search tool availability from config", () => {
     }
   });
 
-  it("search_research available when model is provided", () => {
+  it("search_research is available with or without a configured model", () => {
     const tools = getAvailableTools({
       researchFolder: null,
       getChatModel: () => TEST_CHAT_MODEL,
     });
     const sr = tools.find((t) => t.name === "search_research");
     expect(sr?.available).toBe(true);
-  });
-
-  it("search_research unavailable when no model is provided", () => {
-    const tools = getAvailableTools({
+    const toolsWithoutModel = getAvailableTools({
       researchFolder: null,
     });
-    const sr = tools.find((t) => t.name === "search_research");
-    expect(sr?.available).toBe(false);
+    const srWithoutModel = toolsWithoutModel.find(
+      (tool) => tool.name === "search_research",
+    );
+    expect(srWithoutModel?.available).toBe(true);
   });
 
   it("model and research-folder dependent tools become available from direct-tool config", () => {

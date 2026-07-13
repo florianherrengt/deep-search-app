@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  type ChatModelConfig,
-  createChatLanguageModel,
-} from "@/lib/chat-providers";
+import { type ChatModelConfig } from "@/lib/chat-providers";
 import {
   activateChatSession as activateChatSessionState,
   createChatSessionRecord,
@@ -18,7 +15,11 @@ import {
   type ChatSessionState,
   type CreateChatSessionInput,
 } from "@/lib/chat-sessions";
-import { searchFoldersWithLLMSafe } from "@/lib/folder-search";
+import {
+  searchChatHistoryKeyword,
+  warmChatHistorySearch,
+  type ChatHistorySearchResult,
+} from "@/lib/chat-history-search";
 import { startDeepSearchMcpBridge } from "@/lib/mcp/deep-search-app-bridge";
 import { DeepSearchSessionManager } from "@/lib/mcp/deep-search-session-manager";
 import {
@@ -67,7 +68,10 @@ export interface ResearchWorkspace {
   handleResearchChatSaved: (folderName: string) => void;
   handleResearchFolderChange: (sessionId: string, folderName: string) => void;
   handleRunStateChange: (sessionId: string, isRunning: boolean) => void;
-  handleSearchFolders: (query: string, abortSignal?: AbortSignal) => Promise<string[]>;
+  handleSearchChats: (
+    query: string,
+    abortSignal?: AbortSignal,
+  ) => Promise<ChatHistorySearchResult[]>;
   handleSelectResearchChat: (folderName: string, chatId: string) => Promise<void>;
   handleSelectResearchFolder: (folderName: string) => Promise<void>;
   mountedChatSessions: ChatSessionRecord[];
@@ -216,7 +220,7 @@ export function useResearchWorkspace({
     }
   }, []);
 
-  const openMcpResearchChat = useCallback(
+  const openResearchChat = useCallback(
     async (folderName: string, chatId: string) => {
       const isStale = beginResearchNavigation();
 
@@ -243,7 +247,7 @@ export function useResearchWorkspace({
       } catch (error) {
         if (isStale()) return;
 
-        console.error("[App] Failed to open MCP research chat:", error);
+        console.error("[App] Failed to open research chat:", error);
         setResearchChatsStatus("error");
         activateSession({
           researchChatId: chatId,
@@ -356,7 +360,7 @@ export function useResearchWorkspace({
       }
     },
     onResearchChatSaved: (folderName, chatId) => {
-      void openMcpResearchChat(folderName, chatId);
+      void openResearchChat(folderName, chatId);
     },
     onSubAgentEvent: (chatId, event) => {
       processSubAgentEventRef.current(chatId, event);
@@ -393,19 +397,21 @@ export function useResearchWorkspace({
     };
   }, [bridgeEnabled]);
 
-  const handleSearchFolders = useCallback(
-    async (query: string, abortSignal?: AbortSignal): Promise<string[]> => {
-      const modelConfig = getChatModelRef.current();
-      if (!modelConfig) return [];
-      const model = createChatLanguageModel(modelConfig);
-      return searchFoldersWithLLMSafe(
-        query,
-        researchFolders.map((f) => f.name),
-        model,
+  useEffect(() => {
+    if (!bridgeEnabled) return;
+
+    void warmChatHistorySearch().catch((error: unknown) => {
+      console.error("[chat-history-search] Failed to warm the local index:", error);
+    });
+  }, [bridgeEnabled]);
+
+  const handleSearchChats = useCallback(
+    (query: string, abortSignal?: AbortSignal) =>
+      searchChatHistoryKeyword(query, {
         abortSignal,
-      );
-    },
-    [researchFolders],
+        limit: 10,
+      }),
+    [],
   );
 
   const handleSelectResearchFolder = async (folderName: string) => {
@@ -469,29 +475,7 @@ export function useResearchWorkspace({
 
   handleSelectResearchFolderRef.current = handleSelectResearchFolder;
 
-  const handleSelectResearchChat = async (
-    folderName: string,
-    chatId: string,
-  ) => {
-    const isStale = beginResearchNavigation();
-    switchToTab("main");
-    try {
-      const messages = await readResearchChatMessages(folderName, chatId);
-      if (isStale()) return;
-      activateSession({
-        researchChatId: chatId,
-        researchFolder: folderName,
-        initialMessages: messages,
-      });
-    } catch (error) {
-      if (isStale()) return;
-      console.error("[App] Failed to open research chat:", error);
-      activateSession({
-        researchChatId: chatId,
-        researchFolder: folderName,
-      });
-    }
-  };
+  const handleSelectResearchChat = openResearchChat;
 
   const handleNewResearchChat = (folderName: string) => {
     invalidateResearchNavigation();
@@ -666,7 +650,7 @@ export function useResearchWorkspace({
     handleResearchChatSaved,
     handleResearchFolderChange,
     handleRunStateChange,
-    handleSearchFolders,
+    handleSearchChats,
     handleSelectResearchChat,
     handleSelectResearchFolder,
     mountedChatSessions,

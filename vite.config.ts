@@ -9,8 +9,22 @@ export default defineConfig(async () => ({
 
   resolve: {
     alias: {
+      "@huggingface/transformers": path.resolve(
+        __dirname,
+        "./node_modules/@huggingface/transformers/dist/transformers.web.js",
+      ),
       "@": path.resolve(__dirname, "./src"),
     },
+    conditions: [
+      "module",
+      "browser",
+      "development|production",
+      "onnxruntime-web-use-extern-wasm",
+    ],
+  },
+
+  worker: {
+    format: "es" as const,
   },
 
   // deep-search-core ships without `sideEffects: false`, which blocks

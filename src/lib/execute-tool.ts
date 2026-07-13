@@ -158,9 +158,7 @@ export function getAvailableTools(
         youtubeSubtitleDownload,
       )
     : undefined;
-  const searchResearchTool = model
-    ? createSearchResearchTool(model, getResearchFolder)
-    : undefined;
+  const searchResearchTool = createSearchResearchTool(getResearchFolder);
   const createTool = getResearchFolder
     ? createCreateFileTool(getResearchFolder)
     : undefined;

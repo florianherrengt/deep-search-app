@@ -52,6 +52,7 @@ const meta = {
     skillsPanel: <PanelPlaceholder label="Skills" />,
     toolsPanel: <PanelPlaceholder label="Tools" />,
     toolbarEnd: <AppUpdateButton />,
+    onToggleSubAgentSidebar: noop,
     onSwitchTab: noop,
     onCloseTab: noop,
   },
@@ -98,4 +99,20 @@ export const ManyBrowserTabs: Story = {
     })),
     activeTabId: "browser-7",
   },
+};
+
+export const NarrowShell: Story = {
+  args: {
+    tabs: browserTabs,
+    activeTabId: "main",
+    navigationOpen: false,
+    onToggleNavigation: noop,
+  },
+  decorators: [
+    (Story) => (
+      <div style={{ width: 390, height: 844, margin: "0 auto", overflow: "hidden" }}>
+        <Story />
+      </div>
+    ),
+  ],
 };

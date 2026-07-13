@@ -20,7 +20,7 @@ test.describe("Chat background streaming performance", () => {
       { timeout: 10000 },
     );
 
-    await chatPage.getByRole("button", { name: "New Chat" }).click();
+    await chatPage.getByRole("button", { name: "New chat" }).click();
     const activeTextarea = chatPage.getByPlaceholder("Ask something...");
     await expect(activeTextarea).toBeVisible();
 

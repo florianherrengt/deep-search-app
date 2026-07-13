@@ -1,0 +1,270 @@
+.root {
+  position: relative;
+}
+
+.viewport {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+  overflow-y: auto;
+  padding: var(--mantine-spacing-lg) var(--app-content-gutter);
+  scroll-padding-block: var(--mantine-spacing-lg);
+}
+
+.messages {
+  width: 100%;
+  max-width: var(--app-thread-max-width);
+  margin-inline: auto;
+}
+
+.emptyState {
+  display: flex;
+  box-sizing: border-box;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem 5rem;
+  text-align: center;
+}
+
+.emptyIcon {
+  margin-bottom: var(--mantine-spacing-md);
+  color: var(--mantine-color-dimmed);
+}
+
+.footer {
+  position: relative;
+  border-top: 1px solid var(--mantine-color-default-border);
+  padding: 0.75rem var(--app-content-gutter) 0.875rem;
+  background: var(--mantine-color-body);
+}
+
+.composerFrame {
+  position: relative;
+  width: 100%;
+  max-width: var(--app-thread-max-width);
+  margin-inline: auto;
+}
+
+.scrollToBottom {
+  position: absolute;
+  top: -3.25rem;
+  left: 50%;
+  display: flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-50%);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: 50%;
+  color: var(--mantine-color-dimmed);
+  background: var(--mantine-color-body);
+  box-shadow: var(--mantine-shadow-xs);
+  cursor: pointer;
+}
+
+.scrollToBottom:hover {
+  color: var(--mantine-color-text);
+  background: var(--mantine-color-default-hover);
+}
+
+.scrollToBottom:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+.composerInput {
+  width: 100%;
+  resize: none;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  padding: 0.75rem 1rem;
+  color: var(--mantine-color-text);
+  background: var(--mantine-color-body);
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  line-height: 1.45;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.composerInput::placeholder {
+  color: var(--mantine-color-placeholder);
+}
+
+.composerInput:hover {
+  border-color: var(--mantine-color-default-color);
+}
+
+.composerInput:focus {
+  outline: none;
+  border-color: var(--mantine-primary-color-filled);
+  box-shadow: 0 0 0 0.125rem color-mix(in srgb, var(--mantine-primary-color-filled) 24%, transparent);
+}
+
+.composerInput:focus-visible {
+  outline: 0.125rem solid var(--app-focus-ring-color);
+  outline-offset: 0.125rem;
+  border-color: var(--app-focus-ring-color);
+  box-shadow: none;
+}
+
+.composerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xs);
+}
+
+.composerRowLeft,
+.composerRowRight {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+
+.composerRowLeft {
+  overflow: hidden;
+}
+
+.composerRowRight {
+  flex-shrink: 0;
+}
+
+.addProviderButton,
+.sendButton,
+.cancelButton {
+  min-height: 2rem;
+  border: 0;
+  border-radius: var(--mantine-radius-md);
+  padding-inline: 0.875rem;
+  color: var(--mantine-color-white);
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addProviderButton,
+.sendButton {
+  background: var(--mantine-primary-color-filled);
+}
+
+.addProviderButton:hover,
+.sendButton:hover {
+  background: var(--mantine-primary-color-filled-hover);
+}
+
+.sendButton:disabled {
+  color: var(--mantine-color-dimmed);
+  background: light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-5));
+  cursor: not-allowed;
+}
+
+.cancelButton {
+  background: var(--mantine-color-red-filled);
+}
+
+.cancelButton:hover {
+  background: var(--mantine-color-red-filled-hover);
+}
+
+.messageRoot {
+  width: 100%;
+  margin-bottom: var(--mantine-spacing-lg);
+}
+
+.userMessageRoot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.assistantMessageRoot {
+  max-width: var(--app-message-max-width);
+}
+
+.userMessageBubble {
+  max-width: min(42rem, 82%);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  border-bottom-right-radius: var(--mantine-radius-xs);
+  padding: 0.5rem 0.875rem;
+  color: var(--mantine-color-default-color);
+  background: var(--mantine-color-default);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.messageContent {
+  overflow-x: auto;
+}
+
+.messageActionBar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.45;
+  transition: opacity 120ms ease;
+}
+
+.messageRoot:hover .messageActionBar,
+.messageRoot:focus-within .messageActionBar {
+  opacity: 1;
+}
+
+.messageError {
+  border-color: light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7));
+  color: var(--mantine-color-red-text);
+  background: light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9));
+}
+
+@media (hover: none) {
+  .messageActionBar {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 48em) {
+  .viewport {
+    padding-block: var(--mantine-spacing-md);
+  }
+
+  .footer {
+    padding-block: 0.625rem 0.75rem;
+  }
+
+  .assistantMessageRoot {
+    max-width: 100%;
+  }
+
+  .userMessageBubble {
+    max-width: 92%;
+  }
+}
+
+@media (max-width: 32em) {
+  .composerRow {
+    flex-wrap: wrap;
+  }
+
+  .composerRowLeft {
+    width: 100%;
+  }
+
+  .composerRowRight {
+    margin-left: auto;
+  }
+
+  .emptyState {
+    padding-inline: 0;
+  }
+}

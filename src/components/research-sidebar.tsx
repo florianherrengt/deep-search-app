@@ -1,9 +1,10 @@
 import {
+  useEffect,
   useState,
   useRef,
-  useCallback,
   type CSSProperties,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
@@ -30,6 +31,8 @@ import {
   ScrollArea,
   ActionIcon,
   Loader,
+  rem,
+  Skeleton,
   Stack,
   VisuallyHidden,
 } from "@mantine/core";
@@ -39,17 +42,19 @@ import type {
   ResearchChatSummary,
   ResearchFolder,
 } from "@/lib/research-history";
+import type { ChatHistorySearchResult } from "@/lib/chat-history-search";
 
-export interface SearchFoldersFn {
-  (query: string, abortSignal?: AbortSignal): Promise<string[]>;
+export interface SearchChatsFn {
+  (query: string, abortSignal?: AbortSignal): Promise<ChatHistorySearchResult[]>;
 }
 
-interface ResearchSidebarProps {
+export interface ResearchSidebarProps {
+  width?: string | number;
   folders: ResearchFolder[];
   activeFolderName: string | null;
   chats: ResearchChatSummary[];
   activeChatId: string | null;
-  searchFolders: SearchFoldersFn;
+  searchChats: SearchChatsFn;
   status: "loading" | "ready" | "error";
   chatsStatus: "idle" | "loading" | "ready" | "error";
   runningFolderNames?: string[];
@@ -65,11 +70,12 @@ interface ResearchSidebarProps {
 }
 
 export function ResearchSidebar({
+  width = rem(280),
   folders,
   activeFolderName,
   chats,
   activeChatId,
-  searchFolders,
+  searchChats,
   status,
   chatsStatus,
   runningFolderNames = [],
@@ -93,8 +99,9 @@ export function ResearchSidebar({
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<string[] | null>(null);
+  const [searchResults, setSearchResults] = useState<ChatHistorySearchResult[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
 
   function openRenameDialog(folder: ResearchFolder) {
@@ -163,49 +170,63 @@ export function ResearchSidebar({
     }
   }
 
-  const handleSearch = useCallback(
-    async (e: FormEvent<HTMLFormElement>) => {
-      e.preventDefault();
-      const q = searchQuery.trim();
-      if (!q) {
-        setSearchResults(null);
-        return;
-      }
-      searchAbortRef.current?.abort();
-      const controller = new AbortController();
-      searchAbortRef.current = controller;
-      setSearchLoading(true);
-      setSearchResults(null);
-      try {
-        const results = await searchFolders(q, controller.signal);
-        if (!controller.signal.aborted) {
-          setSearchResults(results);
-        }
-      } catch {
-        if (!controller.signal.aborted) {
-          setSearchResults([]);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setSearchLoading(false);
-        }
-      }
-    },
-    [searchFolders, searchQuery],
-  );
+  useEffect(() => {
+    const query = searchQuery.trim();
+    searchAbortRef.current?.abort();
+
+    if (!query) {
+      searchAbortRef.current = null;
+      return;
+    }
+
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    const timeout = window.setTimeout(() => {
+      void searchChats(query, controller.signal)
+        .then((results) => {
+          if (!controller.signal.aborted) {
+            setSearchResults(results);
+          }
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) {
+            setSearchResults([]);
+            setSearchError(
+              error instanceof Error ? error.message : "Could not search chat history.",
+            );
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setSearchLoading(false);
+          }
+        });
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [searchChats, searchQuery]);
 
   function clearSearch() {
     searchAbortRef.current?.abort();
     setSearchQuery("");
     setSearchResults(null);
     setSearchLoading(false);
+    setSearchError(null);
   }
 
   function handleSearchInputChange(value: string) {
     setSearchQuery(value);
-    if (!value.trim()) {
+    if (value.trim()) {
+      setSearchResults(null);
+      setSearchLoading(true);
+      setSearchError(null);
+    } else {
       setSearchResults(null);
       setSearchLoading(false);
+      setSearchError(null);
     }
   }
 
@@ -227,49 +248,57 @@ export function ResearchSidebar({
     }
   }
 
-  const matchedFolders = searchResults ?? [];
+  const matchedChats = searchResults ?? [];
   const runningFolderSet = new Set(runningFolderNames);
   const runningChatIdSet = new Set(runningChatIds);
   const attentionFolderSet = new Set(attentionFolderNames);
   const attentionChatIdSet = new Set(attentionChatIds);
 
-  const showSearchResults = searchLoading || searchResults !== null;
+  const showSearchResults = searchQuery.trim().length > 0;
 
   return (
     <>
       <Box
-        component="aside"
+        component="nav"
         data-testid="research-sidebar"
+        aria-label="Research navigation"
         aria-keyshortcuts="Ctrl+Tab Ctrl+Shift+Tab"
         className="md-flex-col md-divider-right"
-        style={{ width: 256, flexShrink: 0 }}
+        style={{ width, flexShrink: 0, background: "var(--mantine-color-body)" }}
       >
         <Box p="sm" className="md-divider-bottom">
           <Button
             fullWidth
-            variant={activeFolderName ? "outline" : "light"}
+            variant="light"
             styles={{ inner: { justifyContent: "flex-start" } }}
             leftSection={<PlusIcon size={16} />}
             onClick={onNewChat}
           >
-            New Chat
+            New chat
           </Button>
         </Box>
 
         <Box p="sm" pb="xs" className="md-divider-bottom">
-          <form onSubmit={handleSearch} style={{ position: "relative" }}>
+          <form onSubmit={(event) => event.preventDefault()} style={{ position: "relative" }}>
             <TextInput
+              aria-label="Search chat history"
               value={searchQuery}
               onChange={(e) => handleSearchInputChange(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") clearSearch();
               }}
-              placeholder="Search research... ↵"
+              placeholder="Search chat history"
               size="xs"
               leftSection={<SearchIcon size={14} />}
               rightSection={
                 searchQuery ? (
-                  <ActionIcon size="xs" variant="subtle" color="gray" onClick={clearSearch}>
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    color="gray"
+                    aria-label="Clear chat search"
+                    onClick={clearSearch}
+                  >
                     <XIcon size={14} />
                   </ActionIcon>
                 ) : null
@@ -280,46 +309,74 @@ export function ResearchSidebar({
         </Box>
 
         {showSearchResults ? (
-          <ScrollArea className="md-flex-fill" p="xs">
+          <ScrollArea
+            className="md-flex-fill"
+            p="xs"
+            type="scroll"
+            scrollbars="y"
+            scrollHideDelay={400}
+            scrollbarSize={6}
+          >
             {searchLoading ? (
               <Group justify="center" py="md">
                 <Loader size="sm" type="dots" />
               </Group>
-            ) : matchedFolders.length > 0 ? (
+            ) : searchError ? (
+              <Text role="alert" size="sm" c="red" px="xs" py="xs">
+                Search failed. Try again.
+              </Text>
+            ) : matchedChats.length > 0 ? (
               <>
                 <Text size="xs" fw={500} tt="uppercase" c="dimmed" px="xs" pb="xs">
-                  {matchedFolders.length} folder{matchedFolders.length === 1 ? "" : "s"} matched
+                  {matchedChats.length} chat{matchedChats.length === 1 ? "" : "s"} matched
                 </Text>
                 <Stack gap={4}>
-                  {matchedFolders.map((name) => (
+                  {matchedChats.map((result) => {
+                    const isRunning = runningChatIdSet.has(result.chatId);
+                    const needsAttention = attentionChatIdSet.has(result.chatId);
+                    return (
                     <Button
-                      key={name}
+                      key={`${result.folderName}\u0000${result.chatId}`}
                       variant="subtle"
                       fullWidth
                       color="gray"
                       styles={{
-                        inner: { justifyContent: "flex-start" },
+                        inner: { justifyContent: "flex-start", alignItems: "flex-start" },
                         root: { minHeight: 36, height: "auto" },
                       }}
                       classNames={{
-                        root: folderButtonClassName(
-                          false,
-                          attentionFolderSet.has(name),
-                        ),
+                        root: chatButtonClassName(needsAttention),
                       }}
-                      onClick={() => onSelectFolder(name)}
-                      leftSection={<FolderIcon size={16} />}
+                      onClick={() => onSelectChat(result.folderName, result.chatId)}
+                      leftSection={<MessageSquareIcon size={16} style={{ marginTop: 2 }} />}
                       rightSection={
                         <ResearchStatusIndicator
-                          running={runningFolderSet.has(name)}
-                          needsAttention={attentionFolderSet.has(name)}
-                          label={name}
+                          running={isRunning}
+                          needsAttention={needsAttention}
+                          label={result.title}
+                          style={{ marginTop: 2 }}
                         />
                       }
                     >
-                      {name}
+                      <Box style={{ minWidth: 0, flex: 1, textAlign: "left" }}>
+                        <Text size="xs" truncate lh={1.4}>{result.title}</Text>
+                        <Text size="xs" fz={11} c="dimmed" truncate lh={1.4} mt={1}>
+                          {result.folderName}
+                        </Text>
+                        {result.matchedText !== result.title && (
+                          <Text size="xs" fz={11} c="dimmed" lineClamp={2} lh={1.4} mt={1}>
+                            {result.matchedText}
+                          </Text>
+                        )}
+                        {result.updatedAt && (
+                          <Text size="xs" fz={11} c="dimmed" lh={1.4} mt={1}>
+                            {formatChatTimestamp(result.updatedAt)}
+                          </Text>
+                        )}
+                      </Box>
                     </Button>
-                  ))}
+                    );
+                  })}
                 </Stack>
               </>
             ) : (
@@ -329,13 +386,24 @@ export function ResearchSidebar({
             )}
           </ScrollArea>
         ) : (
-          <ScrollArea className="md-flex-fill" p="xs">
+          <ScrollArea
+            className="md-flex-fill"
+            p="xs"
+            type="scroll"
+            scrollbars="y"
+            scrollHideDelay={400}
+            scrollbarSize={6}
+          >
             <Text size="xs" fw={500} tt="uppercase" c="dimmed" px="xs" pb="xs">
               Previous Searches
             </Text>
 
             {status === "loading" && folders.length === 0 && (
-              <Text size="sm" c="dimmed" px="xs" py="xs">Loading...</Text>
+              <Stack gap="xs" px="xs" py="xs" role="status" aria-label="Loading research folders">
+                <Skeleton h={30} radius="md" />
+                <Skeleton h={30} radius="md" />
+                <Skeleton h={30} radius="md" />
+              </Stack>
             )}
 
             {status === "error" && folders.length === 0 && (
@@ -355,8 +423,8 @@ export function ResearchSidebar({
                   return (
                     <Box key={folder.name}>
                       <Button
-                        variant="subtle"
-                        color="gray"
+                        variant={active ? "light" : "subtle"}
+                        color={active ? "blue" : "gray"}
                         fullWidth
                         styles={{
                           inner: { justifyContent: "flex-start" },
@@ -369,14 +437,27 @@ export function ResearchSidebar({
                           ),
                         }}
                         aria-current={active ? "page" : undefined}
-                        onMouseDown={(e: ReactMouseEvent) => {
-                          if (e.button === 0) {
-                            onSelectFolder(folder.name);
-                          }
+                        aria-keyshortcuts="Shift+F10"
+                        onClick={() => onSelectFolder(folder.name)}
+                        onKeyDown={(event: ReactKeyboardEvent<HTMLButtonElement>) => {
+                          if (!(event.shiftKey && event.key === "F10")) return;
+                          event.preventDefault();
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          setContextMenu({
+                            folder,
+                            x: rect.left + 16,
+                            y: rect.bottom,
+                            trigger: event.currentTarget,
+                          });
                         }}
-                        onContextMenu={(e: ReactMouseEvent) => {
-                          e.preventDefault();
-                          setContextMenu({ folder, x: e.clientX, y: e.clientY });
+                        onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
+                          event.preventDefault();
+                          setContextMenu({
+                            folder,
+                            x: event.clientX,
+                            y: event.clientY,
+                            trigger: event.currentTarget,
+                          });
                         }}
                         title={folder.name}
                         leftSection={<FolderIcon size={16} />}
@@ -422,16 +503,14 @@ export function ResearchSidebar({
             label="Folder Name"
             value={renameValue}
             onChange={(e) => setRenameValue(e.currentTarget.value)}
+            error={actionError}
             autoFocus
           />
-          {actionError && (
-            <Text size="sm" c="red" mt="xs">{actionError}</Text>
-          )}
           <Group justify="flex-end" mt="md">
             <Button variant="outline" onClick={() => setRenameTarget(null)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={pendingAction}>
+            <Button type="submit" loading={pendingAction}>
               Rename
             </Button>
           </Group>
@@ -449,7 +528,7 @@ export function ResearchSidebar({
           research folder. This cannot be undone.
         </Text>
         {actionError && (
-          <Text size="sm" c="red" mt="xs">{actionError}</Text>
+          <Text role="alert" size="sm" c="red" mt="xs">{actionError}</Text>
         )}
         <Group justify="flex-end" mt="md">
           <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)}>
@@ -458,7 +537,7 @@ export function ResearchSidebar({
           <Button
             color="red"
             size="sm"
-            disabled={pendingAction}
+            loading={pendingAction}
             onClick={() => void handleDelete()}
           >
             Delete
@@ -469,7 +548,12 @@ export function ResearchSidebar({
       {contextMenu && (
         <FolderContextMenu
           state={contextMenu}
-          onClose={() => setContextMenu(null)}
+          onClose={() => {
+            if (contextMenu.trigger.isConnected) {
+              contextMenu.trigger.focus();
+            }
+            setContextMenu(null);
+          }}
           folderRunning={runningFolderSet.has(contextMenu.folder.name)}
           onRename={() => openRenameDialog(contextMenu.folder)}
           onDelete={() => {
@@ -509,6 +593,7 @@ function ResearchChatList({
       <Button
         variant="subtle"
         color="gray"
+        aria-label={`New chat in ${folderName}`}
         fullWidth
         size="xs"
         styles={{
@@ -550,7 +635,7 @@ function ResearchChatList({
             <Button
               key={chat.id}
               variant={active ? "light" : "subtle"}
-              color="gray"
+              color={active ? "blue" : "gray"}
               fullWidth
               styles={{
                 inner: { justifyContent: "flex-start", alignItems: "flex-start" },
@@ -560,11 +645,7 @@ function ResearchChatList({
                 root: chatButtonClassName(chatNeedsAttention),
               }}
               aria-current={active ? "page" : undefined}
-              onMouseDown={(e: ReactMouseEvent) => {
-                if (e.button === 0) {
-                  onSelectChat(folderName, chat.id);
-                }
-              }}
+              onClick={() => onSelectChat(folderName, chat.id)}
               title={chat.title}
               leftSection={<MessageSquareIcon size={14} style={{ marginTop: 2 }} />}
               rightSection={
@@ -669,6 +750,7 @@ type ContextMenuState = {
   folder: ResearchFolder;
   x: number;
   y: number;
+  trigger: HTMLButtonElement;
 } | null;
 
 function FolderContextMenu({
@@ -691,7 +773,7 @@ function FolderContextMenu({
       opened
       onChange={(o) => { if (!o) onClose(); }}
       position="bottom-start"
-      shadow="md"
+      shadow="sm"
     >
       <Menu.Target>
         <div

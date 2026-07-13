@@ -1,14 +1,15 @@
-import { tool, zodSchema, type LanguageModel } from "ai";
+import { tool, zodSchema } from "ai";
 import { z } from "zod";
-import {
-  listAppSubfolders,
-  SafePathSegmentSchema,
-} from "@/lib/app-file-storage";
-import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
-import { searchFoldersWithLLMSafe } from "@/lib/folder-search";
+import { SafePathSegmentSchema } from "@/lib/app-file-storage";
+import { searchChatHistoryHybrid } from "@/lib/chat-history-search";
 
-const ResearchFolderMatchSchema = z.object({
+const ResearchChatMatchSchema = z.object({
   folder_name: z.string(),
+  chat_id: z.string(),
+  title: z.string(),
+  matched_query: z.string(),
+  updated_at: z.string().nullable(),
+  score: z.number(),
   relevant_memories: z.array(z.string()),
 });
 
@@ -18,57 +19,51 @@ export const searchResearchInputSchema = z.object({
     .describe("Natural language search query, or multiple queries to search in parallel"),
   limit: z
     .number()
+    .int()
+    .min(1)
+    .max(50)
     .optional()
-    .describe("Max results (default 8)"),
+    .describe("Max chat results (default 8)"),
 });
 
 export function createSearchResearchTool(
-  model: LanguageModel,
   getResearchFolder?: () => Promise<string | null | undefined>,
+  getResearchChatId?: () => Promise<string | null | undefined>,
 ) {
   return tool({
     description:
-      "Search your past research history for previously completed research sessions matching the query. This searches research folders you have already saved — it does NOT search the web. The current research folder is excluded when known. Returns relevant folders by asking an LLM to match the query against the list of saved research folder names.",
+      "Search the user's saved chat history using local keyword and semantic retrieval. This searches chat titles and user-authored messages, not the web or generated research files. Returns exact chats that can be opened. The current chat is excluded when known.",
     strict: true,
     inputSchema: zodSchema(searchResearchInputSchema),
-    outputSchema: zodSchema(z.array(ResearchFolderMatchSchema)),
-    execute: async ({ query }, options) => {
-      const folderNames = await listAppSubfolders({
-        subfolder: SEARCH_RESULTS_SUBFOLDER,
-      }).catch((err) => {
-        console.error("[search-research-tool] failed to list folders:", err);
-        return [];
-      });
-
-      if (folderNames.length === 0) return [];
-
-      const rawCurrentFolder = getResearchFolder
-        ? await getResearchFolder()
-        : null;
+    outputSchema: zodSchema(z.array(ResearchChatMatchSchema)),
+    execute: async ({ query, limit }, options) => {
+      const [rawCurrentFolder, currentChatId] = await Promise.all([
+        getResearchFolder?.() ?? Promise.resolve(null),
+        getResearchChatId?.() ?? Promise.resolve(null),
+      ]);
       const currentFolder = rawCurrentFolder
         ? SafePathSegmentSchema.parse(rawCurrentFolder)
         : null;
-      const searchableFolderNames = currentFolder
-        ? folderNames.filter((folderName) => folderName !== currentFolder)
-        : folderNames;
 
-      if (searchableFolderNames.length === 0) return [];
+      const matches = await searchChatHistoryHybrid(query, {
+        abortSignal: options?.abortSignal,
+        limit: limit ?? 8,
+        exclude:
+          currentFolder && currentChatId
+            ? { folderName: currentFolder, chatId: currentChatId }
+            : undefined,
+      });
 
-      const retrievalQuery = Array.isArray(query) ? query.join(" ") : query;
-
-      const matched = await searchFoldersWithLLMSafe(
-        retrievalQuery,
-        searchableFolderNames,
-        model,
-        options?.abortSignal,
-      );
-
-      return matched
-        .filter((folder_name) => folder_name !== currentFolder)
-        .map((folder_name) => ({
-          folder_name,
-          relevant_memories: [],
-        }));
+      return matches.map((match) => ({
+        folder_name: match.folderName,
+        chat_id: match.chatId,
+        title: match.title,
+        matched_query: match.matchedText,
+        updated_at: match.updatedAt,
+        score: match.score,
+        // Kept for compatibility with the existing research prompt/tool shape.
+        relevant_memories: [],
+      }));
     },
   });
 }

@@ -150,7 +150,7 @@ test.describe("Settings panel", () => {
   test("shows search service fields", async ({ chatPage }) => {
     await chatPage.getByRole("button", { name: "Settings" }).click();
 
-    await expect(chatPage.getByText("Search Services")).toBeVisible();
+    await expect(chatPage.getByText("Search Services", { exact: true })).toBeVisible();
     await expect(chatPage.getByRole("textbox", { name: "SearXNG URL" })).toBeVisible();
     await expect(chatPage.getByRole("textbox", { name: "Brave Search API Key" })).toBeVisible();
     await expect(chatPage.getByRole("textbox", { name: "Exa API Key" })).toBeVisible();
@@ -196,8 +196,8 @@ test.describe("Settings panel", () => {
     );
 
     chatPage.once("dialog", (dialog) => dialog.accept());
-    await chatPage.getByRole("button", { name: "Reset All Settings" }).click();
-    await chatPage.getByRole("button", { name: "Confirm Reset" }).click();
+    await chatPage.getByRole("button", { name: "Reset all settings" }).click();
+    await chatPage.getByRole("button", { name: "Reset settings" }).click();
 
     await chatPage.waitForFunction(
       (expected) =>

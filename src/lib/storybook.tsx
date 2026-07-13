@@ -7,6 +7,7 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import type { AppUpdateState } from "@/hooks/use-app-update";
+import { setBridgeMock } from "@/lib/tauri-bridge";
 
 type StoreSeed = Record<string, Record<string, unknown>>;
 
@@ -34,7 +35,35 @@ function cloneStoreSeed(stores: StoreSeed): StoreSeed {
 
 export function setStorybookTauriStores(stores: StoreSeed) {
   if (typeof window === "undefined") return;
-  (window as StorybookWindow).__storybookTauriStores = cloneStoreSeed(stores);
+  const storybookWindow = window as StorybookWindow;
+  storybookWindow.__storybookTauriStores = cloneStoreSeed(stores);
+  setBridgeMock({
+    ...(storybookWindow.__deepSearchBridgeMock ?? {}),
+    loadStore: async (filename, options) => {
+      const seededStores = storybookWindow.__storybookTauriStores ?? {};
+      seededStores[filename] = {
+        ...(options.defaults ?? {}),
+        ...(seededStores[filename] ?? {}),
+      };
+      const data = seededStores[filename];
+
+      return {
+        async entries() {
+          return Object.entries(data);
+        },
+        async get<T>(key: string) {
+          return (data[key] ?? null) as T | null;
+        },
+        async set(key: string, value: unknown) {
+          data[key] = value;
+        },
+        async clear() {
+          for (const key of Object.keys(data)) delete data[key];
+        },
+        async save() {},
+      };
+    },
+  });
 }
 
 export function withAppUpdateState(state: AppUpdateState): Decorator {

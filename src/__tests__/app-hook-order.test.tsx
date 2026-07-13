@@ -2,7 +2,9 @@
 import { StrictMode, type ReactNode } from "react";
 import type { UIMessage } from "ai";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { MantineProvider } from "@mantine/core";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { theme } from "@/lib/theme";
 import type {
   ResearchChatSummary,
   ResearchFolder,
@@ -203,6 +205,31 @@ vi.mock("@/components/app-update-button", () => ({
 
 import App from "@/App";
 
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+});
+
+function TestApp({ strict = false }: { strict?: boolean }) {
+  const app = (
+    <MantineProvider theme={theme}>
+      <App />
+    </MantineProvider>
+  );
+  return strict ? <StrictMode>{app}</StrictMode> : app;
+}
+
 afterEach(() => {
   cleanup();
   appMocks.settingsLoading = true;
@@ -216,21 +243,17 @@ describe("App", () => {
   it("initializes the native app menu once under React StrictMode", async () => {
     appMocks.settingsLoading = false;
 
-    render(
-      <StrictMode>
-        <App />
-      </StrictMode>,
-    );
+    render(<TestApp strict />);
 
     await waitFor(() => expect(appMocks.setupMenu).toHaveBeenCalledTimes(1));
   });
 
   it("keeps AppInner hook order stable when settings finish loading", () => {
-    const { rerender } = render(<App />);
+    const { rerender } = render(<TestApp />);
 
     appMocks.settingsLoading = false;
 
-    expect(() => rerender(<App />)).not.toThrow();
+    expect(() => rerender(<TestApp />)).not.toThrow();
   });
 
   it("opens MCP-saved research chats in the main research UI", async () => {
@@ -258,7 +281,7 @@ describe("App", () => {
       },
     ]);
 
-    render(<App />);
+    render(<TestApp />);
 
     await waitFor(() => expect(appMocks.bridgeHandler).toBeTruthy());
 

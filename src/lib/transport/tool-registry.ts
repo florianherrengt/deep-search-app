@@ -101,12 +101,14 @@ function addSourceCoverageDescriptions(searchTools: ToolSet): void {
 export async function createTools({
   model,
   getResearchFolder,
+  getResearchChatId,
   switchResearchFolder,
   searchKeys,
   emitEvent,
 }: {
   model: LanguageModel;
   getResearchFolder: () => Promise<string>;
+  getResearchChatId?: () => Promise<string | null | undefined>;
   switchResearchFolder: (folderName: string) => void | Promise<void>;
   searchKeys?: SearchToolKeys;
   emitEvent?: SubAgentEmitter;
@@ -193,7 +195,7 @@ export async function createTools({
     delete_file: createDeleteFileTool(getResearchFolder),
     list_files: createListFilesTool(getResearchFolder),
     load_skill: createLoadSkillTool(),
-    search_research: createSearchResearchTool(model, getResearchFolder),
+    search_research: createSearchResearchTool(getResearchFolder, getResearchChatId),
     switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
     ...currencyConversionTools,
     ...chromeDevToolsTools,

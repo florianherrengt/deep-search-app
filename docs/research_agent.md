@@ -103,7 +103,7 @@ Assembled in `src/lib/transport/tool-registry.ts:83-117`:
 | `facts_check` | yes | Re-opens every URL cited in the draft answer and verifies claims |
 | `create_file` / `read_file` / `update_file` / `move_file` / `delete_file` / `list_files` | yes | Research-folder file ops |
 | `load_skill` | yes | Loads an agent skill by slug |
-| `search_research` | yes | Searches past research folders (LLM over folder names) |
+| `search_research` | yes | Locally searches chat titles and user-authored messages, returning exact chats |
 | `switch_research_folder` | yes | Switches the active folder to continue previous research |
 | `currency_conversion` | yes | FX conversion via frankfurter.dev, cached |
 | `chrome_devtools_*` | **only if Chrome DevTools MCP enabled** | Dynamically discovered MCP tools (last-resort browser control) |

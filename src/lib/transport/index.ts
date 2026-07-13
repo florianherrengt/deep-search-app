@@ -325,6 +325,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
           await createGuardedStream({
             model,
             researchFolder: transport.researchFolder,
+            researchChatId: transport.researchChatId,
             messages: effectiveMessages,
             abortSignal,
             searchKeys: transport.getSearchKeys(),

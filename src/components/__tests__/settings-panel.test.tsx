@@ -31,17 +31,17 @@ describe("SettingsPanel", () => {
     );
 
     expect(html).toContain(">Settings<");
-    expect(html).toContain("API keys and preferences");
+    expect(html).toContain("model providers, search services");
   });
 
-  it("renders the Reset All Settings button", () => {
+  it("renders the reset settings button", () => {
     const html = renderToStaticMarkup(
       <MantineProvider>
         <SettingsPanel />
       </MantineProvider>,
     );
 
-    expect(html).toContain("Reset All Settings");
+    expect(html).toContain("Reset all settings");
   });
 
   it("renders the diagnostics log section", () => {

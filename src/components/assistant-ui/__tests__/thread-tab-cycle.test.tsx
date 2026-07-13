@@ -81,19 +81,19 @@ function getTextarea(): HTMLTextAreaElement {
   return screen.getByPlaceholderText("Ask something...") as HTMLTextAreaElement;
 }
 
-describe("ComposerInput tab cycling", () => {
+describe("ComposerInput history cycling", () => {
   it("does nothing when there are no previous searches", () => {
     renderThread([]);
     const textarea = getTextarea();
-    fireEvent.keyDown(textarea, { key: "Tab" });
+    fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
     expect(textarea.value).toBe("");
   });
 
-  it("fills with the most recent search on first Tab", async () => {
+  it("fills with the most recent search on first Alt+ArrowUp", async () => {
     renderThread(SEARCHES);
     const textarea = getTextarea();
 
-    fireEvent.keyDown(textarea, { key: "Tab" });
+    fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
 
     await waitFor(() => {
       expect(textarea.value).toBe("third query");
@@ -104,41 +104,41 @@ describe("ComposerInput tab cycling", () => {
     renderThread(SEARCHES);
     const textarea = getTextarea();
 
-    fireEvent.keyDown(textarea, { key: "Tab" });
+    fireEvent.keyDown(textarea, { key: "ArrowDown", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("third query"));
 
-    fireEvent.keyDown(textarea, { key: "Tab" });
+    fireEvent.keyDown(textarea, { key: "ArrowDown", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("first query"));
 
-    fireEvent.keyDown(textarea, { key: "Tab" });
+    fireEvent.keyDown(textarea, { key: "ArrowDown", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("second query"));
 
-    fireEvent.keyDown(textarea, { key: "Tab" });
+    fireEvent.keyDown(textarea, { key: "ArrowDown", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("third query"));
   });
 
-  it("Shift+Tab cycles backward through searches", async () => {
+  it("Alt+ArrowUp cycles backward through searches", async () => {
     renderThread(SEARCHES);
     const textarea = getTextarea();
 
-    fireEvent.keyDown(textarea, { key: "Tab" });
+    fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("third query"));
 
-    fireEvent.keyDown(textarea, { key: "Tab", shiftKey: true });
+    fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("second query"));
 
-    fireEvent.keyDown(textarea, { key: "Tab", shiftKey: true });
+    fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("first query"));
 
-    fireEvent.keyDown(textarea, { key: "Tab", shiftKey: true });
+    fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("third query"));
   });
 
-  it("starts from the most recent even when starting with Shift+Tab", async () => {
+  it("starts from the most recent even when starting with Alt+ArrowDown", async () => {
     renderThread(SEARCHES);
     const textarea = getTextarea();
 
-    fireEvent.keyDown(textarea, { key: "Tab", shiftKey: true });
+    fireEvent.keyDown(textarea, { key: "ArrowDown", altKey: true });
 
     await waitFor(() => {
       expect(textarea.value).toBe("third query");
@@ -149,13 +149,23 @@ describe("ComposerInput tab cycling", () => {
     renderThread(SEARCHES);
     const textarea = getTextarea();
 
-    fireEvent.keyDown(textarea, { key: "Tab" });
+    fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("third query"));
 
     fireEvent.change(textarea, { target: { value: "something else" } });
 
-    fireEvent.keyDown(textarea, { key: "Tab" });
+    fireEvent.keyDown(textarea, { key: "ArrowUp", altKey: true });
     await waitFor(() => expect(textarea.value).toBe("third query"));
+  });
+
+  it("does not intercept plain Tab, preserving normal focus navigation", () => {
+    renderThread(SEARCHES);
+    const textarea = getTextarea();
+
+    const notPrevented = fireEvent.keyDown(textarea, { key: "Tab" });
+
+    expect(notPrevented).toBe(true);
+    expect(textarea.value).toBe("");
   });
 
   it("does not intercept Ctrl+Tab (lets sidebar folder cycling handle it)", () => {
@@ -173,7 +183,7 @@ describe("ComposerInput tab cycling", () => {
     const textarea = getTextarea();
 
     for (let i = 0; i < SEARCHES.length * 2; i++) {
-      fireEvent.keyDown(textarea, { key: "Tab" });
+      fireEvent.keyDown(textarea, { key: "ArrowDown", altKey: true });
       await waitFor(() => {
         const expected = SEARCHES[(SEARCHES.length - 1 + i) % SEARCHES.length];
         expect(textarea.value).toBe(expected);

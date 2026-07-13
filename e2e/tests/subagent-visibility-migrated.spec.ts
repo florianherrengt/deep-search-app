@@ -157,7 +157,7 @@ test.describe("Migrated subagent visibility", () => {
 });
 
 async function openSubAgentSidebar(page: import("@playwright/test").Page) {
-  await clickButtonWithText(page, "Sub agents");
+  await clickButtonWithText(page, "Open sub-agents");
   await waitForText(page, "Sub-agents");
 }
 

@@ -127,11 +127,17 @@ export async function load(
   const data = getStore(filename, options?.defaults);
 
   return {
+    async entries() {
+      return Object.entries(data);
+    },
     async get<T>(key: string) {
       return data[key] as T | undefined;
     },
     async set(key: string, value: unknown) {
       data[key] = value;
+    },
+    async clear() {
+      for (const key of Object.keys(data)) delete data[key];
     },
     async save() {},
     async close() {},

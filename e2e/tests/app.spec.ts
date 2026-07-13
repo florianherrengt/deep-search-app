@@ -2,7 +2,12 @@ import { test, expect } from "../fixtures";
 
 test.describe("App startup", () => {
   test("shows the app title", async ({ chatPage }) => {
-    await expect(chatPage.locator("h1")).toHaveText("Deep Search");
+    await expect(
+      chatPage.getByRole("heading", {
+        name: "What do you want to understand?",
+        exact: true,
+      }),
+    ).toBeVisible();
   });
 
   test("shows the chat composer textarea", async ({ chatPage }) => {

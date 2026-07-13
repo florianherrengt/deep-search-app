@@ -28,4 +28,50 @@ describe("TabPanel", () => {
     expect(html).toContain('data-panel="chat"');
     expect(html).toContain('data-panel="tools"');
   });
+
+  it("exposes semantic application navigation and main content", () => {
+    const html = renderToStaticMarkup(
+      <MantineProvider>
+        <TabPanel
+          chatPanel={<div>Chat panel</div>}
+          settingsPanel={<div>Settings panel</div>}
+          toolsPanel={<div>Tools panel</div>}
+          promptsPanel={<div>Prompts panel</div>}
+          skillsPanel={<div>Skills panel</div>}
+          tabs={[]}
+          activeTabId="main"
+          onSwitchTab={vi.fn()}
+          onCloseTab={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    expect(html).toContain('aria-label="Application sections"');
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain("<main");
+    expect(html).not.toContain('aria-label="Deep Search"');
+  });
+
+  it("omits the sub-agent action until a chat context is available", () => {
+    const html = renderToStaticMarkup(
+      <MantineProvider>
+        <TabPanel
+          chatPanel={<div>Chat panel</div>}
+          settingsPanel={<div>Settings panel</div>}
+          toolsPanel={<div>Tools panel</div>}
+          promptsPanel={<div>Prompts panel</div>}
+          skillsPanel={<div>Skills panel</div>}
+          tabs={[]}
+          activeTabId="main"
+          subAgentSidebarDisabled
+          onToggleSubAgentSidebar={vi.fn()}
+          onSwitchTab={vi.fn()}
+          onCloseTab={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    expect(html).not.toContain("Open sub-agents");
+    expect(html).not.toContain("Close sub-agents");
+  });
 });

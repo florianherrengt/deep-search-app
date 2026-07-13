@@ -7,6 +7,18 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  Alert,
+  Button,
+  Center,
+  Drawer,
+  Loader,
+  Stack,
+  Text,
+  Title,
+  rem,
+} from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { SettingsProvider, useSettings } from "@/hooks/use-settings";
 import { PromptTemplatesProvider } from "@/hooks/use-prompt-templates";
 import { SkillsProvider } from "@/hooks/use-skills";
@@ -52,6 +64,9 @@ function AppInner() {
   const { tabs, activeTabId, switchToTab, closeTab } = useBrowserTabs();
   const [selectedModelId, setSelectedModelId] = useState("");
   const [subAgentSidebarOpen, setSubAgentSidebarOpen] = useState(false);
+  const [researchSidebarOpen, setResearchSidebarOpen] = useState(false);
+  const researchSidebarIsDrawer = useMediaQuery("(max-width: 64em)");
+  const subAgentSidebarIsDrawer = useMediaQuery("(max-width: 75em)");
   const menuSetupStartedRef = useRef(false);
   const chatModelOptions = useMemo(
     () => getChatModelOptions(settings),
@@ -152,7 +167,7 @@ function AppInner() {
     handleResearchChatSaved,
     handleResearchFolderChange,
     handleRunStateChange,
-    handleSearchFolders,
+    handleSearchChats,
     handleSelectResearchChat,
     handleSelectResearchFolder,
     mountedChatSessions,
@@ -174,6 +189,10 @@ function AppInner() {
     setSubAgentSidebarOpen(false);
   }, []);
 
+  const closeResearchSidebar = useCallback(() => {
+    setResearchSidebarOpen(false);
+  }, []);
+
   const handleToggleSubAgentSidebar = useCallback(() => {
     if (activeTabId !== "main") {
       switchToTab("main");
@@ -181,6 +200,12 @@ function AppInner() {
     if (!activeResearchChatId) return;
     setSubAgentSidebarOpen((prev) => !prev);
   }, [activeTabId, activeResearchChatId, switchToTab]);
+
+  useEffect(() => {
+    if (activeTabId === "main") return;
+    setResearchSidebarOpen(false);
+    setSubAgentSidebarOpen(false);
+  }, [activeTabId]);
 
   const { zoomIn, zoomOut, resetZoom } = useWebviewZoom(
     settings.zoom_level,
@@ -222,45 +247,76 @@ function AppInner() {
     updateDefaultChatProvider(selected.provider);
   }, [updateDefaultChatProvider]);
 
-  if (loading) return null;
-
-  if (settingsError) {
+  if (loading) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem", gap: "0.5rem" }}>
-        <p style={{ fontSize: "1.125rem", fontWeight: 500 }}>Failed to load settings</p>
-        <p style={{ fontSize: "0.875rem", opacity: 0.6 }}>{settingsError.message}</p>
-        <button onClick={() => window.location.reload()} style={{ marginTop: "1rem", padding: "0.5rem 1rem" }}>Retry</button>
-      </div>
+      <Center mih="100dvh" p="xl">
+        <Stack align="center" gap="sm" role="status" aria-live="polite">
+          <Loader size="sm" />
+          <Text size="sm" c="dimmed">Loading your workspace…</Text>
+        </Stack>
+      </Center>
     );
   }
 
+  if (settingsError) {
+    return (
+      <Center mih="100dvh" p="xl">
+        <Alert color="red" variant="light" maw={rem(480)} role="alert">
+          <Stack gap="sm">
+            <Stack gap={4}>
+              <Title order={1} size="h4">Could not load settings</Title>
+              <Text size="sm">{settingsError.message}</Text>
+            </Stack>
+            <Button color="red" variant="light" w="fit-content" onClick={() => window.location.reload()}>
+              Retry
+            </Button>
+          </Stack>
+        </Alert>
+      </Center>
+    );
+  }
+
+  const researchSidebar = (
+    <ResearchSidebar
+      width={researchSidebarIsDrawer ? "100%" : "var(--app-sidebar-width)"}
+      folders={researchFolders}
+      activeFolderName={activeResearchFolder}
+      chats={researchChats}
+      activeChatId={activeResearchChatId}
+      searchChats={handleSearchChats}
+      status={researchFoldersStatus}
+      chatsStatus={researchChatsStatus}
+      runningFolderNames={runningFolderNames}
+      runningChatIds={runningChatIds}
+      attentionFolderNames={attentionFolderNames}
+      attentionChatIds={attentionChatIds}
+      onNewChat={() => {
+        closeResearchSidebar();
+        handleNewChat();
+      }}
+      onSelectFolder={(folderName) => {
+        closeResearchSidebar();
+        void handleSelectResearchFolder(folderName);
+      }}
+      onNewResearchChat={(folderName) => {
+        closeResearchSidebar();
+        handleNewResearchChat(folderName);
+      }}
+      onSelectChat={(folderName, chatId) => {
+        closeResearchSidebar();
+        void handleSelectResearchChat(folderName, chatId);
+      }}
+      onRenameFolder={handleRenameResearchFolder}
+      onDeleteFolder={handleDeleteResearchFolder}
+    />
+  );
+
   return (
-    <TabPanel
-      chatPanel={
-        <div className="md-flex-row">
-          <ResearchSidebar
-            folders={researchFolders}
-            activeFolderName={activeResearchFolder}
-            chats={researchChats}
-            activeChatId={activeResearchChatId}
-            searchFolders={handleSearchFolders}
-            status={researchFoldersStatus}
-            chatsStatus={researchChatsStatus}
-            runningFolderNames={runningFolderNames}
-            runningChatIds={runningChatIds}
-            attentionFolderNames={attentionFolderNames}
-            attentionChatIds={attentionChatIds}
-            onNewChat={handleNewChat}
-            onSelectFolder={(folderName) => {
-              void handleSelectResearchFolder(folderName);
-            }}
-            onNewResearchChat={handleNewResearchChat}
-            onSelectChat={(folderName, chatId) => {
-              void handleSelectResearchChat(folderName, chatId);
-            }}
-            onRenameFolder={handleRenameResearchFolder}
-            onDeleteFolder={handleDeleteResearchFolder}
-          />
+    <>
+      <TabPanel
+        chatPanel={
+          <div className="md-flex-row">
+          {!researchSidebarIsDrawer ? researchSidebar : null}
           <div className="md-flex-fill" style={{ display: "flex" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               {mountedChatSessions.map((session) => (
@@ -269,7 +325,13 @@ function AppInner() {
                   style={{ height: "100%" }}
                   hidden={session.sessionId !== activeSessionId}
                 >
-                  <Suspense fallback={<div style={{ height: "100%" }} />}>
+                  <Suspense
+                    fallback={
+                      <Center h="100%" role="status" aria-label="Loading conversation">
+                        <Loader size="sm" />
+                      </Center>
+                    }
+                  >
                     <LazyChat
                       sessionId={session.sessionId}
                       runtimeChatId={session.runtimeChatId}
@@ -293,35 +355,84 @@ function AppInner() {
                 </div>
               ))}
             </div>
-            {subAgentSidebarOpen && activeResearchChatId && (
+            {!subAgentSidebarIsDrawer && subAgentSidebarOpen && activeResearchChatId && (
               <SubAgentSidebar
                 chatId={activeResearchChatId}
                 onClose={closeSubAgentSidebar}
               />
             )}
           </div>
-        </div>
-      }
-      settingsPanel={<SettingsPanel />}
-      promptsPanel={<PromptTemplatesSection />}
-      skillsPanel={<SkillsSection />}
-      toolsPanel={
-        <ToolsPanel
-          config={{
-            researchFolder: activeResearchFolder,
-            getChatModel: getSelectedToolChatModel,
-            ...searchKeys,
+          </div>
+        }
+        settingsPanel={<SettingsPanel />}
+        promptsPanel={<PromptTemplatesSection />}
+        skillsPanel={<SkillsSection />}
+        toolsPanel={
+          <ToolsPanel
+            config={{
+              researchFolder: activeResearchFolder,
+              getChatModel: getSelectedToolChatModel,
+              ...searchKeys,
+            }}
+          />
+        }
+        tabs={tabs}
+        activeTabId={activeTabId}
+        navigationOpen={researchSidebarOpen}
+        onToggleNavigation={
+          researchSidebarIsDrawer && activeTabId === "main"
+            ? () => setResearchSidebarOpen((open) => !open)
+            : undefined
+        }
+        subAgentSidebarOpen={subAgentSidebarOpen}
+        subAgentSidebarDisabled={!activeResearchChatId}
+        onToggleSubAgentSidebar={handleToggleSubAgentSidebar}
+        toolbarEnd={<AppUpdateButton />}
+        onSwitchTab={switchToTab}
+        onCloseTab={closeTab}
+      />
+
+      {researchSidebarIsDrawer ? (
+        <Drawer
+          opened={researchSidebarOpen && activeTabId === "main"}
+          onClose={closeResearchSidebar}
+          title="Research"
+          position="left"
+          size={320}
+          padding={0}
+          closeButtonProps={{ "aria-label": "Close research navigation" }}
+          styles={{
+            content: { display: "flex", flexDirection: "column" },
+            header: { minHeight: rem(48), padding: `0 ${rem(12)}` },
+            body: { display: "flex", flex: 1, minHeight: 0, padding: 0 },
           }}
-        />
-      }
-      tabs={tabs}
-      activeTabId={activeTabId}
-      subAgentSidebarOpen={subAgentSidebarOpen}
-      onToggleSubAgentSidebar={handleToggleSubAgentSidebar}
-      toolbarEnd={<AppUpdateButton />}
-      onSwitchTab={switchToTab}
-      onCloseTab={closeTab}
-    />
+        >
+          {researchSidebar}
+        </Drawer>
+      ) : null}
+
+      {subAgentSidebarIsDrawer && activeResearchChatId ? (
+        <Drawer
+          opened={subAgentSidebarOpen && activeTabId === "main"}
+          onClose={closeSubAgentSidebar}
+          aria-label="Sub-agents"
+          position="right"
+          size={480}
+          padding={0}
+          withCloseButton={false}
+          styles={{
+            content: { display: "flex", flexDirection: "column" },
+            body: { display: "flex", flex: 1, minHeight: 0, padding: 0 },
+          }}
+        >
+          <SubAgentSidebar
+            chatId={activeResearchChatId}
+            onClose={closeSubAgentSidebar}
+            width="100%"
+          />
+        </Drawer>
+      ) : null}
+    </>
   );
 }
 

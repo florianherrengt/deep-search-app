@@ -46,3 +46,13 @@ export const Empty: Story = {
     configured: false,
   },
 };
+
+export const Narrow: Story = {
+  decorators: [
+    (Story) => (
+      <div style={{ width: 390, height: 844, margin: "0 auto", overflow: "hidden" }}>
+        <Story />
+      </div>
+    ),
+  ],
+};

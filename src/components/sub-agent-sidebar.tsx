@@ -9,6 +9,7 @@ import { useSubAgentRenderCounter } from "@/lib/sub-agent-profiler";
 interface SubAgentSidebarProps {
   chatId: string;
   onClose: () => void;
+  width?: CSSProperties["width"];
 }
 
 const SIDEBAR_CONTAINER_STYLE: CSSProperties = {
@@ -34,7 +35,7 @@ const RUNS_LIST_STYLE: CSSProperties = {
   gap: 10,
 };
 
-export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
+export function SubAgentSidebar({ chatId, onClose, width = 420 }: SubAgentSidebarProps) {
   useSubAgentRenderCounter("SubAgentSidebar");
   const { selectRun } = useSubAgentActions();
   const { getRuns, getSelectedRun } = useSubAgentReaders();
@@ -81,7 +82,7 @@ export function SubAgentSidebar({ chatId, onClose }: SubAgentSidebarProps) {
   );
 
   return (
-    <Box style={SIDEBAR_CONTAINER_STYLE}>
+    <Box style={{ ...SIDEBAR_CONTAINER_STYLE, width }}>
       <Box style={SIDEBAR_HEADER_STYLE}>
         <Text size="sm" fw={600} style={{ flex: 1 }}>
           Sub-agents

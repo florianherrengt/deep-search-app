@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Button, TextInput, ScrollArea, Box, Text, Group, Paper, Stack, Collapse, Select as MantineSelect } from "@mantine/core";
+import { Button, TextInput, Box, Text, Group, Paper, Stack, Collapse, Grid, Select as MantineSelect } from "@mantine/core";
 import { getAvailableTools, type ToolDescriptor, type ToolExecuteConfig } from "@/lib/execute-tool";
+import { PageHeader, PageLayout } from "@/components/page-layout";
 
 type ToolResult = {
   tool: string;
@@ -42,8 +43,19 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
     tools.find((tool) => tool.name === selectedToolName && tool.available) ??
     null;
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<ToolResult[]>([]);
+
+  const updateParamValue = useCallback((key: string, value: string) => {
+    setParamValues((previous) => ({ ...previous, [key]: value }));
+    setValidationErrors((previous) => {
+      if (!previous[key]) return previous;
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     setResearchFolderValue(config?.researchFolder ?? "");
@@ -56,26 +68,39 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
       defaults[key] = param.default !== undefined ? String(param.default) : "";
     }
     setParamValues(defaults);
+    setValidationErrors({});
   }, []);
 
   const handleExecute = useCallback(async () => {
     if (!selectedTool) return;
 
     const params: Record<string, unknown> = {};
+    const nextErrors: Record<string, string> = {};
     for (const [key, param] of Object.entries(selectedTool.parameters)) {
       const raw = paramValues[key];
       if (raw === "" || raw === undefined) {
-        if (param.required) return;
+        if (param.required) nextErrors[key] = "This value is required";
         continue;
       }
       if (param.type === "number") {
-        params[key] = Number(raw);
+        const value = Number(raw);
+        if (!Number.isFinite(value)) {
+          nextErrors[key] = "Enter a valid number";
+        } else {
+          params[key] = value;
+        }
       } else if (param.type === "boolean") {
         params[key] = raw === "true";
       } else {
         params[key] = raw;
       }
     }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setValidationErrors(nextErrors);
+      return;
+    }
+    setValidationErrors({});
 
     setLoading(true);
     const timestamp = Date.now();
@@ -106,14 +131,14 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
   const unavailableTools = tools.filter((t) => !t.available);
 
   return (
-    <ScrollArea style={{ height: "100%" }}>
-      <Box maw={900} mx="auto" p="md" py={24}>
-        <Text size="lg" fw={600}>Tools</Text>
-        <Text size="sm" c="dimmed" mt={4}>
-          Call tools directly with custom parameters and inspect the results.
-        </Text>
+    <PageLayout size="lg">
+      <Stack gap="xl">
+        <PageHeader
+          title="Tools"
+          description="Call available research tools directly, configure their parameters, and inspect structured results."
+        />
 
-        <Box mt="md" maw={400}>
+        <Box maw={400}>
           <TextInput
             label="Research folder"
             value={researchFolderValue}
@@ -122,15 +147,38 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
           />
         </Box>
 
-        <Group mt="md" gap="xl" align="flex-start" wrap="nowrap">
-          <Box style={{ width: 256, flexShrink: 0 }}>
+        <MantineSelect
+          hiddenFrom="md"
+          label="Tool"
+          placeholder="Select an available tool"
+          searchable
+          clearable
+          value={selectedToolName}
+          data={availableTools.map((tool) => ({
+            value: tool.name,
+            label: tool.name,
+          }))}
+          onChange={(value) => {
+            if (!value) {
+              setSelectedToolName(null);
+              setParamValues({});
+              setValidationErrors({});
+              return;
+            }
+            const tool = availableTools.find((candidate) => candidate.name === value);
+            if (tool) handleSelectTool(tool);
+          }}
+        />
+
+        <Grid gutter={{ base: "lg", md: "xl" }} align="flex-start">
+          <Grid.Col span={{ base: 12, md: 4, lg: 3 }} visibleFrom="md">
             <Text size="xs" fw={500} tt="uppercase" c="dimmed" mb="xs">Available</Text>
             <Stack gap={4}>
               {availableTools.map((tool) => (
                 <Button
                   key={tool.name}
                   variant={selectedTool?.name === tool.name ? "light" : "subtle"}
-                  color={selectedTool?.name === tool.name ? "gray" : "gray"}
+                  color={selectedTool?.name === tool.name ? "blue" : "gray"}
                   fullWidth
                   styles={{ inner: { justifyContent: "flex-start" } }}
                   onClick={() => handleSelectTool(tool)}
@@ -158,12 +206,12 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
                 </>
               )}
             </Stack>
-          </Box>
+          </Grid.Col>
 
-          <Box className="md-flex-fill">
+          <Grid.Col span={{ base: 12, md: 8, lg: 9 }}>
             {selectedTool ? (
-              <Paper withBorder p="md">
-                <Stack gap="sm">
+              <Paper withBorder p={{ base: "md", sm: "lg" }}>
+                <Stack gap="md">
                   <Box>
                     <Text fw={500}>{selectedTool.name}</Text>
                     <Text size="sm" c="dimmed">{selectedTool.description}</Text>
@@ -180,10 +228,9 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
                             </Text>
                           }
                           placeholder="Select..."
+                          error={validationErrors[key]}
                           value={paramValues[key] ?? ""}
-                          onChange={(value) =>
-                            setParamValues((prev) => ({ ...prev, [key]: value ?? "" }))
-                          }
+                          onChange={(value) => updateParamValue(key, value ?? "")}
                           data={param.enum.map((v) => ({ value: v, label: v }))}
                         />
                       ) : param.type === "boolean" ? (
@@ -195,10 +242,9 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
                             </Text>
                           }
                           placeholder="Select..."
+                          error={validationErrors[key]}
                           value={paramValues[key] ?? ""}
-                          onChange={(value) =>
-                            setParamValues((prev) => ({ ...prev, [key]: value ?? "" }))
-                          }
+                          onChange={(value) => updateParamValue(key, value ?? "")}
                           data={[
                             { value: "true", label: "true" },
                             { value: "false", label: "false" },
@@ -214,10 +260,9 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
                           }
                           type={param.type === "number" ? "number" : "text"}
                           placeholder={param.description ?? key}
+                          error={validationErrors[key]}
                           value={paramValues[key] ?? ""}
-                          onChange={(e) =>
-                            setParamValues((prev) => ({ ...prev, [key]: e.currentTarget.value }))
-                          }
+                          onChange={(event) => updateParamValue(key, event.currentTarget.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
@@ -231,16 +276,17 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
 
                   <Button
                     onClick={() => void handleExecute()}
-                    disabled={loading}
+                    loading={loading}
                     size="sm"
                   >
-                    {loading ? "Running..." : "Execute"}
+                    Execute
                   </Button>
                 </Stack>
               </Paper>
             ) : (
-              <Paper withBorder p={32} style={{ borderStyle: "dashed", textAlign: "center" }}>
-                <Text size="sm" c="dimmed">Select a tool from the sidebar to get started.</Text>
+              <Paper withBorder p="xl" style={{ textAlign: "center" }}>
+                <Text size="sm" fw={500}>Select a tool</Text>
+                <Text size="sm" c="dimmed" mt={4}>Choose an available tool to configure and run it.</Text>
               </Paper>
             )}
 
@@ -252,10 +298,10 @@ export function ToolsPanel({ config }: ToolsPanelProps) {
                 ))}
               </Stack>
             )}
-          </Box>
-        </Group>
-      </Box>
-    </ScrollArea>
+          </Grid.Col>
+        </Grid>
+      </Stack>
+    </PageLayout>
   );
 }
 

@@ -11,7 +11,7 @@ import {
   type PartState,
 } from "@assistant-ui/react";
 import {
-  useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode,
+  useCallback, useEffect, useRef, useState, type ReactNode,
 } from "react";
 import { CopyIcon, CheckIcon, RefreshCwIcon, ArrowDownIcon } from "lucide-react";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -36,6 +36,9 @@ import {
   ReasoningText,
 } from "@/components/assistant-ui/reasoning";
 import { PromptTemplateButton } from "@/components/assistant-ui/prompt-template-button";
+import { Text, Title } from "@mantine/core";
+import { SearchIcon } from "lucide-react";
+import classes from "./thread.module.css";
 
 const groupBy = (part: PartState) => {
   if (part.type === "reasoning") return ["group-reasoning"] as const;
@@ -58,96 +61,6 @@ interface ThreadProps {
   previousSearches: string[];
 }
 
-export // Hoisted: Thread re-renders are rare (model selection, configure), but the
-// inline styles here are large and were re-allocated every render. Static
-// identity lets React skip style diffing on the host nodes.
-const VIEWPORT_STYLE: CSSProperties = {
-  display: "flex",
-  flex: 1,
-  flexDirection: "column",
-  gap: 12,
-  overflowY: "auto",
-  padding: "16px 24px",
-};
-const VIEWPORT_FOOTER_STYLE: CSSProperties = {
-  position: "relative",
-  borderTop: "1px solid var(--mantine-color-default-border)",
-  padding: "12px 24px",
-};
-const SCROLL_TO_BOTTOM_STYLE: CSSProperties = {
-  position: "absolute",
-  top: -44,
-  left: "50%",
-  transform: "translateX(-50%)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 32,
-  height: 32,
-  borderRadius: "50%",
-  border: "1px solid var(--mantine-color-default-border)",
-  background: "var(--mantine-color-body)",
-  boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-  cursor: "pointer",
-};
-const COMPOSER_ROOT_STYLE: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-};
-const COMPOSER_ROW_STYLE: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 8,
-};
-const COMPOSER_ROW_LEFT_STYLE: CSSProperties = {
-  display: "flex",
-  minWidth: 0,
-  alignItems: "center",
-  gap: 8,
-};
-const COMPOSER_ROW_RIGHT_STYLE: CSSProperties = {
-  display: "flex",
-  flexShrink: 0,
-  alignItems: "center",
-  gap: 8,
-};
-const EMPTY_STATE_STYLE: CSSProperties = {
-  display: "flex",
-  height: "60vh",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  textAlign: "center",
-  color: "var(--mantine-color-dimmed)",
-};
-const ADD_PROVIDER_BUTTON_STYLE: CSSProperties = {
-  borderRadius: 12,
-  backgroundColor: "var(--mantine-color-blue-filled)",
-  padding: "6px 14px",
-  fontSize: 13,
-  fontWeight: 600,
-  color: "var(--mantine-color-white)",
-  border: "none",
-  cursor: "pointer",
-};
-const SEND_BUTTON_BASE_STYLE: CSSProperties = {
-  borderRadius: 12,
-  padding: "8px 16px",
-  fontSize: 14,
-  color: "var(--mantine-color-white)",
-  border: "none",
-};
-const CANCEL_BUTTON_STYLE: CSSProperties = {
-  borderRadius: 12,
-  backgroundColor: "var(--mantine-color-red-filled)",
-  padding: "8px 16px",
-  fontSize: 14,
-  color: "var(--mantine-color-white)",
-  border: "none",
-  cursor: "pointer",
-};
 const COMPOSER_DRAFT_STORAGE_KEY = "deep-search:composer-draft";
 
 function readComposerDraft(): string {
@@ -187,76 +100,94 @@ export function Thread({
   const selectedModel = models.find((model) => model.id === selectedModelId);
 
   return (
-    <ThreadPrimitive.Root className="md-flex-col" style={{ position: "relative" }}>
+    <ThreadPrimitive.Root className={`md-flex-col ${classes.root}`}>
       <ThreadPrimitive.Viewport
         scrollToBottomOnRunStart={false}
-        style={VIEWPORT_STYLE}
+        className={classes.viewport}
       >
         <AuiIf condition={(s) => s.thread.isEmpty}>
-          <div style={EMPTY_STATE_STYLE}>
-            <h1 style={{ marginBottom: 4, fontSize: 24, fontWeight: 700 }}>Deep Search</h1>
+          <div className={classes.emptyState}>
+            <SearchIcon className={classes.emptyIcon} size={24} strokeWidth={1.6} aria-hidden="true" />
+            <Title order={1} size="h2">What do you want to understand?</Title>
             {hasEnabledModel ? (
-              <p style={{ fontSize: 18 }}>Ask something...</p>
+              <Text c="dimmed" size="sm" mt="xs" maw="var(--app-copy-max-width)">
+                Ask a focused question. Deep Search will investigate it and keep the evidence visible.
+              </Text>
             ) : (
-              <p style={{ fontSize: 18 }}>Select a provider below to get started.</p>
+              <Text c="dimmed" size="sm" mt="xs">
+                Add a model provider below to start researching.
+              </Text>
             )}
           </div>
         </AuiIf>
-        <ThreadPrimitive.Messages>
-          {() => <ThreadMessage chatId={chatId} />}
-        </ThreadPrimitive.Messages>
+        <div className={classes.messages}>
+          <ThreadPrimitive.Messages>
+            {() => <ThreadMessage chatId={chatId} />}
+          </ThreadPrimitive.Messages>
+        </div>
       </ThreadPrimitive.Viewport>
 
-      <ThreadPrimitive.ViewportFooter style={VIEWPORT_FOOTER_STYLE}>
-        <ThreadPrimitive.ScrollToBottom
-          style={SCROLL_TO_BOTTOM_STYLE}
-        >
-          <ArrowDownIcon style={{ width: 16, height: 16 }} />
-        </ThreadPrimitive.ScrollToBottom>
-        <ComposerPrimitive.Root
-          data-testid="chat-composer"
-          style={COMPOSER_ROOT_STYLE}
-        >
-          <ComposerInput previousSearches={previousSearches} />
-          <div style={COMPOSER_ROW_STYLE}>
-            <div style={COMPOSER_ROW_LEFT_STYLE}>
-              {hasEnabledModel ? (
-                <ModelSelector
-                  models={models}
-                  value={selectedModelId}
-                  onValueChange={onSelectedModelIdChange}
-                  onConfigure={onConfigure}
-                  size="sm"
-                  variant="ghost"
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={onConfigure}
-                  style={ADD_PROVIDER_BUTTON_STYLE}
-                >
-                  Add Provider
-                </button>
-              )}
-              <ContextWindowBadge model={selectedModel} tokenCount={tokenCount} />
+      <ThreadPrimitive.ViewportFooter className={classes.footer}>
+        <div className={classes.composerFrame}>
+          <ThreadPrimitive.ScrollToBottom
+            aria-label="Scroll to the latest message"
+            className={classes.scrollToBottom}
+          >
+            <ArrowDownIcon size={16} />
+          </ThreadPrimitive.ScrollToBottom>
+          <ComposerPrimitive.Root
+            data-testid="chat-composer"
+            className={classes.composer}
+          >
+            <ComposerInput previousSearches={previousSearches} />
+            <div className={classes.composerRow}>
+              <div className={classes.composerRowLeft}>
+                {hasEnabledModel ? (
+                  <ModelSelector
+                    models={models}
+                    value={selectedModelId}
+                    onValueChange={onSelectedModelIdChange}
+                    onConfigure={onConfigure}
+                    size="sm"
+                    variant="ghost"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onConfigure}
+                    className={classes.addProviderButton}
+                  >
+                    Add provider
+                  </button>
+                )}
+                <ContextWindowBadge model={selectedModel} tokenCount={tokenCount} />
+              </div>
+              <div className={classes.composerRowRight}>
+                <AuiIf condition={(s) => !s.thread.isRunning}>
+                  <PromptTemplateButton />
+                </AuiIf>
+                <AuiIf condition={(s) => !s.thread.isRunning}>
+                  <ComposerPrimitive.Send
+                    disabled={!hasEnabledModel}
+                    aria-label="Send message"
+                    data-testid="chat-send-button"
+                    className={classes.sendButton}
+                  >
+                    Send
+                  </ComposerPrimitive.Send>
+                </AuiIf>
+                <AuiIf condition={(s) => s.thread.isRunning}>
+                  <ComposerPrimitive.Cancel
+                    aria-label="Stop generation"
+                    className={classes.cancelButton}
+                  >
+                    Stop
+                  </ComposerPrimitive.Cancel>
+                </AuiIf>
+              </div>
             </div>
-            <div style={COMPOSER_ROW_RIGHT_STYLE}>
-              <AuiIf condition={(s) => !s.thread.isRunning}>
-                <PromptTemplateButton />
-              </AuiIf>
-              <AuiIf condition={(s) => !s.thread.isRunning}>
-                <ComposerPrimitive.Send disabled={!hasEnabledModel} aria-label="Send message" data-testid="chat-send-button" style={{ ...SEND_BUTTON_BASE_STYLE, backgroundColor: hasEnabledModel ? "var(--mantine-color-blue-filled)" : "var(--mantine-color-disabled)", cursor: hasEnabledModel ? "pointer" : "not-allowed" }}>
-                  Send
-                </ComposerPrimitive.Send>
-              </AuiIf>
-              <AuiIf condition={(s) => s.thread.isRunning}>
-                <ComposerPrimitive.Cancel aria-label="Stop generation" style={CANCEL_BUTTON_STYLE}>
-                  Stop
-                </ComposerPrimitive.Cancel>
-              </AuiIf>
-            </div>
-          </div>
-        </ComposerPrimitive.Root>
+          </ComposerPrimitive.Root>
+        </div>
       </ThreadPrimitive.ViewportFooter>
     </ThreadPrimitive.Root>
   );
@@ -311,12 +242,17 @@ function ComposerInput({ previousSearches }: { previousSearches: string[] }) {
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key !== "Tab" || event.ctrlKey || previousSearches.length === 0) return;
+      const cyclingHistory =
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        (event.key === "ArrowUp" || event.key === "ArrowDown");
+      if (!cyclingHistory || previousSearches.length === 0) return;
       event.preventDefault();
       let newIndex: number;
       if (historyIndex === -1) {
         newIndex = previousSearches.length - 1;
-      } else if (event.shiftKey) {
+      } else if (event.key === "ArrowUp") {
         newIndex = historyIndex === 0 ? previousSearches.length - 1 : historyIndex - 1;
       } else {
         newIndex = historyIndex === previousSearches.length - 1 ? 0 : historyIndex + 1;
@@ -342,24 +278,16 @@ function ComposerInput({ previousSearches }: { previousSearches: string[] }) {
       ref={setInputRef}
       data-testid="chat-composer-input"
       placeholder="Ask something..."
+      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+      title={previousSearches.length > 0 ? "Use Alt+↑ and Alt+↓ to reuse previous searches" : undefined}
       minRows={1}
       maxRows={8}
       autoFocus
       onChange={handleChange}
       onKeyDown={handleKeyDown}
       onHeightChange={refreshOverflow}
-      style={{
-        width: "100%",
-        resize: "none",
-        overflowY: hasVerticalOverflow ? "auto" : "hidden",
-        borderRadius: 12,
-        border: "1px solid var(--mantine-color-default-border)",
-        background: "var(--mantine-color-body)",
-        padding: "12px 16px",
-        fontSize: 14,
-        lineHeight: "20px",
-        outline: "none",
-      }}
+      className={classes.composerInput}
+      style={{ overflowY: hasVerticalOverflow ? "auto" : "hidden" }}
     />
   );
 }
@@ -369,7 +297,7 @@ function MessageActionBar() {
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
-      style={{ display: "flex", alignItems: "center", gap: 4, opacity: 0, transition: "opacity 0.15s" }}
+      className={classes.messageActionBar}
     >
       <ActionBarPrimitive.Copy
         copiedDuration={2000}
@@ -392,42 +320,16 @@ function MessageActionBar() {
   );
 }
 
-// Hoisted: ThreadMessage re-renders on stream start/end (useAuiState for
-// isRunning). Static identity lets React skip the style diff.
-const USER_MESSAGE_ROOT_STYLE: CSSProperties = {
-  marginBottom: 16,
-  display: "flex",
-  justifyContent: "flex-end",
-};
-const ASSISTANT_MESSAGE_ROOT_STYLE: CSSProperties = {
-  marginBottom: 16,
-  maxWidth: "80%",
-};
-const USER_MESSAGE_BUBBLE_STYLE: CSSProperties = {
-  maxWidth: "70%",
-  whiteSpace: "pre-wrap",
-  borderRadius: 14,
-  borderBottomRightRadius: 4,
-  backgroundColor: "var(--mantine-color-blue-filled)",
-  padding: "6px 12px",
-  color: "var(--mantine-color-white)",
-  lineHeight: "20px",
-};
-
 function ThreadMessage({ chatId }: { chatId?: string }) {
   const role = useAuiState((s) => s.message.role);
   const isRunning = useAuiState((s) => s.thread.isRunning);
   return (
     <MessagePrimitive.Root
       data-testid={role === "assistant" ? "assistant-message" : undefined}
-      style={
-        role === "user"
-          ? USER_MESSAGE_ROOT_STYLE
-          : ASSISTANT_MESSAGE_ROOT_STYLE
-      }
+      className={`${classes.messageRoot} ${role === "user" ? classes.userMessageRoot : classes.assistantMessageRoot}`}
     >
       {role === "user" ? (
-        <div style={USER_MESSAGE_BUBBLE_STYLE}>
+        <div className={classes.userMessageBubble}>
           <MessagePrimitive.Parts components={{ Text: UserMessageText }} />
         </div>
       ) : (
@@ -463,7 +365,7 @@ function ThreadMessage({ chatId }: { chatId?: string }) {
                   return <ReasoningText />;
                 case "text": {
                   return (
-                    <div style={{ overflowX: "auto" }}>
+                    <div className={classes.messageContent}>
                       <MarkdownText />
                     </div>
                   );
@@ -536,7 +438,7 @@ function ThreadMessage({ chatId }: { chatId?: string }) {
           </MessagePrimitive.GroupedParts>
           <MessageActionBar />
            <MessagePrimitive.Error>
-             <ErrorPrimitive.Root className="md-card-sm" style={{ border: "1px solid light-dark(var(--mantine-color-red-3), var(--mantine-color-red-7))", backgroundColor: "light-dark(var(--mantine-color-red-0), var(--mantine-color-red-9))", color: "var(--mantine-color-red-text)" }}>
+             <ErrorPrimitive.Root className={`md-card-sm ${classes.messageError}`}>
                <ErrorPrimitive.Message />
              </ErrorPrimitive.Root>
            </MessagePrimitive.Error>

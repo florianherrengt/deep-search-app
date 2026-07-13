@@ -111,6 +111,7 @@ const ModelSelectorImpl = ({
 
   return (
     <MantineSelect
+      aria-label="Language model"
       value={value}
       onChange={(v) => {
         if (v === CONFIGURE_VALUE) {

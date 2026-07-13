@@ -1068,7 +1068,8 @@ export async function clickAppTab(page: Page, tabId: string) {
   const tab = page.locator(`[data-testid="app-tab"][data-tab-id="${tabId}"]`);
   await expect(tab).toBeVisible({ timeout: 10000 });
   await tab.click();
-  await expect(tab).toHaveAttribute("data-variant", "light", { timeout: 10000 });
+  await expect(tab).toHaveAttribute("data-active", "true", { timeout: 10000 });
+  await expect(tab).toHaveAttribute("aria-current", "page", { timeout: 10000 });
 }
 
 export async function clickButtonWithText(page: Page, text: string) {

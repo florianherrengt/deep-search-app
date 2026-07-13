@@ -133,7 +133,7 @@ test.describe("Migrated background research", () => {
     await sendMessage(configuredChatPage, "First background research");
     await waitForHeldOpenRouterResponse(configuredChatPage, firstReleaseKey);
 
-    await clickButtonWithText(configuredChatPage, "New Chat");
+    await clickButtonWithText(configuredChatPage, "New chat");
     await sendMessage(configuredChatPage, "Second background research");
     await waitForText(configuredChatPage, secondFinalText);
 
@@ -199,7 +199,7 @@ test.describe("Migrated extraction webview tabs", () => {
 
     await expect(
       configuredChatPage.locator(`[data-testid="browser-tab"][data-tab-url="${url}"]`),
-    ).toHaveAttribute("data-variant", "light");
+    ).toHaveAttribute("data-active", "true");
 
     await releaseTauriWebviewExtractionMock(configuredChatPage);
 

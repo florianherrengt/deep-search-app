@@ -12,7 +12,7 @@ async function addSkill(
   whenToUse: string,
   content: string,
 ) {
-  await clickButtonWithText(page, "Add");
+  await clickButtonWithText(page, "Add skill");
 
   await page.getByPlaceholder("Skill title").fill(title);
   await page
@@ -57,7 +57,7 @@ test.describe("Migrated skills", () => {
   test("shows the auto-generated slug while editing", async ({ chatPage }) => {
     await clickAppTab(chatPage, "skills");
 
-    await clickButtonWithText(chatPage, "Add");
+    await clickButtonWithText(chatPage, "Add skill");
     await chatPage.getByPlaceholder("Skill title").fill("Data Analysis Wizard");
 
     await waitForText(chatPage, "slug: data-analysis-wizard", 5000);
@@ -96,7 +96,7 @@ test.describe("Migrated skills", () => {
   test("validates required fields", async ({ chatPage }) => {
     await clickAppTab(chatPage, "skills");
 
-    await clickButtonWithText(chatPage, "Add");
+    await clickButtonWithText(chatPage, "Add skill");
     await clickButtonWithText(chatPage, "Save");
 
     await waitForText(chatPage, "Title is required", 5000);
@@ -105,7 +105,7 @@ test.describe("Migrated skills", () => {
   test("cancels adding a skill", async ({ chatPage }) => {
     await clickAppTab(chatPage, "skills");
 
-    await clickButtonWithText(chatPage, "Add");
+    await clickButtonWithText(chatPage, "Add skill");
     await chatPage.getByPlaceholder("Skill title").fill("Cancelled Skill");
 
     await clickButtonWithText(chatPage, "Cancel");

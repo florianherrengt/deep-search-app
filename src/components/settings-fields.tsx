@@ -1,7 +1,7 @@
-import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { useClipboard } from "@mantine/hooks";
 import { CheckIcon, CopyIcon, FileText, Loader2, RefreshCw } from "lucide-react";
-import { Button, TextInput, Select, SegmentedControl, Box, Stack, Text, Group, Checkbox, Paper, Progress } from "@mantine/core";
+import { Button, PasswordInput, TextInput, Select, SegmentedControl, Box, Stack, Text, Group, Checkbox, Paper, Progress } from "@mantine/core";
 import { generateText } from "ai";
 import {
   CHAT_PROVIDER_SETTINGS,
@@ -300,8 +300,8 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
           )}
         </Stack>
         <Stack gap="xs" mt="sm">
-          <Text size="sm" fw={500}>Extraction backend</Text>
           <Select
+            label="Extraction backend"
             disabled={!settings.chrome_devtools_mcp_enabled}
             value={settings.web_extraction_backend}
             onChange={(value) => {
@@ -674,26 +674,43 @@ function ProviderFields({
         {getChatProviderLabel(definition.provider)}
       </Text>
       <Stack gap="xs">
-        {definition.fields.map((field) => (
-          <TextInput
-            key={`${definition.provider}-${field.key}`}
-            id={`${fieldIdPrefix}-${definition.provider}-${field.key}`}
-            type={field.type}
-            label={field.label}
-            placeholder={field.placeholder}
-            value={drafts[field.key] ?? ""}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setDrafts((prev) => ({ ...prev, [field.key]: value }));
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                void handleSave();
-              }
-            }}
-          />
-        ))}
+        {definition.fields.map((field) => {
+          const key = `${definition.provider}-${field.key}`;
+          const id = `${fieldIdPrefix}-${definition.provider}-${field.key}`;
+          const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+            const value = event.currentTarget.value;
+            setDrafts((prev) => ({ ...prev, [field.key]: value }));
+          };
+          const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void handleSave();
+            }
+          };
+
+          return field.type === "password" ? (
+            <PasswordInput
+              key={key}
+              id={id}
+              label={field.label}
+              placeholder={field.placeholder}
+              value={drafts[field.key] ?? ""}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+            />
+          ) : (
+            <TextInput
+              key={key}
+              id={id}
+              type={field.type}
+              label={field.label}
+              placeholder={field.placeholder}
+              value={drafts[field.key] ?? ""}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+            />
+          );
+        })}
         <Group justify="flex-end" gap="xs">
           {testResult === "ok" && (
             <Text size="xs" c="green">OK</Text>
@@ -751,18 +768,21 @@ function SettingInput({
     void onCommit(field.key, draft);
   }
 
-  return (
-    <TextInput
-      id={inputId}
-      type={field.type}
-      label={field.label}
-      placeholder={field.placeholder}
-      value={draft}
-      onChange={(event) => setDraft(event.currentTarget.value)}
-      onBlur={() => {
-        void onCommit(field.key, draft);
-      }}
-      onKeyDown={handleKeyDown}
-    />
+  const sharedProps = {
+    id: inputId,
+    label: field.label,
+    placeholder: field.placeholder,
+    value: draft,
+    onChange: (event: ChangeEvent<HTMLInputElement>) => setDraft(event.currentTarget.value),
+    onBlur: () => {
+      void onCommit(field.key, draft);
+    },
+    onKeyDown: handleKeyDown,
+  };
+
+  return field.type === "password" ? (
+    <PasswordInput {...sharedProps} />
+  ) : (
+    <TextInput {...sharedProps} type={field.type} />
   );
 }

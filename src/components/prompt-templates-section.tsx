@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
 import { PencilIcon, TrashIcon, PlusIcon, XIcon, CheckIcon } from "lucide-react";
-import { Button, TextInput, Textarea, Box, Text, Group, Paper, Stack, ScrollArea, ActionIcon } from "@mantine/core";
+import { Button, TextInput, Textarea, Box, Text, Group, Paper, Stack, ActionIcon } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { usePromptTemplates } from "@/hooks/use-prompt-templates";
+import { PageHeader, PageLayout } from "@/components/page-layout";
 
 type EditingState =
   | { mode: "idle" }
@@ -84,33 +85,27 @@ export function PromptTemplatesSection() {
   );
 
   return (
-    <Box className="md-flex-col">
-      <Box maw={640} mx="auto" w="100%" px="md" py={32} style={{ flexShrink: 0 }}>
-        <Group justify="space-between">
-          <Box>
-            <Text size="lg" fw={600}>Prompt Templates</Text>
-            <Text size="sm" c="dimmed" mt={4}>
-              Create reusable prompts for quick access from the chat.
-            </Text>
-          </Box>
-          <Button
+    <PageLayout size="sm">
+      <Stack gap="xl">
+        <PageHeader
+          title="Prompt templates"
+          description="Create reusable prompts for quick access from the chat composer."
+          action={<Button
             variant="outline"
             size="sm"
             onClick={startAdd}
             disabled={editing.mode !== "idle"}
             leftSection={<PlusIcon size={14} />}
           >
-            Add
-          </Button>
-        </Group>
-      </Box>
+            Add template
+          </Button>}
+        />
 
-      <ScrollArea className="md-flex-fill" pb={32}>
-        <Box maw={640} mx="auto" w="100%" px="md">
+        <Box>
           {editing.mode !== "idle" ? (
-            <Paper withBorder p="md" className="md-flex-col">
-              <form onSubmit={form.onSubmit(handleSubmit)} onKeyDown={(e) => { if (e.key === "Escape") cancelEdit(); }} className="md-flex-col">
-                <Stack gap="sm" className="md-flex-fill">
+            <Paper withBorder p={{ base: "md", sm: "lg" }}>
+              <form onSubmit={form.onSubmit(handleSubmit)} onKeyDown={(e) => { if (e.key === "Escape") cancelEdit(); }}>
+                <Stack gap="md">
                     <TextInput
                       label="Name"
                       {...form.getInputProps("name")}
@@ -120,18 +115,15 @@ export function PromptTemplatesSection() {
                         if (e.key === "Escape") cancelEdit();
                       }}
                     />
-                  <Box className="md-flex-col">
-                    <Text size="sm" fw={500} mb={4}>Prompt</Text>
-                    <Textarea
-                      {...form.getInputProps("text")}
-                      placeholder="Enter prompt text..."
-                      autosize
-                      minRows={6}
-                      style={{ flex: 1 }}
-                    />
-                  </Box>
+                  <Textarea
+                    label="Prompt"
+                    {...form.getInputProps("text")}
+                    placeholder="Enter prompt text..."
+                    autosize
+                    minRows={6}
+                  />
                   {error && (
-                    <Text size="sm" c="red">{error}</Text>
+                    <Text role="alert" size="sm" c="red">{error}</Text>
                   )}
                   <Group gap="xs">
                     <Button type="submit" size="sm" leftSection={<CheckIcon size={14} />}>
@@ -186,12 +178,13 @@ export function PromptTemplatesSection() {
               ))}
             </Paper>
           ) : (
-            <Paper withBorder p="sm" style={{ borderStyle: "dashed" }}>
-              <Text size="sm" c="dimmed">No templates yet. Click Add to create one.</Text>
+            <Paper withBorder p="xl" style={{ textAlign: "center" }}>
+              <Text size="sm" fw={500}>No prompt templates yet</Text>
+              <Text size="sm" c="dimmed" mt={4}>Create one to reuse common research instructions from the composer.</Text>
             </Paper>
           )}
         </Box>
-      </ScrollArea>
-    </Box>
+      </Stack>
+    </PageLayout>
   );
 }

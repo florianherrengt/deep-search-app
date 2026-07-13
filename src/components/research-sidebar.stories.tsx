@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import { ResearchSidebar } from "./research-sidebar";
+import type { ChatHistorySearchResult } from "@/lib/chat-history-search";
 
 const noop = () => undefined;
 
@@ -36,7 +37,7 @@ const meta = {
     activeFolderName: folders[0].name,
     chats,
     activeChatId: chats[0].id,
-    searchFolders: (() => Promise.resolve([])) as (query: string, abortSignal?: AbortSignal) => Promise<string[]>,
+    searchChats: async (): Promise<ChatHistorySearchResult[]> => [],
     status: "ready",
     chatsStatus: "ready",
     runningFolderNames: [],
@@ -150,15 +151,53 @@ export const WaitingForAnswerDark: Story = {
 
 export const SearchResults: Story = {
   args: {
-    searchFolders: async () => [
-      "2026-06-06_storybook-integration",
-      "vendor-pricing-comparison-with-a-long-folder-name",
+    searchChats: async () => [
+      {
+        folderName: "2026-06-06_storybook-integration",
+        chatId: "chat-1",
+        title: "Storybook package and addon research",
+        matchedText: "Compare Storybook visual testing addons",
+        updatedAt: "2026-06-06T12:15:00Z",
+        score: 0.91,
+      },
+      {
+        folderName: "vendor-pricing-comparison-with-a-long-folder-name",
+        chatId: "vendor-chat",
+        title: "Vendor UI review",
+        matchedText: "Check the Storybook coverage for the pricing flow",
+        updatedAt: "2026-06-05T09:00:00Z",
+        score: 0.78,
+      },
     ],
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.type(canvas.getByPlaceholderText(/search research/i), "storybook");
-    await userEvent.keyboard("{Enter}");
+    await userEvent.type(canvas.getByRole("textbox", { name: /search chat history/i }), "storybook");
+    await canvas.findByText("2 chats matched");
+  },
+};
+
+export const SearchNoResults: Story = {
+  tags: ["skip-screenshot"],
+  args: { searchChats: async () => [] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByRole("textbox", { name: /search chat history/i }), "missing");
+    await canvas.findByText("No results found");
+  },
+};
+
+export const SearchError: Story = {
+  tags: ["skip-screenshot"],
+  args: {
+    searchChats: async () => {
+      throw new Error("Index unavailable");
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByRole("textbox", { name: /search chat history/i }), "storybook");
+    await canvas.findByRole("alert");
   },
 };
 

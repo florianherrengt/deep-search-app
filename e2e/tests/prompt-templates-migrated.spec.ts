@@ -11,7 +11,7 @@ import {
 } from "../helpers/chat";
 
 async function addTemplate(page: import("@playwright/test").Page, name: string, text: string) {
-  await clickButtonWithText(page, "Add");
+  await clickButtonWithText(page, "Add template");
 
   await page.getByPlaceholder("Template name").fill(name);
   await page.getByPlaceholder("Enter prompt text...").fill(text);
@@ -117,7 +117,7 @@ test.describe("Migrated prompt templates", () => {
   test("shows empty state when no templates exist", async ({ chatPage }) => {
     await clickAppTab(chatPage, "prompts");
 
-    await waitForText(chatPage, "No templates yet", 10000);
+    await waitForText(chatPage, "No prompt templates yet", 10000);
   });
 });
 

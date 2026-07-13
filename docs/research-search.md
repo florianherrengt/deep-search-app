@@ -1,40 +1,30 @@
-# Research Library Search
+# Chat History Search
 
-The AI agent can search across all past research sessions using the `search_research` tool. It's available in every chat session — no setup needed.
+The sidebar and the AI agent search saved chat history locally. No provider key or hosted search service is required.
 
-## For the agent
+## Sidebar search
 
-### Searching
+Typing in **Search chat history** runs a debounced keyword search over:
 
+- Chat titles
+- User-authored messages
+- Completed answers to `ask_questions`
+
+Assistant responses and generated research files are deliberately excluded. Each result identifies one exact chat and opens that chat, including results stored in another research folder.
+
+## `search_research` tool
+
+```text
+search_research({ query: "how do transformers handle long context", limit: 8 })
 ```
-search_research({ query: "how do transformers handle long context" })
-```
 
-Returns matching research folders only. Each result includes the folder name as `folder_name`; chunk content is intentionally omitted from the agent-facing tool result.
-If the search backend is temporarily unavailable, the agent-facing tool returns no matches instead of exposing provider errors in chat.
+The tool accepts one query or an array of queries. It returns exact chat matches with `folder_name`, `chat_id`, `title`, `matched_query`, `updated_at`, and `score`. The active chat is excluded when its identity is known; other chats in the same folder remain searchable.
 
-Optional parameters:
-- `folder` — limit to a specific research folder (e.g. `"acme-market-map"`)
-- `limit` — max results, default 8
+## Indexing and embeddings
 
-### When to use it
-
-- Before starting new research, check if the topic was already covered in a past session
-- When the user asks about something that might have been researched before
-- When following up on a previous research thread
-
-### How indexing works
-
-- Files are indexed automatically when saved via `save_research_file`
-- Research folders are registered when created (first message of a session)
-- The search uses hybrid semantic + keyword matching with reranking
-- Results are filtered by relevance — irrelevant queries return nothing
-
-### Architecture
-
-- Embedding model: `qwen/qwen3-embedding-4b` (1024 dimensions) via OpenRouter
-- Keyword search: SQLite FTS5 with Porter stemming
-- Vector search: sqlite-vec KNN
-- Fusion: Adaptive Reciprocal Rank Fusion
-- Reranking: `cohere/rerank-4-pro` via OpenRouter (free)
-- Uses the user's existing OpenRouter API key
+- Orama provides English BM25 keyword search, stemming, typo tolerance, filtering, and hybrid keyword/vector retrieval.
+- `Xenova/all-MiniLM-L6-v2` provides 384-dimensional embeddings through Transformers.js and ONNX Runtime Web.
+- The embedding model is revision-pinned, quantized to q8 (about 23 MB), downloaded on the first semantic search, and cached by the webview for later offline use.
+- Inference runs single-threaded in a Web Worker so it does not block the UI and does not require `SharedArrayBuffer`.
+- Chat records remain authoritative. The in-memory Orama index is rebuilt from saved chats; record embeddings are cached in the Tauri store and reused when their text is unchanged.
+- If the model cannot load or run, `search_research` falls back to keyword results.
