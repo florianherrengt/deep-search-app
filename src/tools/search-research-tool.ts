@@ -28,19 +28,15 @@ export const searchResearchInputSchema = z.object({
 
 export function createSearchResearchTool(
   getResearchFolder?: () => Promise<string | null | undefined>,
-  getResearchChatId?: () => Promise<string | null | undefined>,
 ) {
   return tool({
     description:
-      "Search the user's saved chat history using local keyword and semantic retrieval. This searches chat titles and user-authored messages, not the web or generated research files. Returns exact chats that can be opened. The current chat is excluded when known.",
+      "Search the user's saved chat history using local keyword and semantic retrieval. This searches chat titles and user-authored messages, not the web or generated research files. Returns exact chats that can be opened. The current research folder is excluded when known.",
     strict: true,
     inputSchema: zodSchema(searchResearchInputSchema),
     outputSchema: zodSchema(z.array(ResearchChatMatchSchema)),
     execute: async ({ query, limit }, options) => {
-      const [rawCurrentFolder, currentChatId] = await Promise.all([
-        getResearchFolder?.() ?? Promise.resolve(null),
-        getResearchChatId?.() ?? Promise.resolve(null),
-      ]);
+      const rawCurrentFolder = await getResearchFolder?.();
       const currentFolder = rawCurrentFolder
         ? SafePathSegmentSchema.parse(rawCurrentFolder)
         : null;
@@ -48,10 +44,7 @@ export function createSearchResearchTool(
       const matches = await searchChatHistoryHybrid(query, {
         abortSignal: options?.abortSignal,
         limit: limit ?? 8,
-        exclude:
-          currentFolder && currentChatId
-            ? { folderName: currentFolder, chatId: currentChatId }
-            : undefined,
+        exclude: currentFolder ? { folderName: currentFolder } : undefined,
       });
 
       return matches.map((match) => ({

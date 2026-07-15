@@ -76,10 +76,9 @@ describe("createSearchResearchTool", () => {
     );
   });
 
-  it("excludes only the current chat, not its whole research folder", async () => {
+  it("excludes the current research folder", async () => {
     const tool = createSearchResearchTool(
       async () => "market-map",
-      async () => "current-chat",
     ) as unknown as ExecutableSearchTool;
 
     await tool.execute({ query: "market size" });
@@ -88,22 +87,9 @@ describe("createSearchResearchTool", () => {
       "market size",
       {
         abortSignal: undefined,
-        exclude: { folderName: "market-map", chatId: "current-chat" },
+        exclude: { folderName: "market-map" },
         limit: 8,
       },
-    );
-  });
-
-  it("does not exclude a folder when the current chat id is unknown", async () => {
-    const tool = createSearchResearchTool(
-      async () => "market-map",
-    ) as unknown as ExecutableSearchTool;
-
-    await tool.execute({ query: "market size" });
-
-    expect(searchMocks.searchChatHistoryHybrid).toHaveBeenCalledWith(
-      "market size",
-      expect.objectContaining({ exclude: undefined }),
     );
   });
 });

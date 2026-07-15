@@ -46,7 +46,7 @@ export interface ChatHistorySearchResult {
 
 export interface ChatHistorySearchOptions {
   limit?: number;
-  exclude?: { folderName: string; chatId: string };
+  exclude?: { folderName: string };
 }
 
 export interface ChatHistoryHybridSearchOptions extends ChatHistorySearchOptions {
@@ -213,9 +213,7 @@ function groupChatResults(results: ChatHistorySearchResult[], limit: number) {
 }
 
 function exclusionWhere(exclude: ChatHistorySearchOptions["exclude"]) {
-  return exclude
-    ? { chatKey: { nin: [chatKey(exclude.folderName, exclude.chatId)] } }
-    : undefined;
+  return exclude ? { folderName: { nin: [exclude.folderName] } } : undefined;
 }
 
 function chatKey(folderName: string, chatId: string) {

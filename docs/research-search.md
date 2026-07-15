@@ -18,7 +18,7 @@ Assistant responses and generated research files are deliberately excluded. Each
 search_research({ query: "how do transformers handle long context", limit: 8 })
 ```
 
-The tool accepts one query or an array of queries. It returns exact chat matches with `folder_name`, `chat_id`, `title`, `matched_query`, `updated_at`, and `score`. The active chat is excluded when its identity is known; other chats in the same folder remain searchable.
+The tool accepts one query or an array of queries. It returns exact chat matches with `folder_name`, `chat_id`, `title`, `matched_query`, `updated_at`, and `score`. All chats in the active research folder are excluded from agent searches.
 
 ## Indexing and embeddings
 

@@ -40,6 +40,15 @@ const records: ChatHistorySearchRecord[] = [
   },
 ];
 
+const secondActiveFolderChat: ChatHistorySearchRecord = {
+  id: "market/chat-c/user-1",
+  folderName: "market-research",
+  chatId: "chat-c",
+  title: "Outdoor retail market",
+  query: "Hiking equipment sales in France",
+  updatedAt: "2026-07-12T12:00:00.000Z",
+};
+
 describe("ChatHistorySearchIndex", () => {
   it("supports an empty chat library", async () => {
     const index = await ChatHistorySearchIndex.create([]);
@@ -73,11 +82,14 @@ describe("ChatHistorySearchIndex", () => {
     });
   });
 
-  it("excludes only the active chat and honors the chat result limit", async () => {
-    const index = await ChatHistorySearchIndex.create(records);
+  it("excludes every chat in the active folder before applying the result limit", async () => {
+    const index = await ChatHistorySearchIndex.create([
+      ...records,
+      secondActiveFolderChat,
+    ]);
 
     const results = await index.searchKeyword("hiking market", {
-      exclude: { folderName: "market-research", chatId: "chat-a" },
+      exclude: { folderName: "market-research" },
       limit: 1,
     });
 
@@ -107,5 +119,32 @@ describe("ChatHistorySearchIndex", () => {
       chatId: "chat-a",
       matchedText: "Compare espresso machine demand in France",
     });
+  });
+
+  it("applies active-folder exclusion to hybrid search", async () => {
+    const index = await ChatHistorySearchIndex.create(
+      [...records, secondActiveFolderChat],
+      {
+        embeddings: {
+          "market/chat-a/user-1": vector(1),
+          "market/chat-a/user-2": vector(0, 1),
+          "market/chat-c/user-1": vector(-1),
+          "travel/chat-b/user-1": vector(-1),
+        },
+      },
+    );
+
+    const results = await index.searchHybrid("hiking market", vector(-1), {
+      exclude: { folderName: "market-research" },
+      limit: 10,
+      similarity: 0.5,
+    });
+
+    expect(results).toEqual([
+      expect.objectContaining({
+        folderName: "norway-travel",
+        chatId: "chat-b",
+      }),
+    ]);
   });
 });

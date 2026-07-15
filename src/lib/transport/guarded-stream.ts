@@ -37,7 +37,6 @@ const INTERNAL_GUARDRAIL_RETRY_GUIDANCE = [
 export function createGuardedStream({
   model,
   researchFolder,
-  researchChatId,
   messages,
   abortSignal,
   onResearchFolderChange,
@@ -47,7 +46,6 @@ export function createGuardedStream({
 }: {
   model: LanguageModel;
   researchFolder: string | null;
-  researchChatId?: string | null;
   messages: UIMessage[];
   abortSignal: AbortSignal | undefined;
   onResearchFolderChange?: (folderName: string) => void | Promise<void>;
@@ -65,7 +63,6 @@ export function createGuardedStream({
           if (activeResearchFolder) return activeResearchFolder;
           throw new Error("Research folder is not initialized.");
         },
-        getResearchChatId: async () => researchChatId ?? null,
         switchResearchFolder: async (folderName) => {
           activeResearchFolder = SafePathSegmentSchema.parse(folderName);
           await onResearchFolderChange?.(activeResearchFolder);
