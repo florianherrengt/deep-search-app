@@ -122,6 +122,20 @@ function hasUsefulContent(core: CoreModule, html: string | null): html is string
   return core.sanitizeHtml(html).length >= core.MIN_CONTENT_LENGTH;
 }
 
+function preferMoreUsefulHtml(
+  core: CoreModule,
+  primaryHtml: string | null,
+  fallbackHtml: string | null,
+): string | null {
+  if (!primaryHtml) return fallbackHtml;
+  if (!fallbackHtml) return primaryHtml;
+
+  return core.sanitizeHtml(fallbackHtml).length >=
+    core.sanitizeHtml(primaryHtml).length
+    ? fallbackHtml
+    : primaryHtml;
+}
+
 function withScrapeDoFallback(
   pageLoader: PageLoader,
   apiKey: string,
@@ -137,6 +151,43 @@ function withScrapeDoFallback(
       );
       if (hasUsefulContent(core, remoteHtml)) return remoteHtml;
       return pageLoader.renderHtml?.(url, options) ?? null;
+    },
+  };
+}
+
+function withRenderFallback(
+  primary: PageLoader,
+  fallback: PageLoader,
+  primaryName: string,
+): PageLoader {
+  return {
+    fetchHtml: fallback.fetchHtml ?? primary.fetchHtml,
+    renderHtml: async (url, options) => {
+      const core = await loadCore();
+      let primaryHtml: string | null = null;
+
+      try {
+        throwIfAborted(options?.signal);
+        const primaryRender = primary.renderHtml?.(url, options);
+        primaryHtml = primaryRender
+          ? await abortablePromise(primaryRender, options?.signal)
+          : null;
+        throwIfAborted(options?.signal);
+        if (hasUsefulContent(core, primaryHtml)) return primaryHtml;
+      } catch (error) {
+        if (isAbortError(error) || options?.signal?.aborted) throw error;
+        console.warn(
+          `[extract] ${primaryName} failed for ${url}; falling back to the Tauri webview:`,
+          error instanceof Error ? error.message : error,
+        );
+      }
+
+      throwIfAborted(options?.signal);
+      const fallbackRender = fallback.renderHtml?.(url, options);
+      const fallbackHtml = fallbackRender
+        ? await abortablePromise(fallbackRender, options?.signal)
+        : null;
+      return preferMoreUsefulHtml(core, primaryHtml, fallbackHtml);
     },
   };
 }
@@ -158,17 +209,26 @@ export function createExtractionPageLoader({
 } = {}): PageLoader {
   const backend = chromeMcp?.backend ?? "tauri-webview";
   const forceChrome = method === "chrome";
-  const shouldUseChromeMcp = Boolean(chromeMcp?.enabled) && (backend === "chrome-mcp" || forceChrome);
+  const forceWebview = method === "webview";
+  const shouldUseChromeMcp =
+    !forceWebview &&
+    Boolean(chromeMcp?.enabled) &&
+    (backend === "chrome-mcp" || forceChrome);
   const scrapeDoToken = scrapeDoApiKey?.trim() ?? "";
   const useScrapeDo = (method === "auto" || method === "scrape.do") && scrapeDoToken.length > 0;
 
+  const tauriPageLoader = createAppPageLoader({ fetchHtml, extractViaWebview });
   const basePageLoader = shouldUseChromeMcp
-    ? createChromeMcpPageLoader({
-        connectionMode: chromeMcp!.connectionMode,
-        browserUrl: chromeMcp!.browserUrl,
-        nodePath: chromeMcp!.nodePath,
-      })
-    : createAppPageLoader({ fetchHtml, extractViaWebview });
+    ? withRenderFallback(
+        createChromeMcpPageLoader({
+          connectionMode: chromeMcp!.connectionMode,
+          browserUrl: chromeMcp!.browserUrl,
+          nodePath: chromeMcp!.nodePath,
+        }),
+        tauriPageLoader,
+        "Chrome MCP rendering",
+      )
+    : tauriPageLoader;
 
   return useScrapeDo
     ? withScrapeDoFallback(basePageLoader, scrapeDoToken)

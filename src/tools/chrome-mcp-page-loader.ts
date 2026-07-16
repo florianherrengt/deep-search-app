@@ -26,7 +26,7 @@ export function createChromeMcpPageLoader({
   return {
     fetchHtml: undefined,
 
-    renderHtml: async (url, _options) => {
+    renderHtml: async (url, options) => {
       if (!isTauri()) return null;
 
       const client = await getChromeDevToolsMcpClient({
@@ -41,7 +41,7 @@ export function createChromeMcpPageLoader({
           arguments: { type: "url", url, timeout: NAVIGATE_TIMEOUT_MS },
         },
         undefined,
-        { timeout: MCP_CALL_TIMEOUT_MS },
+        { timeout: MCP_CALL_TIMEOUT_MS, signal: options?.signal },
       );
 
       const evalResult = await client.callTool(
@@ -52,7 +52,7 @@ export function createChromeMcpPageLoader({
           },
         },
         undefined,
-        { timeout: MCP_CALL_TIMEOUT_MS },
+        { timeout: MCP_CALL_TIMEOUT_MS, signal: options?.signal },
       );
 
       return extractTextFromToolResult(

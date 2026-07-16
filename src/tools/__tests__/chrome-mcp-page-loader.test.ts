@@ -149,6 +149,31 @@ describe("createChromeMcpPageLoader", () => {
     });
   });
 
+  it("passes the abort signal to Chrome MCP requests", async () => {
+    const controller = new AbortController();
+    mockCallTool
+      .mockResolvedValueOnce(mockNavigateResult())
+      .mockResolvedValueOnce(mockEvaluateResult(MOCK_HTML));
+
+    const loader = createChromeMcpPageLoader({});
+    await loader.renderHtml!("https://example.com", {
+      signal: controller.signal,
+    });
+
+    expect(mockCallTool).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ name: "navigate_page" }),
+      undefined,
+      expect.objectContaining({ signal: controller.signal }),
+    );
+    expect(mockCallTool).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ name: "evaluate_script" }),
+      undefined,
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
   it("renderHtml handles empty content array", async () => {
     mockCallTool
       .mockResolvedValueOnce(mockNavigateResult())
