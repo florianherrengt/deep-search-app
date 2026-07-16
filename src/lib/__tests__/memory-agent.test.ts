@@ -108,6 +108,43 @@ describe("extractAndStoreMemories", () => {
     expect(result).toEqual({ memoriesStored: 2 });
   });
 
+  it("preserves legacy metadata and manual prose during extraction rewrites", async () => {
+    mockStreamText.mockReturnValue(
+      streamTextResult(
+        '["User prefers rail travel.", "User prefers prices in EUR."]',
+      ),
+    );
+    mockReadAppFile.mockResolvedValue(`# Memories
+
+## Travel
+
+- Memory: User prefers rail travel.
+- Category: preference
+- Evidence: repeated requests
+
+Manual note: keep accessibility constraints visible.
+`);
+
+    await extractAndStoreMemories(
+      "Use EUR for prices.",
+      getResearchFolder,
+      { modelId: "test" } as any,
+      undefined,
+      { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+    );
+
+    const written = mockWriteAppFile.mock.calls[0]?.[0].content ?? "";
+    expect(written).toContain("- User prefers rail travel.");
+    expect(written).toContain("- User prefers prices in EUR.");
+    expect(written).toContain("## Preserved legacy notes");
+    expect(written).toContain("- Category: preference");
+    expect(written).toContain("- Evidence: repeated requests");
+    expect(written).toContain(
+      "Manual note: keep accessibility constraints visible.",
+    );
+    expect(written).not.toContain("- Memory: User prefers rail travel.");
+  });
+
   it("deduplicates via LLM merge (code-level dedup removed)", async () => {
     // LLM returns deduplicated merged list directly
     mockStreamText.mockReturnValue(streamTextResult('["User has a dog."]'));
@@ -472,6 +509,25 @@ describe("extractAndStoreMemories", () => {
         { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
       ),
     ).rejects.toThrow("Disk read error");
+  });
+
+  it("preserves an oversized memories file without calling the model", async () => {
+    mockReadAppFile.mockResolvedValue(
+      `# Memories\n\n- User fact ${"x".repeat(50_000)}\n`,
+    );
+
+    await expect(
+      extractAndStoreMemories(
+        "I use macOS",
+        getResearchFolder,
+        { modelId: "test" } as any,
+        undefined,
+        { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+      ),
+    ).rejects.toThrow("too large for safe automatic extraction");
+
+    expect(mockStreamText).not.toHaveBeenCalled();
+    expect(mockWriteAppFile).not.toHaveBeenCalled();
   });
 
   // AT-14: throws on writeAppFile failure

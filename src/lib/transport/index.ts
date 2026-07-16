@@ -4,7 +4,7 @@ import {
   type ChatModelConfig,
 } from "@/lib/chat-providers";
 import { SafePathSegmentSchema } from "@/lib/app-file-storage";
-import { throwIfAborted } from "@/lib/abort";
+import { isAbortError, throwIfAborted } from "@/lib/abort";
 import { isSubAgentOutputTextPart } from "@/lib/sub-agent-stream";
 import {
   emitSubAgentEventToChat,
@@ -13,8 +13,9 @@ import type { SubAgentEvent } from "@/lib/sub-agent-types";
 import { createGuardedStream } from "./guarded-stream";
 import type { SearchToolKeys } from "./tool-registry";
 import {
-  deleteResearchFolder,
+  deleteResearchFolderIfDisposable,
   initializeResearchFolder,
+  isResearchChatProvisional,
   moveResearchChatToFolder,
   saveResearchChatMessages,
 } from "@/lib/research-history";
@@ -27,6 +28,13 @@ import {
   logInterruptedToolCallRepair,
   repairInterruptedToolCallMessages,
 } from "@/lib/tool-call-repair";
+import {
+  mergeResearchMemoriesWithLockedCleanup,
+} from "@/lib/research-memory";
+import {
+  getAuthorizedResearchFolderSwitches,
+  getResearchContinuationCandidates,
+} from "@/lib/research-recall";
 
 export { createGuardedStream } from "./guarded-stream";
 export type { SearchToolKeys } from "./tool-registry";
@@ -39,6 +47,15 @@ export type MemoryExtractionCandidate = {
   messageIndex: number;
   metadata?: Record<string, unknown>;
 };
+
+type PendingMemoryCandidate = {
+  candidate: MemoryExtractionCandidate;
+  attempts: number;
+};
+
+const MAX_PENDING_MEMORY_CANDIDATES = 50;
+const MAX_MEMORY_EXTRACTIONS_PER_TURN = 2;
+const MAX_MEMORY_EXTRACTION_ATTEMPTS = 3;
 
 /**
  * Collects memory-extraction candidates from the message history.
@@ -156,6 +173,8 @@ export class DirectTransport implements ChatTransport<UIMessage> {
   private researchFolder: string | null = null;
   private autoCreatedResearchFolder: string | null = null;
   private processedMemoryMessageIds = new Set<string>();
+  private abandonedMemoryMessageIds = new Set<string>();
+  private pendingMemoryCandidates = new Map<string, PendingMemoryCandidate>();
 
   constructor(
     private getChatModel: () => ChatModelConfig | null,
@@ -240,7 +259,7 @@ export class DirectTransport implements ChatTransport<UIMessage> {
                 folderName,
                 transport.researchChatId,
                 effectiveMessages,
-                { title: chatTitle || undefined },
+                { title: chatTitle || undefined, provisional: true },
               );
 
               transport.researchFolder = folderName;
@@ -259,12 +278,28 @@ export class DirectTransport implements ChatTransport<UIMessage> {
 
             const previousResearchChoice = getPreviousResearchChoice(effectiveMessages);
             if (previousResearchChoice.type === "continue") {
+              if (
+                !transport.autoCreatedResearchFolder &&
+                transport.researchFolder &&
+                (await isResearchChatProvisional(
+                  transport.researchFolder,
+                  transport.researchChatId,
+                ))
+              ) {
+                transport.autoCreatedResearchFolder = transport.researchFolder;
+              }
               await transport.switchResearchFolder(
                 previousResearchChoice.folder,
                 effectiveMessages,
                 { deleteAutoCreatedPreviousFolder: true },
               );
-            } else {
+            } else if (previousResearchChoice.type === "new") {
+              await saveResearchChatMessages(
+                transport.researchFolder,
+                transport.researchChatId,
+                effectiveMessages,
+                { provisional: false },
+              );
               transport.autoCreatedResearchFolder = null;
             }
           }
@@ -272,7 +307,44 @@ export class DirectTransport implements ChatTransport<UIMessage> {
           if (transport.researchFolder && trigger === "submit-message") {
             const correlationId = crypto.randomUUID();
 
-            const candidates = collectMemoryCandidates(effectiveMessages);
+            const latestCandidates = collectMemoryCandidates(effectiveMessages);
+            for (const candidate of latestCandidates) {
+              if (
+                transport.processedMemoryMessageIds.has(candidate.id) ||
+                transport.abandonedMemoryMessageIds.has(candidate.id)
+              ) {
+                continue;
+              }
+              const pending = transport.pendingMemoryCandidates.get(candidate.id);
+              if (pending) {
+                pending.candidate = candidate;
+                continue;
+              }
+              if (
+                transport.pendingMemoryCandidates.size >=
+                MAX_PENDING_MEMORY_CANDIDATES
+              ) {
+                const oldestId = transport.pendingMemoryCandidates.keys().next().value;
+                if (typeof oldestId === "string") {
+                  transport.pendingMemoryCandidates.delete(oldestId);
+                  transport.abandonedMemoryMessageIds.add(oldestId);
+                  console.warn("[memory-extraction] Dropping oldest pending candidate", {
+                    candidateId: oldestId,
+                    reason: "pending queue limit reached",
+                  });
+                }
+              }
+              transport.pendingMemoryCandidates.set(candidate.id, {
+                candidate,
+                attempts: 0,
+              });
+            }
+            const candidates = [...transport.pendingMemoryCandidates.values()]
+              .sort(
+                (left, right) =>
+                  left.candidate.messageIndex - right.candidate.messageIndex,
+              )
+              .slice(0, MAX_MEMORY_EXTRACTIONS_PER_TURN);
 
             if (candidates.length === 0) {
               console.debug("[memory-extraction]", {
@@ -281,7 +353,8 @@ export class DirectTransport implements ChatTransport<UIMessage> {
               });
             }
 
-            for (const candidate of candidates) {
+            for (const pending of candidates) {
+              const candidate = pending.candidate;
               if (transport.processedMemoryMessageIds.has(candidate.id)) {
                 console.debug("[memory-extraction]", {
                   correlationId,
@@ -302,15 +375,32 @@ export class DirectTransport implements ChatTransport<UIMessage> {
                 contentLength: candidate.content.length,
               });
 
-              await extractAndStoreMemories(
-                candidate.content,
-                async () => transport.researchFolder,
-                model,
-                abortSignal,
-                { emitEvent: subAgentEmitter },
-              );
-
-              transport.processedMemoryMessageIds.add(candidate.id);
+              try {
+                await extractAndStoreMemories(
+                  candidate.content,
+                  async () => transport.researchFolder,
+                  model,
+                  abortSignal,
+                  { emitEvent: subAgentEmitter },
+                );
+                transport.processedMemoryMessageIds.add(candidate.id);
+                transport.pendingMemoryCandidates.delete(candidate.id);
+              } catch (error) {
+                if (isAbortError(error) || abortSignal?.aborted) throw error;
+                pending.attempts += 1;
+                if (pending.attempts >= MAX_MEMORY_EXTRACTION_ATTEMPTS) {
+                  transport.pendingMemoryCandidates.delete(candidate.id);
+                  transport.abandonedMemoryMessageIds.add(candidate.id);
+                }
+                console.warn("[memory-extraction] Continuing research after memory failure", {
+                  candidateId: candidate.id,
+                  source: candidate.source,
+                  attempt: pending.attempts,
+                  abandoned:
+                    pending.attempts >= MAX_MEMORY_EXTRACTION_ATTEMPTS,
+                  error: error instanceof Error ? error.message : "unknown",
+                });
+              }
             }
           }
 
@@ -380,21 +470,44 @@ export class DirectTransport implements ChatTransport<UIMessage> {
         toFolderName: parsedFolderName,
         chatId: this.researchChatId,
         messages,
+        requireExistingDestination: true,
       });
+    }
+
+    let cleanupResult:
+      | Awaited<ReturnType<typeof deleteResearchFolderIfDisposable>>
+      | undefined;
+    if (shouldDeletePreviousFolder && previousFolderName) {
+      try {
+        const result = await mergeResearchMemoriesWithLockedCleanup(
+          previousFolderName,
+          parsedFolderName,
+          () =>
+            deleteResearchFolderIfDisposable(previousFolderName, {
+              ignoredRootFiles: ["memories.md"],
+            }),
+        );
+        cleanupResult = result.cleanupResult;
+      } catch (error) {
+        console.warn(
+          `[transport] Failed to merge memories or safely clean up auto-created research folder "${previousFolderName}" after switching to "${parsedFolderName}". The source folder was retained:`,
+          error,
+        );
+      }
     }
 
     this.researchFolder = parsedFolderName;
     this.autoCreatedResearchFolder = null;
 
-    if (shouldDeletePreviousFolder && previousFolderName) {
-      try {
-        await deleteResearchFolder(previousFolderName);
-      } catch (error) {
-        console.warn(
-          `[transport] Failed to delete auto-created research folder "${previousFolderName}" after switching to "${parsedFolderName}":`,
-          error,
-        );
-      }
+    if (cleanupResult && !cleanupResult.deleted && previousFolderName) {
+      console.warn(
+        `[transport] Retaining auto-created research folder "${previousFolderName}" because it still contains research data:`,
+        {
+          rootFiles: cleanupResult.remainingRootFiles,
+          chatFiles: cleanupResult.remainingChatFiles,
+          subfolders: cleanupResult.remainingSubfolders,
+        },
+      );
     }
 
     this.onResearchFolderChange?.(parsedFolderName, {
@@ -482,7 +595,7 @@ async function saveInitialResearchChatOrThrow(
   folderName: string,
   chatId: string,
   messages: UIMessage[],
-  options?: { title?: string },
+  options?: { title?: string; provisional?: boolean },
 ): Promise<void> {
   try {
     await saveResearchChatMessages(folderName, chatId, messages, options);
@@ -511,23 +624,45 @@ function getPreviousResearchChoice(
   messages: UIMessage[],
 ): PreviousResearchChoice {
   let sawAnswer = false;
+  const latestUserIndex = messages.reduce(
+    (latest, message, index) => (message.role === "user" ? index : latest),
+    -1,
+  );
+  const currentTurnMessages =
+    latestUserIndex === -1 ? messages : messages.slice(latestUserIndex);
+  const authorizedFolders = getAuthorizedResearchFolderSwitches(
+    currentTurnMessages,
+  );
 
-  for (const message of messages) {
+  for (let messageIndex = currentTurnMessages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = currentTurnMessages[messageIndex];
     if (message.role !== "assistant") continue;
 
-    for (const part of message.parts) {
+    for (let partIndex = message.parts.length - 1; partIndex >= 0; partIndex -= 1) {
+      const part = message.parts[partIndex];
       const answers = getAskQuestionsAnswers(part);
       if (!answers) continue;
+      if (!isRecord(part)) continue;
+      const toolPart = part as Record<string, unknown>;
+      const continuationCandidates = getResearchContinuationCandidates(
+        toolPart.input,
+      );
+      if (continuationCandidates.folders.size === 0) continue;
 
       sawAnswer = true;
-      for (const answer of answers) {
-        if (answer === "new") {
+      for (let answerIndex = answers.length - 1; answerIndex >= 0; answerIndex -= 1) {
+        const answer = answers[answerIndex];
+        if (answer === "new" && continuationCandidates.allowsNew) {
           return { type: "new" };
         }
 
         if (answer.startsWith("continue:")) {
           const folder = answer.slice("continue:".length).trim();
-          if (SafePathSegmentSchema.safeParse(folder).success) {
+          if (
+            SafePathSegmentSchema.safeParse(folder).success &&
+            continuationCandidates.folders.has(folder) &&
+            authorizedFolders.has(folder)
+          ) {
             return { type: "continue", folder };
           }
         }

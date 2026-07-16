@@ -16,6 +16,7 @@ export const switchResearchFolderInputSchema = z.object({
 
 export function createSwitchResearchFolderTool(
   switchResearchFolder: SwitchResearchFolder,
+  canSwitchResearchFolder?: (folderName: string) => boolean,
 ) {
   return tool({
     description:
@@ -29,6 +30,14 @@ export function createSwitchResearchFolderTool(
     ),
     execute: async ({ folder }) => {
       const parsedFolder = SafePathSegmentSchema.parse(folder);
+      if (
+        canSwitchResearchFolder &&
+        !canSwitchResearchFolder(parsedFolder)
+      ) {
+        throw new Error(
+          `Research folder switch not authorized: ${parsedFolder}. A matching research_chat result and explicit user continuation choice are required.`,
+        );
+      }
       const folders = await listAppSubfolders({
         subfolder: SEARCH_RESULTS_SUBFOLDER,
       });

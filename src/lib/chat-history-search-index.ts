@@ -4,6 +4,7 @@ export const CHAT_HISTORY_EMBEDDING_DIMENSIONS = 384;
 
 const BASE_SCHEMA = {
   id: "string",
+  recordKind: "enum",
   chatKey: "enum",
   folderName: "enum",
   folderLabel: "string",
@@ -28,6 +29,7 @@ const SEARCH_BOOST = {
 
 export interface ChatHistorySearchRecord {
   id: string;
+  recordKind: "chat" | "memory";
   folderName: string;
   chatId: string;
   title: string;
@@ -36,6 +38,7 @@ export interface ChatHistorySearchRecord {
 }
 
 export interface ChatHistorySearchResult {
+  recordKind: "chat" | "memory";
   folderName: string;
   chatId: string;
   title: string;
@@ -47,6 +50,7 @@ export interface ChatHistorySearchResult {
 export interface ChatHistorySearchOptions {
   limit?: number;
   exclude?: { folderName: string };
+  recordKind?: "chat" | "memory";
 }
 
 export interface ChatHistoryHybridSearchOptions extends ChatHistorySearchOptions {
@@ -55,6 +59,7 @@ export interface ChatHistoryHybridSearchOptions extends ChatHistorySearchOptions
 
 interface ChatSearchDocument {
   id: string;
+  recordKind: "chat" | "memory";
   chatKey: string;
   folderName: string;
   folderLabel: string;
@@ -120,7 +125,7 @@ export class ChatHistorySearchIndex {
         tolerance: keywordTolerance(normalizedQuery),
         limit: normalizeLimit(options.limit),
         distinctOn: "chatKey",
-        where: exclusionWhere(options.exclude),
+        where: searchWhere(options),
       }),
     );
 
@@ -150,7 +155,7 @@ export class ChatHistorySearchIndex {
         tolerance: keywordTolerance(normalizedQuery),
         similarity: options.similarity ?? 0.5,
         limit: Math.max(normalizeLimit(options.limit) * 4, 20),
-        where: exclusionWhere(options.exclude),
+        where: searchWhere(options),
       }),
     );
 
@@ -172,7 +177,11 @@ function createVectorIndex() {
 function toSearchDocument(record: ChatHistorySearchRecord): ChatSearchDocument {
   return {
     id: record.id,
-    chatKey: chatKey(record.folderName, record.chatId),
+    chatKey:
+      record.recordKind === "chat"
+        ? chatKey(record.folderName, record.chatId)
+        : record.id,
+    recordKind: record.recordKind,
     folderName: record.folderName,
     folderLabel: record.folderName.replace(/[-_]+/g, " "),
     chatId: record.chatId,
@@ -189,6 +198,7 @@ function toSearchResult(
 ): ChatHistorySearchResult {
   const value = document as ChatSearchDocument | ChatSearchVectorDocument;
   return {
+    recordKind: value.recordKind as "chat" | "memory",
     folderName: value.folderName,
     chatId: value.chatId,
     title: value.chatTitle,
@@ -201,7 +211,7 @@ function toSearchResult(
 function groupChatResults(results: ChatHistorySearchResult[], limit: number) {
   const bestByChat = new Map<string, ChatHistorySearchResult>();
   for (const result of results) {
-    const key = chatKey(result.folderName, result.chatId);
+    const key = resultKey(result);
     const current = bestByChat.get(key);
     if (!current || result.score > current.score) {
       bestByChat.set(key, result);
@@ -212,12 +222,28 @@ function groupChatResults(results: ChatHistorySearchResult[], limit: number) {
     .slice(0, limit);
 }
 
-function exclusionWhere(exclude: ChatHistorySearchOptions["exclude"]) {
-  return exclude ? { folderName: { nin: [exclude.folderName] } } : undefined;
+function searchWhere(options: ChatHistorySearchOptions) {
+  const conditions = [
+    ...(options.exclude
+      ? [{ folderName: { nin: [options.exclude.folderName] } }]
+      : []),
+    ...(options.recordKind
+      ? [{ recordKind: { eq: options.recordKind } }]
+      : []),
+  ];
+  if (conditions.length === 0) return undefined;
+  if (conditions.length === 1) return conditions[0];
+  return { and: conditions };
 }
 
 function chatKey(folderName: string, chatId: string) {
   return JSON.stringify([folderName, chatId]);
+}
+
+function resultKey(result: ChatHistorySearchResult) {
+  return result.recordKind === "chat"
+    ? chatKey(result.folderName, result.chatId)
+    : JSON.stringify([result.folderName, result.matchedText]);
 }
 
 function normalizeLimit(limit?: number) {

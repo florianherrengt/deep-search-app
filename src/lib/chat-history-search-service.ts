@@ -240,7 +240,10 @@ function mergeChatResults(
 ) {
   const bestByChat = new Map<string, ChatHistorySearchResult>();
   for (const result of resultSets.flat()) {
-    const key = JSON.stringify([result.folderName, result.chatId]);
+    const key =
+      result.recordKind === "chat"
+        ? JSON.stringify([result.folderName, result.chatId])
+        : JSON.stringify([result.folderName, result.matchedText]);
     const current = bestByChat.get(key);
     if (!current || result.score > current.score) {
       bestByChat.set(key, result);

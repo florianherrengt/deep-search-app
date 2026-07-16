@@ -26,14 +26,37 @@ export function searchChatHistoryKeyword(
   query: string,
   options: ChatHistoryHybridSearchServiceOptions = {},
 ): Promise<ChatHistorySearchResult[]> {
-  return getService().searchKeyword(query, options);
+  return getService().searchKeyword(query, { ...options, recordKind: "chat" });
 }
 
 export function searchChatHistoryHybrid(
   query: string | string[],
   options: ChatHistoryHybridSearchServiceOptions = {},
 ): Promise<ChatHistorySearchResult[]> {
-  return getService().searchHybrid(query, options);
+  return getService().searchHybrid(query, { ...options, recordKind: "chat" });
+}
+
+export interface ResearchMemorySearchResult {
+  folderName: string;
+  memory: string;
+  updatedAt: string | null;
+  score: number;
+}
+
+export async function searchResearchMemoriesHybrid(
+  query: string | string[],
+  options: ChatHistoryHybridSearchServiceOptions = {},
+): Promise<ResearchMemorySearchResult[]> {
+  const results = await getService().searchHybrid(query, {
+    ...options,
+    recordKind: "memory",
+  });
+  return results.map((result) => ({
+    folderName: result.folderName,
+    memory: result.matchedText,
+    updatedAt: result.updatedAt,
+    score: result.score,
+  }));
 }
 
 export type { ChatHistorySearchOptions, ChatHistorySearchResult };

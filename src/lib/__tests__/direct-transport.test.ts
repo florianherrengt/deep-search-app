@@ -28,6 +28,10 @@ const chatProviderMocks = vi.hoisted(() => ({
   createChatLanguageModel: vi.fn(),
 }));
 
+const researchMemoryMocks = vi.hoisted(() => ({
+  mergeResearchMemoriesWithLockedCleanup: vi.fn(),
+}));
+
 vi.mock("@/lib/tauri-bridge", () => ({
   ...fsMocks,
   invoke: tauriMocks.invoke,
@@ -49,12 +53,14 @@ vi.mock("@/lib/memory-agent", () => ({
   extractAndStoreMemories: vi.fn().mockResolvedValue({ memoriesStored: 0 }),
 }));
 
-vi.mock("@/lib/retrieval-agent", () => ({
-  runRetrievalAgent: vi.fn().mockResolvedValue({
-    relevant_folders: [],
-    relevant_memories: [],
-  }),
-}));
+vi.mock("@/lib/research-memory", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/research-memory")>();
+  return {
+    ...actual,
+    mergeResearchMemoriesWithLockedCleanup:
+      researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup,
+  };
+});
 
 vi.mock("@/lib/skills-store", () => ({
   skillsStore: {
@@ -81,6 +87,12 @@ describe("DirectTransport research folder lifecycle", () => {
     fsMocks.remove.mockResolvedValue(undefined);
     tauriMocks.invoke.mockResolvedValue(undefined);
     mockedExtractAndStoreMemories.mockResolvedValue({ memoriesStored: 0 });
+    researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup.mockImplementation(
+      async (_source, _destination, cleanup) => ({
+        memoriesMerged: 0,
+        cleanupResult: await cleanup(),
+      }),
+    );
   });
 
   afterEach(() => {
@@ -292,6 +304,7 @@ describe("DirectTransport research folder lifecycle", () => {
     expect(onFolderChange).toHaveBeenCalledWith("earnings-research", {});
 
     fsMocks.exists.mockResolvedValue(true);
+    mockResearchFolderExists("market-map");
 
     await consumeStream(
       await transport.sendMessages({
@@ -316,6 +329,358 @@ describe("DirectTransport research folder lifecycle", () => {
     expect(onFolderChange).toHaveBeenCalledWith("market-map", {
       previousFolderName: "earnings-research",
     });
+    expect(
+      researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup,
+    ).toHaveBeenCalledWith(
+      "earnings-research",
+      "market-map",
+      expect.any(Function),
+    );
+    const recursiveDeleteCall = fsMocks.remove.mock.calls.findIndex(
+      ([path, options]) =>
+        path === "search-results/earnings-research" &&
+        (options as { recursive?: boolean } | undefined)?.recursive === true,
+    );
+    expect(recursiveDeleteCall).toBeGreaterThanOrEqual(0);
+    expect(
+      researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(fsMocks.remove.mock.invocationCallOrder[recursiveDeleteCall]);
+  });
+
+  it("preserves provisional-folder ownership across clarification before continuation", async () => {
+    const model = createModel("clarified-research");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const transport = createTransport(vi.fn());
+    const original = userMessage("Research regional demand");
+    const clarification = assistantClarificationAnswer("France");
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [original],
+        abortSignal: undefined,
+      }),
+    );
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "clarification-1",
+        messages: [original, clarification],
+        abortSignal: undefined,
+      }),
+    );
+
+    fsMocks.exists.mockResolvedValue(true);
+    mockResearchFolderExists("market-map");
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "continue-1",
+        messages: [
+          original,
+          clarification,
+          assistantQuestionAnswer("continue:market-map"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(
+      researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup,
+    ).toHaveBeenCalledWith(
+      "clarified-research",
+      "market-map",
+      expect.any(Function),
+    );
+    expect(fsMocks.remove).toHaveBeenCalledWith(
+      "search-results/clarified-research",
+      { recursive: true },
+    );
+  });
+
+  it("completes the folder switch but retains the source folder when memory merge fails", async () => {
+    const model = createModel("temporary-research");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = createTransport(onFolderChange);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Continue my market research")],
+        abortSignal: undefined,
+      }),
+    );
+
+    fsMocks.exists.mockResolvedValue(true);
+    mockResearchFolderExists("market-map");
+    researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup.mockRejectedValueOnce(
+      new Error("write failed"),
+    );
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "question-1",
+        messages: [
+          userMessage("Continue my market research"),
+          assistantQuestionAnswer("continue:market-map"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(onFolderChange).toHaveBeenLastCalledWith("market-map", {
+      previousFolderName: "temporary-research",
+    });
+    expect(fsMocks.remove).not.toHaveBeenCalledWith(
+      "search-results/temporary-research",
+      { recursive: true },
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("The source folder was retained"),
+      expect.any(Error),
+    );
+    warn.mockRestore();
+  });
+
+  it("retains a provisional source folder that already contains research artifacts", async () => {
+    const model = createModel("artifact-research");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const transport = createTransport(vi.fn());
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Research the market")],
+        abortSignal: undefined,
+      }),
+    );
+
+    fsMocks.exists.mockResolvedValue(true);
+    fsMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === "search-results") return [directoryEntry("market-map")];
+      if (path === "search-results/artifact-research") {
+        return [fileEntry("summary.md"), directoryEntry("attachments")];
+      }
+      return [];
+    });
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "continue-1",
+        messages: [
+          userMessage("Research the market"),
+          assistantQuestionAnswer("continue:market-map"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(
+      researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup,
+    ).toHaveBeenCalledWith(
+      "artifact-research",
+      "market-map",
+      expect.any(Function),
+    );
+    expect(fsMocks.remove).not.toHaveBeenCalledWith(
+      "search-results/artifact-research",
+      { recursive: true },
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("still contains research data"),
+      expect.objectContaining({
+        rootFiles: ["summary.md"],
+        subfolders: ["attachments"],
+      }),
+    );
+    warn.mockRestore();
+  });
+
+  it("retains a provisional source folder that still contains another chat", async () => {
+    const model = createModel("multi-chat-research");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const transport = createTransport(vi.fn());
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Research the market")],
+        abortSignal: undefined,
+      }),
+    );
+
+    fsMocks.exists.mockResolvedValue(true);
+    fsMocks.readDir.mockImplementation(async (path: string) => {
+      if (path === "search-results") return [directoryEntry("market-map")];
+      if (path === "search-results/multi-chat-research/chats") {
+        return [
+          fileEntry("index.json"),
+          fileEntry("2026-07-16T10-00-00.000Z--other-chat.json"),
+        ];
+      }
+      return [];
+    });
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "continue-1",
+        messages: [
+          userMessage("Research the market"),
+          assistantQuestionAnswer("continue:market-map"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(fsMocks.remove).not.toHaveBeenCalledWith(
+      "search-results/multi-chat-research",
+      { recursive: true },
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("still contains research data"),
+      expect.objectContaining({
+        chatFiles: ["2026-07-16T10-00-00.000Z--other-chat.json"],
+      }),
+    );
+    warn.mockRestore();
+  });
+
+  it("keeps the provisional folder when the recalled destination was deleted", async () => {
+    const model = createModel("missing-target-research");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = createTransport(onFolderChange);
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Research the market")],
+        abortSignal: undefined,
+      }),
+    );
+
+    fsMocks.exists.mockResolvedValue(true);
+    fsMocks.readDir.mockResolvedValue([]);
+    fsMocks.writeTextFile.mockClear();
+    const chunks = await collectChunks(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "continue-1",
+        messages: [
+          userMessage("Research the market"),
+          assistantQuestionAnswer("continue:market-map"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorText: "Research folder no longer exists: market-map",
+      }),
+    );
+    expect(
+      fsMocks.writeTextFile.mock.calls.some(([path]) =>
+        path.startsWith("search-results/market-map/"),
+      ),
+    ).toBe(false);
+    expect(
+      researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup,
+    ).not.toHaveBeenCalled();
+    expect(fsMocks.remove).not.toHaveBeenCalledWith(
+      "search-results/missing-target-research",
+      { recursive: true },
+    );
+    expect(onFolderChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers persisted provisional ownership after transport reconstruction", async () => {
+    const model = createModel("reconstructed-research");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const originalTransport = createTransport(vi.fn());
+    const original = userMessage("Research the market");
+
+    await consumeStream(
+      await originalTransport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [original],
+        abortSignal: undefined,
+      }),
+    );
+    const chatPath =
+      "search-results/reconstructed-research/chats/2026-05-22T10-11-12.123Z.json";
+    const initialChatWrite = fsMocks.writeTextFile.mock.calls.find(
+      ([path]) => path === chatPath,
+    );
+    expect(initialChatWrite?.[1]).toContain('"provisional":true');
+
+    const storedChat = String(initialChatWrite?.[1]);
+    fsMocks.exists.mockResolvedValue(true);
+    fsMocks.readTextFile.mockImplementation(async (path: string) =>
+      path === chatPath ? storedChat : "",
+    );
+    mockResearchFolderExists("market-map");
+    const reconstructedTransport = new DirectTransport(
+      () => ({
+        provider: "openrouter",
+        apiKey: "chat-key",
+        model: "test-model",
+      }) as never,
+      () => ({}),
+      "2026-05-22T10-11-12.123Z",
+      "reconstructed-research",
+      vi.fn(),
+    );
+
+    await consumeStream(
+      await reconstructedTransport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "continue-1",
+        messages: [
+          original,
+          assistantQuestionAnswer("continue:market-map"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(
+      researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup,
+    ).toHaveBeenCalledWith(
+      "reconstructed-research",
+      "market-map",
+      expect.any(Function),
+    );
+    expect(fsMocks.remove).toHaveBeenCalledWith(
+      "search-results/reconstructed-research",
+      { recursive: true },
+    );
   });
 
   it("keeps the current folder when user chooses start-fresh", async () => {
@@ -367,6 +732,103 @@ describe("DirectTransport research folder lifecycle", () => {
 
     expect(fsMocks.rename).not.toHaveBeenCalled();
     expect(fsMocks.remove).not.toHaveBeenCalled();
+    const currentChatWrites = fsMocks.writeTextFile.mock.calls.filter(
+      ([path]) =>
+        path ===
+        "search-results/earnings-research/chats/2026-05-22T10-11-12.123Z.json",
+    );
+    expect(currentChatWrites[currentChatWrites.length - 1]?.[1]).toContain(
+      '"provisional":false',
+    );
+  });
+
+  it("does not switch folders when a continuation answer was backed only by memory recall", async () => {
+    const model = createModel("temporary-research");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = createTransport(onFolderChange);
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [userMessage("Research the market")],
+        abortSignal: undefined,
+      }),
+    );
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "question-1",
+        messages: [
+          userMessage("Research the market"),
+          assistantMemoryOnlyQuestionAnswer("continue:market-map"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(
+      researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup,
+    ).not.toHaveBeenCalled();
+    expect(onFolderChange).toHaveBeenCalledTimes(1);
+    expect(onFolderChange).toHaveBeenLastCalledWith("temporary-research", {});
+    expect(fsMocks.remove).not.toHaveBeenCalledWith(
+      "search-results/temporary-research",
+      { recursive: true },
+    );
+  });
+
+  it("does not replay an old continuation choice on a later user turn", async () => {
+    const model = createModel("temporary-research");
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(model);
+    const onFolderChange = vi.fn();
+    const transport = createTransport(onFolderChange);
+    const original = userMessage("Research the market");
+    const continuation = assistantQuestionAnswer("continue:market-map");
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-1",
+        messages: [original],
+        abortSignal: undefined,
+      }),
+    );
+    fsMocks.exists.mockResolvedValue(true);
+    mockResearchFolderExists("market-map");
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "continue-1",
+        messages: [original, continuation],
+        abortSignal: undefined,
+      }),
+    );
+    const callsAfterContinuation = onFolderChange.mock.calls.length;
+
+    await consumeStream(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: "runtime-chat",
+        messageId: "user-2",
+        messages: [
+          original,
+          continuation,
+          userMessage("Now compare pricing"),
+        ],
+        abortSignal: undefined,
+      }),
+    );
+
+    expect(onFolderChange).toHaveBeenCalledTimes(callsAfterContinuation);
+    expect(
+      researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it("opens an existing folder without renaming", async () => {
@@ -900,6 +1362,12 @@ describe("DirectTransport coffee beans scenario", () => {
     fsMocks.remove.mockResolvedValue(undefined);
     tauriMocks.invoke.mockResolvedValue(undefined);
     mockedExtractAndStoreMemories.mockResolvedValue({ memoriesStored: 0 });
+    researchMemoryMocks.mergeResearchMemoriesWithLockedCleanup.mockImplementation(
+      async (_source, _destination, cleanup) => ({
+        memoriesMerged: 0,
+        cleanupResult: await cleanup(),
+      }),
+    );
   });
 
   afterEach(() => {
@@ -1218,14 +1686,127 @@ function userMessage(text: string): UIMessage {
   };
 }
 
+function mockResearchFolderExists(folderName: string) {
+  fsMocks.readDir.mockImplementation(async (path: string) =>
+    path === "search-results" ? [directoryEntry(folderName)] : [],
+  );
+}
+
+function directoryEntry(name: string) {
+  return {
+    name,
+    isDirectory: true,
+    isFile: false,
+    isSymlink: false,
+  };
+}
+
+function fileEntry(name: string) {
+  return {
+    name,
+    isDirectory: false,
+    isFile: true,
+    isSymlink: false,
+  };
+}
+
 function assistantQuestionAnswer(answer: string): UIMessage {
   return {
     id: "assistant-question",
     role: "assistant",
     parts: [
       {
+        type: "tool-search_research",
+        toolCallId: "search-1",
+        state: "output-available",
+        input: { query: "market research" },
+        output: [
+          {
+            result_type: "research_chat",
+            folder_name: "market-map",
+            chat_id: "chat-market-size",
+            title: "Market map",
+            matched_query: "market research",
+            updated_at: null,
+            score: 0.9,
+            relevant_memories: [],
+          },
+        ],
+      } as UIMessage["parts"][number],
+      {
         type: "tool-ask_questions",
         toolCallId: "question-1",
+        state: "output-available",
+        input: {
+          questions: [
+            {
+              question: "Continue previous research?",
+              candidates: [
+                { label: "Continue", value: "continue:market-map" },
+                { label: "Start fresh", value: "new" },
+              ],
+            },
+          ],
+        },
+        output: {
+          answers: [{ question: "Continue previous research?", answer }],
+        },
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantClarificationAnswer(answer: string): UIMessage {
+  return {
+    id: "assistant-clarification",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-ask_questions",
+        toolCallId: "clarification-1",
+        state: "output-available",
+        input: {
+          questions: [
+            {
+              question: "Which region?",
+              candidates: [
+                { label: "France", value: "France" },
+                { label: "Germany", value: "Germany" },
+              ],
+            },
+          ],
+        },
+        output: {
+          answers: [{ question: "Which region?", answer }],
+        },
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantMemoryOnlyQuestionAnswer(answer: string): UIMessage {
+  return {
+    id: "assistant-memory-question",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-search_research",
+        toolCallId: "search-memory-1",
+        state: "output-available",
+        input: { query: "market preferences" },
+        output: [
+          {
+            result_type: "memory",
+            source_folder: "market-map",
+            memory: "User prefers France-focused analysis.",
+            updated_at: null,
+            score: 0.9,
+          },
+        ],
+      } as UIMessage["parts"][number],
+      {
+        type: "tool-ask_questions",
+        toolCallId: "question-memory-1",
         state: "output-available",
         input: {
           questions: [

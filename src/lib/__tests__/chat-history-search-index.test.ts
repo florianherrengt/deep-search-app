@@ -16,6 +16,7 @@ function vector(first: number, second = 0): number[] {
 const records: ChatHistorySearchRecord[] = [
   {
     id: "market/chat-a/user-1",
+    recordKind: "chat",
     folderName: "market-research",
     chatId: "chat-a",
     title: "European coffee market",
@@ -24,6 +25,7 @@ const records: ChatHistorySearchRecord[] = [
   },
   {
     id: "market/chat-a/user-2",
+    recordKind: "chat",
     folderName: "market-research",
     chatId: "chat-a",
     title: "European coffee market",
@@ -32,6 +34,7 @@ const records: ChatHistorySearchRecord[] = [
   },
   {
     id: "travel/chat-b/user-1",
+    recordKind: "chat",
     folderName: "norway-travel",
     chatId: "chat-b",
     title: "Norway hiking itinerary",
@@ -42,6 +45,7 @@ const records: ChatHistorySearchRecord[] = [
 
 const secondActiveFolderChat: ChatHistorySearchRecord = {
   id: "market/chat-c/user-1",
+  recordKind: "chat",
   folderName: "market-research",
   chatId: "chat-c",
   title: "Outdoor retail market",
@@ -144,6 +148,92 @@ describe("ChatHistorySearchIndex", () => {
       expect.objectContaining({
         folderName: "norway-travel",
         chatId: "chat-b",
+      }),
+    ]);
+  });
+
+  it("searches memory facts separately from chat history", async () => {
+    const memoryRecord: ChatHistorySearchRecord = {
+      id: "memory/preferences/eur",
+      recordKind: "memory",
+      folderName: "travel-preferences",
+      chatId: "",
+      title: "",
+      query: "User prefers prices in EUR.",
+      updatedAt: "2026-07-12T12:00:00.000Z",
+    };
+    const index = await ChatHistorySearchIndex.create([...records, memoryRecord]);
+
+    await expect(
+      index.searchKeyword("prices EUR", { recordKind: "memory" }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        recordKind: "memory",
+        folderName: "travel-preferences",
+        matchedText: "User prefers prices in EUR.",
+      }),
+    ]);
+    const chatResults = await index.searchKeyword("prices EUR", {
+      recordKind: "chat",
+    });
+    expect(chatResults.every((result) => result.recordKind === "chat")).toBe(
+      true,
+    );
+    expect(
+      chatResults.some(
+        (result) => result.matchedText === "User prefers prices in EUR.",
+      ),
+    ).toBe(false);
+  });
+
+  it("combines memory-kind filtering with active-folder exclusion", async () => {
+    const memoryRecords: ChatHistorySearchRecord[] = [
+      {
+        id: "memory/active/eur",
+        recordKind: "memory",
+        folderName: "market-research",
+        chatId: "",
+        title: "",
+        query: "User prefers market prices in EUR.",
+        updatedAt: null,
+      },
+      {
+        id: "memory/external/eur",
+        recordKind: "memory",
+        folderName: "travel-preferences",
+        chatId: "",
+        title: "",
+        query: "User prefers travel prices in EUR.",
+        updatedAt: null,
+      },
+    ];
+    const index = await ChatHistorySearchIndex.create(memoryRecords, {
+      embeddings: {
+        "memory/active/eur": vector(1),
+        "memory/external/eur": vector(1),
+      },
+    });
+    const options = {
+      exclude: { folderName: "market-research" },
+      recordKind: "memory" as const,
+      limit: 10,
+    };
+
+    await expect(index.searchKeyword("prices EUR", options)).resolves.toEqual([
+      expect.objectContaining({
+        recordKind: "memory",
+        folderName: "travel-preferences",
+      }),
+    ]);
+    await expect(
+      index.searchHybrid("cost preference", vector(1), {
+        ...options,
+        similarity: 0.5,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        recordKind: "memory",
+        folderName: "travel-preferences",
       }),
     ]);
   });

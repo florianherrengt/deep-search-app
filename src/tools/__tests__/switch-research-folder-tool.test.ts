@@ -34,6 +34,7 @@ describe("createSwitchResearchFolderTool", () => {
     const switchResearchFolder = vi.fn();
     const tool = createSwitchResearchFolderTool(
       switchResearchFolder,
+      () => true,
     ) as unknown as ExecutableSwitchTool;
 
     fsMocks.exists.mockResolvedValueOnce(true);
@@ -92,6 +93,20 @@ describe("createSwitchResearchFolderTool", () => {
     await expect(tool.execute({ folder: "missing" })).rejects.toThrow(
       "Research folder not found: missing",
     );
+    expect(switchResearchFolder).not.toHaveBeenCalled();
+  });
+
+  it("rejects a direct switch that was not authorized by research-chat recall", async () => {
+    const switchResearchFolder = vi.fn();
+    const tool = createSwitchResearchFolderTool(
+      switchResearchFolder,
+      () => false,
+    ) as unknown as ExecutableSwitchTool;
+
+    await expect(tool.execute({ folder: "memory-only-folder" })).rejects.toThrow(
+      "Research folder switch not authorized: memory-only-folder",
+    );
+    expect(fsMocks.readDir).not.toHaveBeenCalled();
     expect(switchResearchFolder).not.toHaveBeenCalled();
   });
 });

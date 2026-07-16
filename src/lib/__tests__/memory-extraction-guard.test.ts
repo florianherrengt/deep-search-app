@@ -850,8 +850,8 @@ describe("DirectTransport memory extraction guard", () => {
     );
   });
 
-  // GT-18: extraction is awaited: failure prevents guarded stream
-  it("extraction is awaited: failure prevents guarded stream (GT-18)", async () => {
+  // GT-18: extraction is awaited, but a memory failure must not fail research
+  it("continues the guarded stream when memory extraction fails (GT-18)", async () => {
     mockedExtractAndStoreMemories.mockRejectedValueOnce(
       new Error("Extraction failed"),
     );
@@ -898,11 +898,9 @@ describe("DirectTransport memory extraction guard", () => {
       reader.releaseLock();
     }
 
-    // The stream MUST finish with error because extraction threw
-    expect(sawErrorFinish).toBe(true);
-    // The guarded stream MUST NOT have started (no text-delta, no stop finish)
-    expect(sawTextDelta).toBe(false);
-    expect(sawStopFinish).toBe(false);
+    expect(sawErrorFinish).toBe(false);
+    expect(sawTextDelta).toBe(true);
+    expect(sawStopFinish).toBe(true);
   });
 
   // GT-19: processedMemoryMessageIds.add only after successful extraction
@@ -927,6 +925,89 @@ describe("DirectTransport memory extraction guard", () => {
 
     // Should be called again because ID was NOT added after failure
     expect(mockedExtractAndStoreMemories).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a failed candidate before processing a newer user message", async () => {
+    mockedExtractAndStoreMemories.mockRejectedValueOnce(
+      new Error("Extraction failed"),
+    );
+    const transport = transportWithExistingFolder();
+
+    await sendMessages(transport, "submit-message", [
+      userMsg("msg-1", "I have a dog"),
+    ]);
+    await sendMessages(transport, "submit-message", [
+      userMsg("msg-1", "I have a dog"),
+      uiMessage("assistant", "Noted"),
+      userMsg("msg-2", "I use macOS"),
+    ]);
+
+    expect(mockedExtractAndStoreMemories).toHaveBeenCalledTimes(3);
+    expect(mockedExtractAndStoreMemories.mock.calls[1][0]).toBe("I have a dog");
+    expect(mockedExtractAndStoreMemories.mock.calls[2][0]).toBe("I use macOS");
+  });
+
+  it("abandons a permanently failing candidate after the bounded retry count", async () => {
+    mockedExtractAndStoreMemories.mockRejectedValue(
+      new Error("Permanent extraction failure"),
+    );
+    const transport = transportWithExistingFolder();
+    const messages = [userMsg("msg-permanent", "I use macOS")];
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await sendMessages(transport, "submit-message", messages);
+    }
+
+    expect(mockedExtractAndStoreMemories).toHaveBeenCalledTimes(3);
+  });
+
+  it("propagates cancellation from memory extraction without starting the main model", async () => {
+    const controller = new AbortController();
+    mockedExtractAndStoreMemories.mockImplementationOnce(async () => {
+      controller.abort();
+      throw new DOMException("Aborted", "AbortError");
+    });
+    const doStream = vi.fn(async (): Promise<LanguageModelV3StreamResult> => ({
+      stream: simulateReadableStream({ chunks: textChunks("Must not run") }),
+    }));
+    chatProviderMocks.createChatLanguageModel.mockReturnValue(
+      new MockLanguageModelV3({
+        doGenerate: async () => ({
+          content: [{ type: "text", text: "unused" }],
+          finishReason: { unified: "stop" as const, raw: "stop" },
+          usage: tokenUsage(),
+          warnings: [],
+        }),
+        doStream,
+      }),
+    );
+    const transport = transportWithExistingFolder();
+    const stream = await transport.sendMessages({
+      trigger: "submit-message",
+      chatId: "test-chat",
+      messageId: "test-msg",
+      messages: [userMsg("msg-1", "I have a dog")],
+      abortSignal: controller.signal,
+    });
+    const chunks: Array<{ type?: string; finishReason?: string }> = [];
+    const reader = stream.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value as { type?: string; finishReason?: string });
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ type: "abort" }),
+    );
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({ type: "finish", finishReason: "stop" }),
+    );
+    expect(doStream).not.toHaveBeenCalled();
   });
 
   // GT-20: does not trigger on regenerate-message for any candidate type (already covered above)

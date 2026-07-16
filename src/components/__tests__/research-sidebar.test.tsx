@@ -219,6 +219,7 @@ describe("ResearchSidebar", () => {
   it("searches while typing and opens the exact matched chat", async () => {
     const searchChats = vi.fn().mockResolvedValue([
       {
+        recordKind: "chat",
         folderName: "coffee-market",
         chatId: "chat-espresso",
         title: "Coffee prices",

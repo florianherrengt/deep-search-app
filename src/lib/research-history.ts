@@ -133,6 +133,7 @@ interface StoredResearchChat {
   title: string;
   createdAt: string | null;
   updatedAt: string | null;
+  provisional: boolean;
   messages: UIMessage[];
 }
 
@@ -144,6 +145,7 @@ interface ParsedChatFile {
     title?: string;
     createdAt?: string | null;
     updatedAt?: string | null;
+    provisional?: boolean;
   };
 }
 
@@ -177,6 +179,8 @@ function parseChatFileContent(content: string): ParsedChatFile | null {
           typeof obj.updatedAt === "string" || obj.updatedAt === null
             ? obj.updatedAt
             : undefined,
+        provisional:
+          typeof obj.provisional === "boolean" ? obj.provisional : undefined,
       },
     };
   }
@@ -205,6 +209,8 @@ function parseChatFileContent(content: string): ParsedChatFile | null {
           typeof m.updatedAt === "string" || m.updatedAt === null
             ? m.updatedAt
             : undefined,
+        provisional:
+          typeof m.provisional === "boolean" ? m.provisional : undefined,
       };
     } else {
       messages.push(parsed);
@@ -346,6 +352,7 @@ async function collectResearchChatSummaries(
           title: createChatTitle(legacyMessages),
           createdAt: null,
           updatedAt: null,
+          provisional: false,
           messages: legacyMessages,
         })
       : null;
@@ -360,7 +367,7 @@ export async function saveResearchChatMessages(
   folderName: string,
   chatId: string,
   messages: UIMessage[],
-  options?: { title?: string },
+  options?: { title?: string; provisional?: boolean },
 ): Promise<void> {
   const parsedFolderName = SafePathSegmentSchema.parse(folderName);
   const parsedChatId =
@@ -382,7 +389,7 @@ async function saveResearchChatMessagesUnlocked(
   parsedFolderName: string,
   parsedChatId: string,
   messages: UIMessage[],
-  options?: { title?: string },
+  options?: { title?: string; provisional?: boolean },
 ): Promise<void> {
   if (parsedChatId === LEGACY_CHAT_TRANSCRIPT_ID) {
     await writeAppFile({
@@ -423,6 +430,7 @@ async function saveResearchChatMessagesUnlocked(
     createdAt,
     updatedAt: now,
     count: messages.length,
+    provisional: options?.provisional ?? parsed?.meta.provisional ?? false,
   };
 
   const canAppend =
@@ -476,11 +484,13 @@ export async function moveResearchChatToFolder({
   toFolderName,
   chatId,
   messages,
+  requireExistingDestination = false,
 }: {
   fromFolderName: string;
   toFolderName: string;
   chatId: string;
   messages: UIMessage[];
+  requireExistingDestination?: boolean;
 }): Promise<void> {
   const parsedFromFolderName = SafePathSegmentSchema.parse(fromFolderName);
   const parsedToFolderName = SafePathSegmentSchema.parse(toFolderName);
@@ -494,6 +504,7 @@ export async function moveResearchChatToFolder({
         parsedToFolderName,
         parsedChatId,
         messages,
+        requireExistingDestination,
       }),
   );
 }
@@ -503,11 +514,13 @@ async function moveResearchChatToFolderUnlocked({
   parsedToFolderName,
   parsedChatId,
   messages,
+  requireExistingDestination,
 }: {
   parsedFromFolderName: string;
   parsedToFolderName: string;
   parsedChatId: string;
   messages: UIMessage[];
+  requireExistingDestination: boolean;
 }): Promise<void> {
   if (parsedFromFolderName === parsedToFolderName) {
     await saveResearchChatMessagesUnlocked(
@@ -518,10 +531,22 @@ async function moveResearchChatToFolderUnlocked({
     return;
   }
 
+  if (requireExistingDestination) {
+    const folders = await listAppSubfolders({
+      subfolder: SEARCH_RESULTS_SUBFOLDER,
+    });
+    if (!folders.includes(parsedToFolderName)) {
+      throw new Error(
+        `Research folder no longer exists: ${parsedToFolderName}`,
+      );
+    }
+  }
+
   await saveResearchChatMessagesUnlocked(
     parsedToFolderName,
     parsedChatId,
     messages,
+    { provisional: false },
   );
 
   try {
@@ -589,6 +614,18 @@ export function createResearchChatId(date = new Date()): string {
   return `${timestamp}--${createUuid()}`;
 }
 
+export async function isResearchChatProvisional(
+  folderName: string,
+  chatId: string,
+): Promise<boolean> {
+  const parsedFolderName = SafePathSegmentSchema.parse(folderName);
+  const parsedChatId = SafePathSegmentSchema.parse(chatId);
+  return serializedFolderMutation([parsedFolderName], async () => {
+    const chat = await readStoredResearchChat(parsedFolderName, parsedChatId);
+    return chat?.provisional === true;
+  });
+}
+
 function createUuid(): string {
   const webCrypto = globalThis.crypto;
   if (typeof webCrypto?.randomUUID === "function") {
@@ -648,6 +685,7 @@ async function readStoredResearchChat(
       title: parsed.meta.title?.trim() || createChatTitle(messages),
       createdAt: parsed.meta.createdAt ?? dateFromResearchChatId(chatId),
       updatedAt: parsed.meta.updatedAt ?? parsed.meta.createdAt ?? null,
+      provisional: parsed.meta.provisional === true,
       messages,
     };
   } catch (error) {
@@ -690,6 +728,69 @@ export async function deleteResearchFolder(folderName: string): Promise<void> {
   await serializedFolderMutation([parsedFolderName], () =>
     deleteResearchFolderUnlocked(parsedFolderName),
   );
+}
+
+export interface DeleteDisposableResearchFolderResult {
+  deleted: boolean;
+  remainingRootFiles: string[];
+  remainingChatFiles: string[];
+  remainingSubfolders: string[];
+}
+
+export async function deleteResearchFolderIfDisposable(
+  folderName: string,
+  options: { ignoredRootFiles?: readonly string[] } = {},
+): Promise<DeleteDisposableResearchFolderResult> {
+  const parsedFolderName = SafePathSegmentSchema.parse(folderName);
+  const ignoredRootFiles = new Set(
+    (options.ignoredRootFiles ?? []).map((filename) =>
+      SafePathSegmentSchema.parse(filename),
+    ),
+  );
+
+  return serializedFolderMutation([parsedFolderName], async () => {
+    const [rootFiles, chatFiles, subfolders] = await Promise.all([
+      listAppFiles({
+        subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
+      }),
+      listAppFiles({
+        subfolder: researchChatsSubfolder(parsedFolderName),
+      }),
+      listAppSubfolders({
+        subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${parsedFolderName}`,
+      }),
+    ]);
+    const remainingRootFiles = rootFiles.filter(
+      (filename) => !ignoredRootFiles.has(filename),
+    );
+    const remainingChatFiles = chatFiles.filter(
+      (filename) => filename !== CHAT_INDEX_FILENAME,
+    );
+    const remainingSubfolders = subfolders.filter(
+      (subfolder) => subfolder !== CHATS_SUBFOLDER,
+    );
+
+    if (
+      remainingRootFiles.length > 0 ||
+      remainingChatFiles.length > 0 ||
+      remainingSubfolders.length > 0
+    ) {
+      return {
+        deleted: false,
+        remainingRootFiles,
+        remainingChatFiles,
+        remainingSubfolders,
+      };
+    }
+
+    await deleteResearchFolderUnlocked(parsedFolderName);
+    return {
+      deleted: true,
+      remainingRootFiles: [],
+      remainingChatFiles: [],
+      remainingSubfolders: [],
+    };
+  });
 }
 
 async function deleteResearchFolderUnlocked(

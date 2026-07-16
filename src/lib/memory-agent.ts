@@ -3,34 +3,19 @@ import {
   readAppFile,
   writeAppFile,
 } from "@/lib/app-file-storage";
-import { SEARCH_RESULTS_SUBFOLDER } from "@/lib/research-history";
 import memoryAgentPrompt from "./memory-agent-prompt.md?raw";
 import { isAbortError } from "./abort";
 import { createSubAgentId } from "./sub-agent-types";
 import { emitSubAgentEvent } from "./sub-agent-emitter";
+import {
+  formatResearchMemoriesForRewrite,
+  researchMemorySubfolder,
+  withResearchMemoryLock,
+} from "./research-memory";
 
 const LOG_PREFIX = "[memory-extraction]";
-
-const folderQueues = new Map<string, Promise<unknown>>();
-
-function serializedWrite<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prev = folderQueues.get(key) ?? Promise.resolve();
-  const next = prev.then(
-    () => fn(),
-    (prevError) => {
-      logWarn("previous write failed, proceeding with next", {
-        key,
-        previousError: prevError instanceof Error ? prevError.message : "unknown",
-      });
-      return fn();
-    },
-  );
-  folderQueues.set(key, next);
-  void next.finally(() => {
-    if (folderQueues.get(key) === next) folderQueues.delete(key);
-  }).catch(() => {});
-  return next;
-}
+const MAX_EXISTING_MEMORY_CHARACTERS = 48_000;
+const MAX_NEW_MEMORY_CANDIDATE_CHARACTERS = 16_000;
 
 function logDebug(message: string, ...args: unknown[]) {
   console.debug(`${LOG_PREFIX} ${message}`, ...args);
@@ -96,14 +81,25 @@ export async function extractAndStoreMemories(
   });
 
   try {
-    const memorySubfolder = `${SEARCH_RESULTS_SUBFOLDER}/${folder}`;
+    const memorySubfolder = researchMemorySubfolder(folder);
 
-    const stored = await serializedWrite(memorySubfolder, async () => {
+    const stored = await withResearchMemoryLock(folder, async () => {
       // Read existing memories INSIDE serializedWrite
       const existingContent = await _readAppFile({
         subfolder: memorySubfolder,
         filename: "memories.md",
       });
+
+      if ((existingContent?.length ?? 0) > MAX_EXISTING_MEMORY_CHARACTERS) {
+        throw new Error(
+          "memories.md is too large for safe automatic extraction; existing memories were preserved.",
+        );
+      }
+      if (userMessage.length > MAX_NEW_MEMORY_CANDIDATE_CHARACTERS) {
+        throw new Error(
+          "The memory candidate is too large for safe automatic extraction; existing memories were preserved.",
+        );
+      }
 
       // Build LLM prompt
       const prompt = buildMemoryExtractionPrompt(existingContent, userMessage);
@@ -162,7 +158,10 @@ export async function extractAndStoreMemories(
 
       // Write merged memories
       logDebug("writing merged memories", { factCount: facts.length });
-      const content = formatMemoriesContent(facts);
+      const content = formatResearchMemoriesForRewrite(
+        existingContent,
+        facts,
+      );
       await _writeAppFile({ subfolder: memorySubfolder, filename: "memories.md", content });
       logDebug("memories stored", { stored: facts.length, total: facts.length });
       return facts.length;
@@ -187,9 +186,4 @@ export async function extractAndStoreMemories(
     _emitEvent({ type: "error", id: saId, error: "Memory extraction failed" });
     throw error;
   }
-}
-
-function formatMemoriesContent(facts: string[]): string {
-  const lines = ["# Memories", "", ...facts.map((f) => `- ${f}`), ""];
-  return lines.join("\n");
 }

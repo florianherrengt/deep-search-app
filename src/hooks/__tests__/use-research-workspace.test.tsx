@@ -265,6 +265,7 @@ describe("useResearchWorkspace navigation", () => {
   it("searches chat history locally without a configured language model", async () => {
     workspaceMocks.searchChatHistoryKeyword.mockResolvedValueOnce([
       {
+        recordKind: "chat",
         folderName: "coffee",
         chatId: "espresso-chat",
         title: "Coffee market",

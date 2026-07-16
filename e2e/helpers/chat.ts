@@ -615,7 +615,6 @@ export async function installOpenRouterMock(page: Page, responses: MockResponse[
 
       if (
         serialized.includes("Memory Extraction Agent") ||
-        serialized.includes("memory extraction agent") ||
         serialized.includes("existing memories stored about the user")
       ) {
         return { type: "memory-json", text: "[]" };

@@ -23,6 +23,10 @@ import {
   type ResearchCheckpointInput,
   type ResearchCheckpointResult,
 } from "deep-search-core/research-orchestrator";
+import {
+  getContinuationFoldersOffered,
+  getResearchChatRecallFolders,
+} from "@/lib/research-recall";
 
 // ─── Re-exports from deep-search-core/research-orchestrator (backward compatibility) ───
 
@@ -395,6 +399,31 @@ export function evaluateAssistantStep<TOOLS extends ToolSet>({
   });
   if (toolRequirementViolation) {
     return toolRequirementRetry(toolRequirementViolation);
+  }
+
+  const continuationFolders = getContinuationFoldersOffered(responseMessage);
+  if (continuationFolders.length > 0) {
+    const currentTurnMessages = getCurrentTurnMessages(messages, responseMessage);
+    const recalledChatFolders = getResearchChatRecallFolders(currentTurnMessages);
+    const unsupportedFolders = continuationFolders.filter(
+      (folder) => !recalledChatFolders.has(folder),
+    );
+    if (unsupportedFolders.length > 0) {
+      return {
+        action: "retry",
+        guard: "question_tool",
+        event: {
+          kind: "question_tool",
+          status: "retrying",
+          title: "Research continuation corrected",
+          message:
+            "Removed a folder-continuation prompt that was not backed by a recalled chat.",
+          reason: `No research_chat result was returned for: ${unsupportedFolders.join(", ")}.`,
+        },
+        retryInstruction:
+          "Your previous ask_questions call offered continuing a folder that was not backed by a search_research result_type of research_chat. Memory-only results are context, not conversations. Do not ask to switch folders for them. Use relevant memories silently and continue the current request, or call search_research again if an actual previous chat is needed.",
+      };
+    }
   }
 
   const text = getMessageText(responseMessage);

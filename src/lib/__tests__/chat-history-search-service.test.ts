@@ -16,6 +16,7 @@ function vector(value: number): number[] {
 const records: ChatHistorySearchRecord[] = [
   {
     id: "record-1",
+    recordKind: "chat",
     folderName: "coffee",
     chatId: "chat-1",
     title: "Coffee market",
@@ -24,6 +25,7 @@ const records: ChatHistorySearchRecord[] = [
   },
   {
     id: "record-2",
+    recordKind: "chat",
     folderName: "travel",
     chatId: "chat-2",
     title: "Norway travel",
@@ -59,6 +61,7 @@ describe("ChatHistorySearchService", () => {
       ...records,
       {
         id: "record-3",
+        recordKind: "chat",
         folderName: "hardware",
         chatId: "chat-3",
         title: "Laptop research",
@@ -99,6 +102,44 @@ describe("ChatHistorySearchService", () => {
 
     expect(embed).toHaveBeenCalledTimes(1);
     expect(embed.mock.calls[0][0]).toEqual(["coffee appliance adoption"]);
+  });
+
+  it("prunes removed memory entries from the persisted embedding cache", async () => {
+    const memoryFact = "User's private preference is France-focused analysis.";
+    const memoryRecord: ChatHistorySearchRecord = {
+      id: "[\"coffee\",\"memory\",\"opaque-hash\"]",
+      recordKind: "memory",
+      folderName: "coffee",
+      chatId: "",
+      title: "",
+      query: memoryFact,
+      updatedAt: null,
+    };
+    let currentRecords = [records[0], memoryRecord];
+    let changeListener: () => void = () => undefined;
+    const cache: ChatHistoryEmbeddingCache = { entries: {} };
+    const saveEmbeddingCache = vi.fn(
+      async (_cache: ChatHistoryEmbeddingCache) => undefined,
+    );
+    const service = createService({
+      loadRecords: vi.fn(async () => currentRecords),
+      loadEmbeddingCache: vi.fn(async () => cache),
+      saveEmbeddingCache,
+      subscribeChanges: (listener) => {
+        changeListener = listener;
+        return () => undefined;
+      },
+    });
+
+    await service.searchHybrid("France preference");
+    currentRecords = [records[0]];
+    changeListener();
+    await service.searchHybrid("France preference");
+
+    const lastSaved =
+      saveEmbeddingCache.mock.calls[saveEmbeddingCache.mock.calls.length - 1]?.[0];
+    expect(Object.keys(lastSaved?.entries ?? {})).toEqual(["record-1"]);
+    expect(JSON.stringify(lastSaved)).not.toContain(memoryFact);
   });
 
   it("falls back to keyword results when semantic initialization fails", async () => {

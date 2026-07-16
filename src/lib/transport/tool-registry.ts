@@ -104,12 +104,14 @@ export async function createTools({
   switchResearchFolder,
   searchKeys,
   emitEvent,
+  authorizedResearchFolderSwitches,
 }: {
   model: LanguageModel;
   getResearchFolder: () => Promise<string>;
   switchResearchFolder: (folderName: string) => void | Promise<void>;
   searchKeys?: SearchToolKeys;
   emitEvent?: SubAgentEmitter;
+  authorizedResearchFolderSwitches?: ReadonlySet<string>;
 }) {
   const chromeDevToolsToolsRaw = await createChromeDevToolsMcpTools({
     enabled: Boolean(searchKeys?.chromeDevToolsMcpEnabled),
@@ -194,7 +196,11 @@ export async function createTools({
     list_files: createListFilesTool(getResearchFolder),
     load_skill: createLoadSkillTool(),
     search_research: createSearchResearchTool(getResearchFolder),
-    switch_research_folder: createSwitchResearchFolderTool(switchResearchFolder),
+    switch_research_folder: createSwitchResearchFolderTool(
+      switchResearchFolder,
+      (folderName) =>
+        authorizedResearchFolderSwitches?.has(folderName) === true,
+    ),
     ...currencyConversionTools,
     ...chromeDevToolsTools,
   } as const satisfies ToolSet;

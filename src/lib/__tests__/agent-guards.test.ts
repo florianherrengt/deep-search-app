@@ -209,6 +209,53 @@ describe("evaluateAssistantStep", () => {
     expect(decision).toMatchObject({ action: "accept" });
   });
 
+  it("rejects folder continuation questions backed only by a memory result", () => {
+    const decision = evaluateAssistantStep({
+      messages: [
+        userMessage("Research the French market"),
+        assistantWithResearchRecall([
+          {
+            result_type: "memory",
+            source_folder: "market-map",
+            memory: "User prefers France-focused analysis.",
+            updated_at: null,
+            score: 0.9,
+          },
+        ]),
+      ],
+      responseMessage: assistantWithContinuationQuestion("market-map"),
+    });
+
+    expect(decision).toMatchObject({
+      action: "retry",
+      guard: "question_tool",
+      event: { title: "Research continuation corrected" },
+    });
+  });
+
+  it("accepts a folder continuation question backed by a recalled chat", () => {
+    const decision = evaluateAssistantStep({
+      messages: [
+        userMessage("Research the French market"),
+        assistantWithResearchRecall([
+          {
+            result_type: "research_chat",
+            folder_name: "market-map",
+            chat_id: "chat-1",
+            title: "French market map",
+            matched_query: "French market",
+            updated_at: null,
+            score: 0.9,
+            relevant_memories: [],
+          },
+        ]),
+      ],
+      responseMessage: assistantWithContinuationQuestion("market-map"),
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+  });
+
   it("retries tool calls that are missing required previous tool calls", () => {
     const decision = evaluateAssistantStep({
       messages: [userMessage("Research the market")],
@@ -643,6 +690,47 @@ function assistantWithQuestionTool(): UIMessage {
             {
               question: "Which color do you prefer?",
               candidates: [{ label: "Red", value: "red" }],
+            },
+          ],
+        },
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantWithResearchRecall(output: Array<Record<string, unknown>>): UIMessage {
+  return {
+    id: "assistant-research-recall",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-search_research",
+        toolCallId: "research-recall-1",
+        state: "output-available",
+        input: { query: "French market" },
+        output,
+      } as UIMessage["parts"][number],
+    ],
+  };
+}
+
+function assistantWithContinuationQuestion(folder: string): UIMessage {
+  return {
+    id: "assistant-continuation-question",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-ask_questions",
+        toolCallId: "continuation-question-1",
+        state: "input-available",
+        input: {
+          questions: [
+            {
+              question: "Continue previous research?",
+              candidates: [
+                { label: "Continue", value: `continue:${folder}` },
+                { label: "Start fresh", value: "new" },
+              ],
             },
           ],
         },

@@ -153,6 +153,7 @@ export const SearchResults: Story = {
   args: {
     searchChats: async () => [
       {
+        recordKind: "chat",
         folderName: "2026-06-06_storybook-integration",
         chatId: "chat-1",
         title: "Storybook package and addon research",
@@ -161,6 +162,7 @@ export const SearchResults: Story = {
         score: 0.91,
       },
       {
+        recordKind: "chat",
         folderName: "vendor-pricing-comparison-with-a-long-folder-name",
         chatId: "vendor-chat",
         title: "Vendor UI review",

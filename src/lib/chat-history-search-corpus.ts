@@ -1,13 +1,20 @@
 import type { UIMessage } from "ai";
+import { readAppFile } from "@/lib/app-file-storage";
 import { isRecord } from "@/lib/json";
 import {
   listResearchChats,
   listResearchFolders,
   readResearchChatMessages,
+  SEARCH_RESULTS_SUBFOLDER,
   type ResearchChatSummary,
   type ResearchFolder,
 } from "@/lib/research-history";
+import { parseResearchMemories } from "@/lib/research-memory";
 import type { ChatHistorySearchRecord } from "@/lib/chat-history-search-index";
+
+const MAX_INDEXED_MEMORY_FACTS = 200;
+const MAX_INDEXED_MEMORY_FACT_CHARACTERS = 1_000;
+const MAX_INDEXED_MEMORY_TOTAL_CHARACTERS = 64_000;
 
 interface ChatHistoryCorpusDependencies {
   listResearchFolders: () => Promise<ResearchFolder[]>;
@@ -16,12 +23,14 @@ interface ChatHistoryCorpusDependencies {
     folderName: string,
     chatId: string,
   ) => Promise<UIMessage[]>;
+  readAppFile: typeof readAppFile;
 }
 
 const DEFAULT_DEPENDENCIES: ChatHistoryCorpusDependencies = {
   listResearchFolders,
   listResearchChats,
   readResearchChatMessages,
+  readAppFile,
 };
 
 export async function loadChatHistorySearchRecords(
@@ -30,6 +39,7 @@ export async function loadChatHistorySearchRecords(
   const folders = await dependencies.listResearchFolders();
   const records = await Promise.all(
     folders.map(async (folder) => {
+      const memoryRecordsPromise = loadMemoryRecords(folder, dependencies);
       try {
         const chats = await dependencies.listResearchChats(folder.name);
         const chatRecords = await Promise.all(
@@ -50,13 +60,13 @@ export async function loadChatHistorySearchRecords(
             }
           }),
         );
-        return chatRecords.flat();
+        return [...chatRecords.flat(), ...(await memoryRecordsPromise)];
       } catch (error) {
         console.warn("[chat-history-search] failed to list folder chats", {
           folderName: folder.name,
           error: error instanceof Error ? error.message : "unknown",
         });
-        return [];
+        return memoryRecordsPromise;
       }
     }),
   );
@@ -75,6 +85,7 @@ export function createChatHistorySearchRecords(
     ? [
         {
           id: JSON.stringify([folderName, chat.id, "title"]),
+          recordKind: "chat",
           folderName,
           chatId: chat.id,
           title: chat.title,
@@ -145,6 +156,25 @@ export function createChatHistorySearchRecords(
   return records;
 }
 
+export async function createResearchMemorySearchRecords(
+  folderName: string,
+  content: string | null,
+  updatedAt: string | null,
+): Promise<ChatHistorySearchRecord[]> {
+  const memories = boundIndexedMemories(parseResearchMemories(content));
+  return Promise.all(
+    memories.map(async (memory) => ({
+      id: await createResearchMemoryRecordId(folderName, memory),
+      recordKind: "memory" as const,
+      folderName,
+      chatId: "",
+      title: "",
+      query: memory,
+      updatedAt,
+    })),
+  );
+}
+
 function createRecord({
   folderName,
   chat,
@@ -173,10 +203,69 @@ function createRecord({
       source,
       sourceIndex,
     ]),
+    recordKind: "chat",
     folderName,
     chatId: chat.id,
     title: chat.title,
     query,
     updatedAt,
   };
+}
+
+async function loadMemoryRecords(
+  folder: ResearchFolder,
+  dependencies: ChatHistoryCorpusDependencies,
+): Promise<ChatHistorySearchRecord[]> {
+  try {
+    const content = await dependencies.readAppFile({
+      subfolder: `${SEARCH_RESULTS_SUBFOLDER}/${folder.name}`,
+      filename: "memories.md",
+    });
+    return await createResearchMemorySearchRecords(
+      folder.name,
+      content,
+      folder.updatedAt ?? null,
+    );
+  } catch (error) {
+    console.warn("[chat-history-search] failed to read folder memories", {
+      folderName: folder.name,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+    return [];
+  }
+}
+
+function boundIndexedMemories(memories: readonly string[]) {
+  const result: string[] = [];
+  let remainingCharacters = MAX_INDEXED_MEMORY_TOTAL_CHARACTERS;
+
+  for (const memory of memories) {
+    if (
+      result.length >= MAX_INDEXED_MEMORY_FACTS ||
+      remainingCharacters <= 0
+    ) {
+      break;
+    }
+    const bounded = memory.slice(
+      0,
+      Math.min(MAX_INDEXED_MEMORY_FACT_CHARACTERS, remainingCharacters),
+    );
+    if (!bounded) continue;
+    result.push(bounded);
+    remainingCharacters -= bounded.length;
+  }
+
+  return result;
+}
+
+async function createResearchMemoryRecordId(
+  folderName: string,
+  memory: string,
+) {
+  const bytes = new TextEncoder().encode(`${folderName}\u0000${memory}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hash = [...new Uint8Array(digest)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+  return JSON.stringify([folderName, "memory", hash]);
 }
