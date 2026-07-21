@@ -2,42 +2,45 @@
 
 ## Current status
 
-- Last run: 2026-07-07 (run 18)
-- Last inspected commit: 7fbb686 (+ uncommitted fixes)
-- Suggested next focus: Tools panel parity gaps (ask_questions/load_skill/currency_conversion/chrome-mcp descriptors missing from `getAvailableTools`); originalQuestion prompt-only enforcement (no schema check); TOCTOU in indexing; interleaved async folder selection race; hype_embeddings orphan cleanup
+- Last run: 2026-07-21 (run 19)
+- Last inspected commit: caf9cd5 (+ uncommitted abort-gap fixes)
+- Suggested next focus: Tools panel missing descriptors (`execute-tool.ts`); originalQuestion prompt-only enforcement; chat-history-search cache overwrite on transient empty load (build overwrites in-memory + persisted cache with current records only — recovered automatically but wastes work); `closeWebviewTab` swallows errors silently (UI lies about tab closure); `relevant_memories` semantic vs folder-level mismatch in search-research-tool
 
 ## Recent runs
 
-### Run 18 — 2026-07-07 (commit 7fbb686, uncommitted fixes)
+### Run 19 — 2026-07-21 (commit caf9cd5, uncommitted fixes)
 
 **Focus areas:**
-- Stop cancellation + auto-continuation (`chat.tsx` suppression flag, `sendAutomaticallyWhen`)
-- Currency conversion toggle (`getCurrencyConversionTarget`, settings flow)
-- Research checkpoint retry framing (`agent-guards.ts`, `guarded-stream.ts`)
-- Shared core refactor fallout (`execute-tool.ts`, `tool-registry.ts`, `folder-namer.ts`)
+- Folder-scoped research memory and recall (NEW feature, ~3000 LOC) — `research-memory.ts`, `research-recall.ts`, `research-folder-context.ts`, `memory-agent.ts`
+- Chat history semantic search (NEW) — `chat-history-search-service.ts`, `chat-history-search-index.ts`, `chat-history-search-corpus.ts`, `chat-history-embedding-client.ts`, worker
+- Extraction renderer fallback fix (recent) — `extract-page-content-tool.ts`, `chrome-mcp-page-loader.ts`
+- App lifecycle / persistence — `research-history.ts`, `use-research-workspace.ts`, `transport/index.ts` (memory candidate pipeline)
 
 **Bugs fixed (2):**
 
-1. **`getLatestUserText` returned empty when latest user message had no text** — `agent-guards.ts:245`. Bypassed research-checkpoint guard (`isResearchLikeRequest("")` → false → accept). Walks backwards to most recent text-bearing user message; also defensively skips synthetic `Internal guardrail retry` messages.
-2. **`switch_research_folder` Tools panel silently no-op'd on success** — `execute-tool.ts:273`. `() => {}` callback returned `{researchFolder}` success without switching. Now throws explicit error.
+1. **`extractPageContent` did not re-check abort between extractPage return and save/summarize** — `src/tools/extract-page-content-tool.ts:563`. If abort fired after `core.extractPage` returned (or after `getResearchFolder`, or after `saveExtractedContent`), the code continued: saved to the research folder and returned a summary the user had cancelled. Fixed by adding `throwIfAborted(options.abortSignal)` at entry, after extractPage, after getResearchFolder, and after save. Also added `abortSignal?.aborted` to `extractViaWebview`'s catch (was only checking `isAbortError`).
+2. **`extractAndStoreMemories` did not re-check abort after LLM stream completed** — `src/lib/memory-agent.ts:155`. If abort fired between `result.text` resolving and `writeAppFile`, memories were persisted despite cancellation. Fixed by adding `throwIfAborted(abortSignal)` immediately before the write.
 
-**Tests added:** 3 (text-less latest user walk-back; injected retry ignored; switch_research_folder panel throws).
+**Tests added:** 3 (post-extraction abort; pre-work abort; post-stream pre-write abort). Both fixes verified by reverting and re-running — reverting produced the exact "promise resolved with stored content" failure.
 
-**Verification:** 965/965 unit pass; 107/107 storybook pass; lint clean; build clean.
+**Verification:** 1077/1077 unit pass; lint clean; build clean.
 
 **Investigated but NOT bugs (verified):**
-- Suppression flag "dead code" after stop — FALSE: transport converts abort to graceful `{type:"abort"}` chunk (`transport/index.ts:344-353`), so `sendAutomaticallyWhen` IS reached (ai `index.mjs:13426`); suppression works.
-- Cross-session ref leak — FALSE: sessions are keyed siblings (`App.tsx:261`), separate `Chat` instances.
-- `getCurrencyConversionTarget` "no normalization" — NOT a live bug: zod union `currencyConversionSettingSchema` + store-level parse/fallback guarantees only `Currency | "disabled"` reaches it. Type-safe.
-- `rate-limit.ts` deletion — NOT a regression: zero importers at deletion; rate limiting preserved in core.
-- `research-checkpoint-tool.ts` deletion — NO dangling imports; tool now from core.
-- Folder naming failure handling — correct (throws loudly, stops flow).
+- `chat-history-search-service.buildSemanticIndex` overwriting cache with current records only — intentional (dropped records are stale); invalidation is lazy but correct
+- `chat-history-search-service` `perQueryLimit` mismatch between primary (max(limit,10)) and fallback (raw limit) — intentional, hybrid search over-fetches then truncates
+- `mergeResearchMemories` returning 0 while still writing legacy prose — misleading but unused by callers; legacy prose preservation is documented
+- Memory queue `pendingMemoryCandidates` unbounded growth — bounded by `MAX_PENDING_MEMORY_CANDIDATES=50`, oldest dropped
+- `parseResearchMemoryBullet` skipping metadata-like prefixes — LLM is instructed to start facts with "User", so safe in canonical path
+- `extractViaWebview`'s module-level queue — drains correctly via finally; only an issue if task never settles (no product fix)
+- `closeWebviewTab` silent error swallow — UX issue, not correctness (Tauri may auto-close); logged separately as risk
+- Folder context load races — `folderContext` loaded once per turn; stale on folder switch is acceptable
+- Memory agent holds lock for entire LLM call — slow but correct; folder switch waits for lock
+
+### Run 18 — 2026-07-07
+Focus: Stop cancellation, currency toggle, checkpoint retry framing, shared core refactor fallout. Bugs fixed: 2.
 
 ### Run 17 — 2026-06-14
 Focus: HIGH priority risks, sub-agent persistence, error-handling sweep. Bugs fixed: 9.
-
-### Run 16 — 2026-06-13
-Focus: Sub-agent emitter routing, research-history rollback. Bugs fixed: 4.
 
 ## Recurring patterns
 
@@ -49,44 +52,42 @@ Focus: Sub-agent emitter routing, research-history rollback. Bugs fixed: 4.
 - Mantine Select defaults to `allowDeselect: true` — set `allowDeselect={false}` for required fields
 - `let _ =` in Rust silently swallows errors — always handle or propagate
 - Zod schemas need constraints (`.int()`, `.positive()`, `.min()`) not just type checks
-- **NEW**: Tools panel descriptors (`execute-tool.ts`) drift out of sync with runtime registry (`tool-registry.ts`); verify parity when adding tools
-- **NEW**: Guard logic keyed on "latest user message" must skip text-less messages (attachments) and synthetic app-injected messages
-- **NEW**: Verify scout claims about framework internals before acting — subagents misread ai SDK abort flow (`return null` claim was wrong)
+- Tools panel descriptors (`execute-tool.ts`) drift out of sync with runtime registry (`tool-registry.ts`); verify parity when adding tools
+- Guard logic keyed on "latest user message" must skip text-less messages (attachments) and synthetic app-injected messages
+- Verify scout claims about framework internals before acting — subagents misread ai SDK abort flow
+- **NEW**: Abort signals must be re-checked after every async boundary in multi-step flows (extract → save → summarize); the underlying primitive propagating abort is not sufficient if work continues after the await resolves
+- **NEW**: `isAbortError(error) || abortSignal?.aborted` is the safe catch pattern — Tauri invoke doesn't always translate aborted commands into AbortError
 
 ## Recently inspected areas
 
-- **Stop/auto-continue suppression:** run 18, HIGH confidence — verified against ai@6.0.185 internals
-- **Currency conversion toggle:** run 18, HIGH confidence — type-safe end to end
-- **Research checkpoint retry framing:** run 18, HIGH confidence — terminates (max 2 retries), not shown as user turn
-- **Shared core refactor (folder-namer, artifact storage, url-validation):** run 18, HIGH confidence
+- **Folder-scoped research memory and recall:** run 19, HIGH confidence — locks serialize correctly, deduplication sound, legacy prose preservation correct, return-value quirk documented
+- **Chat history semantic search:** run 19, HIGH confidence — index/cache/worker lifecycle sound, abort handling present, schema validation strict
+- **Extraction renderer fallback:** run 19, HIGH confidence — Chrome→Tauri fallback verified for null/empty/error cases; abort propagation verified
+- **Memory candidate pipeline (`transport/index.ts`):** run 19, HIGH confidence — dedup via processed/abandoned Sets correct, bounded queue, attempt tracking correct
+- **Stop/auto-continue suppression:** run 18, HIGH confidence
 - **Sub-agent persistence + event handling:** run 17, HIGH confidence
-- **Index write serialization:** run 17, HIGH confidence
-- **JSON.parse safety:** run 17, HIGH confidence — all guarded
 
 ## Open risks
 
 ### HIGH priority
 
-- **Tools panel missing descriptors** — `src/lib/execute-tool.ts:188-295`
-  - `ask_questions`, `load_skill`, `currency_conversion`, chrome-devtools-mcp tools are registered at runtime (`tool-registry.ts:157,191,149-154`) but absent from the manual Tools panel. Display-only gap; runtime unaffected.
-- **extract-page-content-tool content un-indexable** — `src/tools/extract-page-content-tool.ts` (raw/{domain}/ subdir not scanned by reindex_folder)
-- **memory-agent never indexes memories.md** — `src/lib/memory-agent.ts:135-150`
-- **Interleaved async folder selection race** — `src/App.tsx:457-506` (no abort mechanism)
-- **hype_embeddings orphaned after chunk deletion** — `src-tauri/src/research_search/schema.rs:51-63` (no cascade)
+- **Tools panel missing descriptors** — `src/lib/execute-tool.ts`. `ask_questions`, `load_skill`, `currency_conversion`, chrome-devtools-mcp tools are registered at runtime but absent from the manual Tools panel. Display-only gap; runtime unaffected.
+- **`closeWebviewTab` swallows close errors** — `src/tools/extract-page-content-tool.ts:346`. UI emits `emitBrowserTabClosed` unconditionally; orphan webview tabs if close fails.
+- **`relevant_memories` semantic** — `src/tools/search-research-tool.ts:74`. Attaches ALL same-folder memories to each chat match, not memories specifically relevant to the chat. Schema name suggests per-chat relevance.
 
 ### MEDIUM priority
 
-- **originalQuestion prompt-only enforcement** — `agent-guards.ts` retry framing relies on model obeying natural-language guidance; no schema check that `originalQuestion` != retry instruction. Weak models may copy retry text.
-- **Swallowed DELETE_embedding errors** — `src-tauri/src/research_search/indexing.rs` (6 locations)
-- **FTS5 phrase query with internal double-quotes** — `src-tauri/src/research_search/search.rs:643-645`
-- **Global sub-agent emitter singleton race** — `src/lib/sub-agent-emitter.ts:11-14`
-- **TOCTOU in indexing read/write phases** — `src-tauri/src/research_search/indexing.rs:126-228`
-- **DNS resolution has no timeout** — `src-tauri/src/lib.rs:211-221`
-- **`switch_tab` failure silently proceeds** — `src/tools/extract-page-content-tool.ts:142`
+- **chat-history-search cache overwrite on transient empty load** — if `loadChatHistorySearchRecords` returns few records due to a transient error, cache entries for unseen records are dropped. Self-heals on next successful load but wastes embedding work.
+- **originalQuestion prompt-only enforcement** — `agent-guards.ts` retry framing relies on model obeying natural-language guidance; no schema check.
+- **Memory timestamp uses folder's chat updatedAt, not memories.md mtime** — `src/lib/chat-history-search-corpus.ts:227`. Memories appear older than they are in search results.
+- **Swallowed DELETE_embedding errors** — `src-tauri/src/research_search/indexing.rs` (6 locations).
+- **FTS5 phrase query with internal double-quotes** — `src-tauri/src/research_search/search.rs:643`.
+- **Global sub-agent emitter singleton race** — `src/lib/sub-agent-emitter.ts:11-14`.
+- **TOCTOU in indexing read/write phases** — `src-tauri/src/research_search/indexing.rs`.
+- **DNS resolution has no timeout** — `src-tauri/src/lib.rs:211`.
 
 ### LOW priority
 
-- **`getCurrencyConversionTarget` hardening** — no trim/uppercase/empty handling; safe today via store validation but risky if reused outside store path
-- **`parseServiceUrl` weaker than core validator** — `src/lib/url-validation.ts:10-26` (no private-IP/loopback block; runtime SearXNG path validated in core, latent only)
-- **`processedMemoryMessageIds` Set grows unboundedly** — `src/lib/transport/index.ts:42`
-- **cosine_similarity truncates on mismatched dimensions** — `src-tauri/src/research_search/search.rs:1005-1018`
+- **`processedMemoryMessageIds`/`abandonedMemoryMessageIds` Sets grow unboundedly** — `src/lib/transport/index.ts:175`. One per message, never pruned.
+- **`parseServiceUrl` weaker than core validator** — `src/lib/url-validation.ts:10`.
+- **cosine_similarity truncates on mismatched dimensions** — `src-tauri/src/research_search/search.rs:1005`.

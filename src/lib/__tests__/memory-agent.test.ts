@@ -777,6 +777,38 @@ Manual note: keep accessibility constraints visible.
     );
   });
 
+  it("does not write memories when the abort signal fires after the stream completes", async () => {
+    // Reproduces the gap fixed by throwIfAborted before writeAppFile: stream
+    // returns facts, but the user aborted mid-flight. Without the check we
+    // would persist memories the user explicitly cancelled.
+    const controller = new AbortController();
+    const facts = '["User has a dog."]';
+
+    mockStreamText.mockReturnValue({
+      textStream: (async function* () {
+        yield facts;
+      })(),
+      text: new Promise<string>((resolve) => {
+        // Abort AFTER the stream yields but BEFORE result.text resolves.
+        controller.abort();
+        resolve(facts);
+      }),
+    });
+    mockReadAppFile.mockResolvedValue(null);
+
+    await expect(
+      extractAndStoreMemories(
+        "I have a dog.",
+        getResearchFolder,
+        { modelId: "test" } as any,
+        controller.signal,
+        { readAppFile: mockReadAppFile, writeAppFile: mockWriteAppFile },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(mockWriteAppFile).not.toHaveBeenCalled();
+  });
+
   it("normalizes newlines in facts to prevent truncation on re-parse", async () => {
     mockStreamText.mockReturnValue(streamTextResult('["Line 1\\nLine 2"]'));
     mockReadAppFile.mockResolvedValue(null);

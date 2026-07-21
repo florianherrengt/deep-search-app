@@ -4,7 +4,7 @@ import {
   writeAppFile,
 } from "@/lib/app-file-storage";
 import memoryAgentPrompt from "./memory-agent-prompt.md?raw";
-import { isAbortError } from "./abort";
+import { isAbortError, throwIfAborted } from "./abort";
 import { createSubAgentId } from "./sub-agent-types";
 import { emitSubAgentEvent } from "./sub-agent-emitter";
 import {
@@ -155,6 +155,11 @@ export async function extractAndStoreMemories(
         // No facts to store — do NOT write to disk
         return 0;
       }
+
+      // Abort may have fired between the stream completing and us preparing
+      // the write. Re-check before persisting so we never store facts the
+      // user explicitly cancelled.
+      throwIfAborted(abortSignal);
 
       // Write merged memories
       logDebug("writing merged memories", { factCount: facts.length });

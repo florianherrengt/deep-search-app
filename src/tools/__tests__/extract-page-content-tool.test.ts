@@ -862,6 +862,66 @@ describe("extractPageContent with Chrome MCP backend", () => {
     expect(mockInvoke).not.toHaveBeenCalledWith("open_tab", expect.anything());
   });
 
+  it("aborts before saving when the signal fires after extraction returns", async () => {
+    // Reproduces the gap fixed by re-checking abort between extractPage and save:
+    // extraction returns content, but the user aborted mid-flight. Without the
+    // post-extraction throwIfAborted, we would still write to the research
+    // folder despite the cancellation.
+    const longContent = "Saved despite cancellation. ".repeat(12);
+    mockInvoke.mockImplementation(async (command) => {
+      if (command === "fetch_html") {
+        return `<html><body><p>${longContent}</p></body></html>`;
+      }
+      return undefined;
+    });
+
+    const controller = new AbortController();
+    const getResearchFolder = vi.fn(async () => {
+      // Abort AFTER extraction returns but BEFORE we save. The getResearchFolder
+      // hook is the next await after core.extractPage resolves.
+      controller.abort();
+      return "active-folder";
+    });
+
+    await expect(
+      extractPageContent(
+        "https://example.com/page",
+        {
+          summarize: false,
+          method: "fetch",
+          abortSignal: controller.signal,
+          getResearchFolder,
+        },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    // writeAppFile would call into tauri-bridge; with the bridge mocked at the
+    // module level we cannot observe writes directly, but getResearchFolder
+    // must have been invoked (proving we got past extraction) AND the abort
+    // must propagate (proving we did not silently save).
+    expect(getResearchFolder).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts when the signal is already aborted before any work begins", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    mockInvoke.mockImplementation(async () => null);
+
+    await expect(
+      extractPageContent(
+        "https://example.com/page",
+        {
+          summarize: false,
+          method: "fetch",
+          abortSignal: controller.signal,
+        },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(mockInvoke).not.toHaveBeenCalledWith("open_tab", expect.anything());
+    expect(mockInvoke).not.toHaveBeenCalledWith("fetch_html", expect.anything());
+  });
+
   it("uses Tauri webview when backend is tauri-webview (default)", async () => {
     mockInvoke.mockImplementation(async (command) => {
       if (command === "extract_content") return OLD_REDDIT_HTML;

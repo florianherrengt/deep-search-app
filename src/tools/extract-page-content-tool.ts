@@ -469,7 +469,10 @@ async function extractViaWebview(
         );
       }
     } catch (error) {
-      if (isAbortError(error)) throw error;
+      // Tauri invoke doesn't always translate an aborted command into an
+      // AbortError; if the signal fired, treat any failure as cancellation
+      // so the caller stops downstream work (save, summarize) immediately.
+      if (isAbortError(error) || abortSignal?.aborted) throw error;
       console.warn(
         `[extract] extractViaWebview failed for ${url}:`,
         error instanceof Error ? error.message : error,
@@ -568,6 +571,8 @@ export async function extractPageContent(
   const saId = options.subAgentId;
   const emitEvent = options.emitEvent ?? emitSubAgentEvent;
 
+  throwIfAborted(options.abortSignal);
+
   if (saId) {
     emitEvent({ type: "text-delta", id: saId, delta: `Extracting content from ${url}...\n\n` });
   }
@@ -591,6 +596,12 @@ export async function extractPageContent(
     },
   );
 
+  // The core helper takes the signal, but a backend that does not propagate
+  // abort (or an abort that fires between the extraction returning and the
+  // next await) would otherwise let us save and summarize data the user
+  // explicitly cancelled. Re-check before any side effect.
+  throwIfAborted(options.abortSignal);
+
   const { content, html: rawHtml, usedCustomExtractor, warnings } = extractResult;
   const html = rawHtml ?? null;
 
@@ -603,6 +614,7 @@ export async function extractPageContent(
 
   const shouldSummarize = shouldSummarizeContent(options, usedCustomExtractor);
   const researchFolder = await options.getResearchFolder?.();
+  throwIfAborted(options.abortSignal);
 
   if (!researchFolder) {
     if (!shouldSummarize) return content;
@@ -627,6 +639,7 @@ export async function extractPageContent(
     console.error("[extract] Failed to save extracted content:", err);
     saveFailed = true;
   }
+  throwIfAborted(options.abortSignal);
 
   if (shouldSummarize) {
     const summary = await trySummarizeContent(
@@ -638,6 +651,9 @@ export async function extractPageContent(
       emitEvent,
     );
     if (summary) {
+      // trySummarizeContent re-throws AbortError, but a backend that completes
+      // despite the signal firing could return a summary we no longer want.
+      throwIfAborted(options.abortSignal);
       try {
         await saveSummaryContent(location, summary);
       } catch (err) {
