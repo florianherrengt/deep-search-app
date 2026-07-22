@@ -1917,10 +1917,7 @@ mod tests {
 
     #[test]
     fn log_rotation_replaces_the_single_backup_before_size_limit() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = uuid::Uuid::new_v4();
         let test_dir = std::env::temp_dir().join(format!("deep-search-log-{unique}"));
         let log_path = test_dir.join(APP_LOG_FILENAME);
         let backup_path = test_dir.join(format!("{APP_LOG_FILENAME}.1"));
@@ -1937,10 +1934,7 @@ mod tests {
 
     #[test]
     fn log_rotation_keeps_current_file_within_size_limit() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = uuid::Uuid::new_v4();
         let test_dir = std::env::temp_dir().join(format!("deep-search-log-{unique}"));
         let log_path = test_dir.join(APP_LOG_FILENAME);
         fs::create_dir_all(&test_dir).unwrap();
@@ -1955,10 +1949,7 @@ mod tests {
 
     #[test]
     fn log_append_caps_oversized_batches_by_bytes() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = uuid::Uuid::new_v4();
         let test_dir = std::env::temp_dir().join(format!("deep-search-log-{unique}"));
         let log_path = test_dir.join(APP_LOG_FILENAME);
         fs::create_dir_all(&test_dir).unwrap();
@@ -1978,10 +1969,7 @@ mod tests {
 
     #[test]
     fn log_append_caps_an_oversized_legacy_file_to_a_utf8_tail() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = uuid::Uuid::new_v4();
         let test_dir = std::env::temp_dir().join(format!("deep-search-log-{unique}"));
         let log_path = test_dir.join(APP_LOG_FILENAME);
         fs::create_dir_all(&test_dir).unwrap();
