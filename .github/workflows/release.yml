@@ -72,11 +72,6 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release $RELEASE_TAG already exists."
-            exit 1
-          fi
-
           if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
             remote_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | cut -f1)"
             if [ "$remote_sha" != "$GITHUB_SHA" ]; then
@@ -88,28 +83,52 @@ jobs:
             git push origin "refs/tags/$RELEASE_TAG"
           fi
 
-          args=(
-            "$RELEASE_TAG"
-            "--repo" "$GITHUB_REPOSITORY"
-            "--verify-tag"
-            "--title" "Deep Search $RELEASE_TAG"
-            "--draft"
-          )
+          release_id="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+              --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id" \
+              | head -n 1
+          )"
 
-          if [ "$RELEASE_PRERELEASE" = "true" ]; then
-            args+=("--prerelease")
-          fi
-
-          if [ -n "$RELEASE_NOTES" ]; then
-            notes_file="$(mktemp)"
-            printf "%s" "$RELEASE_NOTES" > "$notes_file"
-            args+=("--notes-file" "$notes_file")
+          if [ -n "$release_id" ]; then
+            release_is_draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq .draft)"
+            if [ "$release_is_draft" != "true" ]; then
+              echo "::error::Published release $RELEASE_TAG already exists."
+              exit 1
+            fi
+            echo "Reusing draft release $RELEASE_TAG ($release_id)."
           else
-            args+=("--generate-notes")
+            args=(
+              "$RELEASE_TAG"
+              "--repo" "$GITHUB_REPOSITORY"
+              "--verify-tag"
+              "--title" "Deep Search $RELEASE_TAG"
+              "--draft"
+            )
+
+            if [ "$RELEASE_PRERELEASE" = "true" ]; then
+              args+=("--prerelease")
+            fi
+
+            if [ -n "$RELEASE_NOTES" ]; then
+              notes_file="$(mktemp)"
+              printf "%s" "$RELEASE_NOTES" > "$notes_file"
+              args+=("--notes-file" "$notes_file")
+            else
+              args+=("--generate-notes")
+            fi
+
+            gh release create "${args[@]}"
+            release_id="$(
+              gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+                --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id" \
+                | head -n 1
+            )"
           fi
 
-          gh release create "${args[@]}"
-          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .id)"
+          if [ -z "$release_id" ]; then
+            echo "::error::Could not resolve release ID for $RELEASE_TAG."
+            exit 1
+          fi
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
 
   publish-tauri:
