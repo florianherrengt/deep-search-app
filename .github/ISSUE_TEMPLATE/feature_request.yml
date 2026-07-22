@@ -1,0 +1,54 @@
+name: Feature request
+description: Propose a focused improvement to Deep Search
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem and desired outcome. Large changes should be discussed before implementation.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is difficult or impossible today, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe successful behavior without assuming a specific implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Possible approach
+      description: Optional implementation ideas, alternatives, or relevant examples.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Research workflow
+        - Search provider
+        - Page extraction
+        - MCP integration
+        - Research library and memory
+        - Desktop UI and accessibility
+        - Platform support
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and did not find this request.
+          required: true
+        - label: I have not included credentials or private research data.
+          required: true

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/florianherrengt/deep-search-app/blob/main/docs/README.md
+    about: Read setup, MCP, research, and extraction documentation.
+  - name: Support guide
+    url: https://github.com/florianherrengt/deep-search-app/blob/main/SUPPORT.md
+    about: Check troubleshooting and support options before opening an issue.
+  - name: Private security report
+    url: https://github.com/florianherrengt/deep-search-app/security/advisories/new
+    about: Report vulnerabilities privately. Never disclose them in a public issue.

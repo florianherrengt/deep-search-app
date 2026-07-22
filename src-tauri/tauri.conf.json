@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Deep Search Dev",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "identifier": "com.deep-search-app.app.dev",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -23,7 +23,9 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://github.com/florianherrengt/deep-search-app/releases/latest/download/latest.json"],
+      "endpoints": [
+        "https://github.com/florianherrengt/deep-search-app/releases/latest/download/latest.json"
+      ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERDNEZEQkMyOUNENjlFQjUKUldTMW50YWN3dHRQM0hVOU13T2RBNU9IUUhCcndRSjF0eHl2U1J3L09LMjZjSGlHVm1FRkV2NWwK"
     }
   },

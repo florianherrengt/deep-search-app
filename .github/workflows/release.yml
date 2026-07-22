@@ -11,9 +11,13 @@ on:
         description: Optional release notes. Leave empty to generate notes from commits.
         required: false
         type: string
-  release:
-    types:
-      - published
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   prepare-release:
@@ -29,19 +33,17 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: lts/*
 
       - name: Resolve release version
         id: version
         env:
-          RELEASE_INPUT: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
+          RELEASE_INPUT: ${{ inputs.version }}
         run: |
           release_json="$(npm run --silent release:set-version -- "$RELEASE_INPUT" --dry-run --json)"
           node -e '
@@ -51,32 +53,47 @@ jobs:
             }
           ' "$release_json" >> "$GITHUB_OUTPUT"
 
+      - name: Verify committed source version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          source_version="$(node --input-type=module -e 'import packageJson from "./package.json" with { type: "json" }; process.stdout.write(packageJson.version)')"
+          if [ "$source_version" != "$RELEASE_VERSION" ]; then
+            echo "::error::package.json is $source_version but the requested release is $RELEASE_VERSION. Run npm run release:set-version -- $RELEASE_VERSION and commit the result first."
+            exit 1
+          fi
+
       - name: Create or locate release
         id: release
         env:
-          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EXISTING_RELEASE_ID: ${{ github.event.release.id }}
           RELEASE_NOTES: ${{ inputs.notes }}
           RELEASE_PRERELEASE: ${{ steps.version.outputs.prerelease }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if [ "$EVENT_NAME" = "release" ]; then
-            echo "release_id=$EXISTING_RELEASE_ID" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Release $RELEASE_TAG already exists."
             exit 1
           fi
 
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            remote_sha="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | cut -f1)"
+            if [ "$remote_sha" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag $RELEASE_TAG already targets $remote_sha instead of $GITHUB_SHA."
+              exit 1
+            fi
+          else
+            git tag "$RELEASE_TAG" "$GITHUB_SHA"
+            git push origin "refs/tags/$RELEASE_TAG"
+          fi
+
           args=(
             "$RELEASE_TAG"
             "--repo" "$GITHUB_REPOSITORY"
-            "--target" "$GITHUB_SHA"
+            "--verify-tag"
             "--title" "Deep Search $RELEASE_TAG"
+            "--draft"
           )
 
           if [ "$RELEASE_PRERELEASE" = "true" ]; then
@@ -112,18 +129,18 @@ jobs:
 
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ needs.prepare-release.outputs.tag }}
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: lts/*
           cache: npm
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: ${{ matrix.target }}
 
@@ -172,7 +189,7 @@ jobs:
           NODE
 
       - name: Build and upload release assets
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -183,3 +200,29 @@ jobs:
           tagName: ${{ needs.prepare-release.outputs.tag }}
           includeUpdaterJson: true
           args: ${{ matrix.args }} --config src-tauri/tauri.release.conf.json --config src-tauri/updater-config.json
+
+  publish-release:
+    name: Publish verified release
+    needs:
+      - prepare-release
+      - publish-tauri
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        run: |
+          asset_names="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq '.[].name')"
+          for pattern in '\.dmg$' '\.app\.tar\.gz$' '\.app\.tar\.gz\.sig$' '^latest\.json$'; do
+            if ! grep -Eq "$pattern" <<<"$asset_names"; then
+              echo "::error::Release $RELEASE_TAG is missing an expected asset matching $pattern."
+              exit 1
+            fi
+          done
+
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false --silent

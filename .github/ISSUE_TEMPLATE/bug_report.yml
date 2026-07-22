@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible problem in Deep Search
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Search existing issues first. Never paste API keys, `settings.json`, private research, or unredacted credentials.
+  - type: input
+    id: version
+    attributes:
+      label: Deep Search version
+      description: Find this in the app or the downloaded release name.
+      placeholder: v0.1.0-beta.1
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Mac and macOS version
+      placeholder: MacBook Pro M2, macOS 15.5
+    validations:
+      required: true
+  - type: input
+    id: providers
+    attributes:
+      label: Providers involved
+      description: Name the LLM, search, or extraction providers without including keys.
+      placeholder: OpenRouter with Claude, Brave Search, built-in webview
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest reliable sequence that reproduces the problem.
+      placeholder: |
+        1. Open ...
+        2. Configure ...
+        3. Ask ...
+        4. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or redacted logs
+      description: Drag files here after removing secrets, private research, and sensitive paths. Never attach settings.json.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and did not find this bug.
+          required: true
+        - label: I removed API keys, tokens, and private research from this report.
+          required: true
+        - label: This is not a security vulnerability. Security reports must follow SECURITY.md.
+          required: true

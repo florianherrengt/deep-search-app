@@ -1,7 +1,7 @@
 {
   "name": "deep-search-app",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -58,7 +58,7 @@
     "cheerio": "^1.2.0",
     "chrome-devtools-mcp": "^1.1.1",
     "currency-symbol-map": "^5.1.0",
-    "deep-search-core": "github:florianherrengt/deep-search-core#d492c18",
+    "deep-search-core": "https://github.com/florianherrengt/deep-search-core/archive/6d3c131839172969877bbc8b0716ad387b6405fd.tar.gz",
     "ipaddr.js": "^2.4.0",
     "lucide-react": "^1.16.0",
     "onnxruntime-web": "^1.26.0-dev.20260416-b7804b056c",
@@ -73,6 +73,11 @@
     "slugify": "^1.6.9",
     "zhipu-ai-provider": "^0.3.1",
     "zod": "^4.4.3"
+  },
+  "overrides": {
+    "@hono/node-server": "2.0.11",
+    "adm-zip": "0.6.0",
+    "sharp": "0.35.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

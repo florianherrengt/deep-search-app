@@ -713,7 +713,7 @@ dependencies = [
 
 [[package]]
 name = "deep-search-app"
-version = "0.1.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "dotenvy",
  "ipnet",
