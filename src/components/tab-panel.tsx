@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import {
+  AlertTriangleIcon,
   BotIcon,
   FileTextIcon,
   MessageSquareIcon,
@@ -120,7 +121,13 @@ export function TabPanel({
               {tabs.map((tab) => {
                 const active = activeTabId === tab.id;
                 return (
-                  <Group key={tab.id} gap={0} wrap="nowrap" className={classes.browserTabGroup}>
+                  <Group
+                    key={tab.id}
+                    gap={0}
+                    wrap="nowrap"
+                    className={classes.browserTabGroup}
+                    data-needs-attention={tab.needsAttention || undefined}
+                  >
                     <Button
                       variant="subtle"
                       color="gray"
@@ -130,7 +137,30 @@ export function TabPanel({
                       data-testid="browser-tab"
                       data-tab-id={tab.id}
                       data-tab-url={tab.url}
+                      data-needs-attention={tab.needsAttention || undefined}
                       aria-current={active ? "page" : undefined}
+                      aria-label={
+                        tab.needsAttention
+                          ? `${tab.title} — human verification required`
+                          : tab.title
+                      }
+                      leftSection={
+                        tab.needsAttention ? (
+                          <Tooltip
+                            label="Human verification required. Open this tab to continue."
+                            withArrow
+                          >
+                            <span
+                              className={classes.verificationIndicator}
+                              role="img"
+                              aria-label="Human verification required"
+                              data-testid="browser-tab-verification-indicator"
+                            >
+                              <AlertTriangleIcon size={14} aria-hidden="true" />
+                            </span>
+                          </Tooltip>
+                        ) : undefined
+                      }
                       onClick={() => onSwitchTab(tab.id)}
                     >
                       {tab.title}

@@ -318,9 +318,11 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
             }))}
           />
           <Text size="xs" c="dimmed">
-            {settings.chrome_devtools_mcp_enabled
-              ? "Chrome MCP uses your local Chrome browser to render and extract pages. Tauri webview is the built-in renderer."
-              : "Enable Chrome DevTools MCP above to unlock Chrome MCP as an extraction backend."}
+            {!isTauri()
+              ? "Browser-backed Google search is available in the desktop app."
+              : settings.chrome_devtools_mcp_enabled
+              ? "The selected browser powers direct Google search and rendered page extraction. Chrome MCP uses your local Chrome; Tauri webview is built in."
+              : "The built-in Tauri webview powers direct Google search and rendered page extraction. Enable Chrome DevTools MCP above to use your local Chrome instead."}
           </Text>
         </Stack>
       </Paper>

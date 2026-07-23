@@ -22,6 +22,10 @@ import {
   createAggregateSearchTool,
 } from "@/tools/aggregate-search-tool";
 import {
+  createConfiguredGoogleSearchTool,
+  googleSearchInputSchema,
+} from "@/tools/google-search-tool";
+import {
   disambiguateInputSchema,
   disambiguateTool,
 } from "@/tools/disambiguate-tool";
@@ -61,7 +65,7 @@ import {
   researchPlanInputSchema,
 } from "@/tools/core-research-tools";
 import { researchCheckpointInputSchema } from "@/lib/agent-guards";
-import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
+import { fetch as bridgeFetch, isTauri } from "@/lib/tauri-bridge";
 import type { ChromeMcpConnectionMode, WebExtractionBackend } from "@/lib/settings-store";
 
 export type { ToolDescriptor, ToolParameter } from "@/lib/tool-descriptor";
@@ -133,6 +137,9 @@ export function getAvailableTools(
   const tavilyTool = searchTools[TOOL_NAMES.tavily_search];
   const youtubeTool = searchTools[TOOL_NAMES.youtube_search];
   const searxngTool = searchTools[TOOL_NAMES.searxng_search];
+  const googleTool = isTauri() && model
+    ? createConfiguredGoogleSearchTool(model, config)
+    : undefined;
   const aggregateTool = createAggregateSearchTool({
     braveApiKey,
     exaApiKey,
@@ -197,6 +204,11 @@ export function getAvailableTools(
       TOOL_NAMES.youtube_search,
       youtubeTool,
       youtubeSearchInputSchema,
+    ),
+    describeOptionalTool(
+      TOOL_NAMES.google_search,
+      googleTool,
+      googleSearchInputSchema,
     ),
     describeOptionalTool(
       TOOL_NAMES.aggregate_search,

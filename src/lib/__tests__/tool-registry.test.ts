@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const aiMocks = vi.hoisted(() => ({
   streamText: vi.fn(),
+  generateText: vi.fn(),
 }));
 
 const emitterMocks = vi.hoisted(() => ({
@@ -9,11 +10,21 @@ const emitterMocks = vi.hoisted(() => ({
   createSubAgentId: vi.fn(),
 }));
 
+const tauriMocks = vi.hoisted(() => ({
+  isTauri: vi.fn(() => true),
+}));
+
+const googleRendererMocks = vi.hoisted(() => ({
+  webview: vi.fn(),
+  chrome: vi.fn(),
+}));
+
 vi.mock("ai", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ai")>();
   return {
     ...actual,
     streamText: aiMocks.streamText,
+    generateText: aiMocks.generateText,
   };
 });
 
@@ -33,9 +44,39 @@ vi.mock("@/lib/mcp/chrome-devtools-tools", () => ({
   createChromeDevToolsMcpTools: vi.fn(async () => ({})),
 }));
 
+vi.mock("@/lib/managed-webview", () => ({
+  renderWithManagedWebview: googleRendererMocks.webview,
+}));
+
+vi.mock("@/tools/chrome-mcp-page-loader", () => ({
+  renderWithManagedChromeMcp: googleRendererMocks.chrome,
+  createChromeMcpPageLoader: vi.fn(() => ({
+    fetchHtml: undefined,
+    renderHtml: vi.fn(),
+  })),
+}));
+
+vi.mock("@/lib/tauri-bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tauri-bridge")>();
+  return {
+    ...actual,
+    isTauri: tauriMocks.isTauri,
+  };
+});
+
 import { createTools } from "@/lib/transport/tool-registry";
 
 type ToolByName = Record<string, { description?: string } | undefined>;
+type ExecutableToolByName = Record<
+  string,
+  | {
+      execute?: (
+        input: unknown,
+        options: unknown,
+      ) => Promise<unknown> | unknown;
+    }
+  | undefined
+>;
 
 function makeModel() {
   return { modelId: "test", doGenerate: async () => ({}) } as never;
@@ -54,7 +95,28 @@ function mockStreamText(chunks: string[]) {
 describe("createTools", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    tauriMocks.isTauri.mockReturnValue(true);
     emitterMocks.createSubAgentId.mockReturnValue("sa-registry-1");
+    const googleHtml = `
+      <div id="search"><div id="rso"><div class="g">
+        <a href="https://example.com/result"><h3>Example result</h3></a>
+        <div class="VwiC3b">Rendered browser result.</div>
+      </div></div></div>
+    `;
+    googleRendererMocks.webview.mockResolvedValue(googleHtml);
+    googleRendererMocks.chrome.mockResolvedValue(googleHtml);
+    aiMocks.generateText.mockResolvedValue({
+      output: {
+        status: "results",
+        results: [
+          {
+            title: "Example result",
+            url: "https://example.com/result",
+            description: "Rendered browser result.",
+          },
+        ],
+      },
+    });
   });
 
   it("registers create_research_plan with live sub-agent text streaming from the core planner prompt", async () => {
@@ -183,6 +245,82 @@ describe("createTools", () => {
     ).toContain("extract_page_content");
   });
 
+  it("registers standalone keyless Google search in Tauri sessions", async () => {
+    const tools = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+    });
+    const toolsByName = tools as ToolByName;
+
+    expect(toolsByName.google_search).toBeTruthy();
+    expect(toolsByName.google_search?.description).toContain(
+      "does not require a Google Search API key",
+    );
+  });
+
+  it("does not register Google search in browser-only sessions", async () => {
+    tauriMocks.isTauri.mockReturnValue(false);
+
+    const tools = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+    });
+
+    expect((tools as ToolByName).google_search).toBeUndefined();
+  });
+
+  it("routes chat Google search through the built-in WebView by default", async () => {
+    const tools = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+    });
+
+    await (tools as unknown as ExecutableToolByName).google_search?.execute?.(
+      { query: "test query" },
+      { toolCallId: "google-call", messages: [] },
+    );
+
+    expect(googleRendererMocks.webview).toHaveBeenCalledWith(
+      "https://www.google.com/search?q=test+query&num=10",
+      expect.objectContaining({ throwOnError: true }),
+    );
+    expect(googleRendererMocks.chrome).not.toHaveBeenCalled();
+  });
+
+  it("routes chat Google search through Chrome only when explicitly selected", async () => {
+    const tools = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+      searchKeys: {
+        chromeDevToolsMcpEnabled: true,
+        webExtractionBackend: "chrome-mcp",
+        chromeDevToolsMcpConnectionMode: "browser-url",
+        chromeDevToolsMcpBrowserUrl: "http://127.0.0.1:9222",
+        chromeDevToolsMcpNodePath: "/custom/node",
+      },
+    });
+
+    await (tools as unknown as ExecutableToolByName).google_search?.execute?.(
+      { query: "test" },
+      { toolCallId: "google-call", messages: [] },
+    );
+
+    expect(googleRendererMocks.chrome).toHaveBeenCalledWith(
+      "https://www.google.com/search?q=test&num=10",
+      {
+        connectionMode: "browser-url",
+        browserUrl: "http://127.0.0.1:9222",
+        nodePath: "/custom/node",
+      },
+      expect.objectContaining({ onHumanVerification: expect.any(Function) }),
+    );
+    expect(googleRendererMocks.webview).not.toHaveBeenCalled();
+  });
+
   it("registers currency conversion only when a target currency is configured", async () => {
     const toolsWithoutTarget = await createTools({
       model: makeModel(),
@@ -217,7 +355,7 @@ describe("createTools", () => {
     const toolsByName = tools as ToolByName;
 
     expect(toolsByName.aggregate_search?.description ?? "").toContain(
-      "does not call youtube_search",
+      "does not call google_search or youtube_search",
     );
     expect(toolsByName.aggregate_search?.description ?? "").toContain(
       "site:reddit.com",

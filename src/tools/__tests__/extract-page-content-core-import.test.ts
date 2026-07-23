@@ -29,6 +29,8 @@ vi.mock("@/lib/sub-agent-emitter", () => ({
 vi.mock("@/lib/browser-tab-events", () => ({
   emitBrowserTabClosed: vi.fn(),
   emitBrowserTabOpened: vi.fn(),
+  emitBrowserTabVerificationCleared: vi.fn(),
+  emitBrowserTabVerificationRequired: vi.fn(),
 }));
 
 class MockExtractor {

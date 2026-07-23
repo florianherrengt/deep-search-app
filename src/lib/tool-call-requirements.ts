@@ -31,6 +31,7 @@ export const WEB_SEARCH_TOOL_NAMES = [
   TOOL_NAMES.serper_search,
   TOOL_NAMES.tavily_search,
   TOOL_NAMES.searxng_search,
+  TOOL_NAMES.google_search,
   TOOL_NAMES.youtube_search,
 ] as const;
 

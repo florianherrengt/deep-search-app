@@ -9,6 +9,7 @@ const RESEARCH_TOOL_NAMES = new Set<string>([
   TOOL_NAMES.serper_search,
   TOOL_NAMES.tavily_search,
   TOOL_NAMES.searxng_search,
+  TOOL_NAMES.google_search,
   TOOL_NAMES.extract_page_content,
   TOOL_NAMES.create_file,
 ]);

@@ -5,6 +5,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { TauriStdioTransport } from "./tauri-stdio-transport";
 import { createChromeDevToolsMcpCommand } from "./chrome-devtools-sidecar";
 import type { ChromeMcpConnectionMode } from "@/lib/settings-store";
+import { abortablePromise, throwIfAborted } from "@/lib/abort";
+import PQueue from "p-queue";
 
 const TOOL_NAME_PREFIX = "chrome_devtools_";
 const MCP_REQUEST_TIMEOUT_MS = 30_000;
@@ -13,6 +15,15 @@ let clientPromise: Promise<Client> | null = null;
 let transportRef: TauriStdioTransport | null = null;
 let toolsPromise: Promise<ToolSet> | null = null;
 let activeConnectionKey: string | null = null;
+
+// Serialized (concurrency 1) queue so MCP tool calls run one at a time.
+const chromeDevToolsOperations = new PQueue({ concurrency: 1 });
+
+interface ChromeMcpConnection {
+  connectionMode?: ChromeMcpConnectionMode;
+  browserUrl?: string;
+  nodePath?: string;
+}
 
 export async function createChromeDevToolsMcpTools({
   enabled,
@@ -32,27 +43,37 @@ export async function createChromeDevToolsMcpTools({
 
   if (!isTauri()) return {};
 
-  // Reconnect if the connection target changed; the cached client is bound to
-  // whichever Chrome instance and mode it first attached to.
-  const connectionKey = [
-    connectionMode === "browser-url" ? `browser-url:${browserUrl?.trim() ?? ""}` : "auto-connect",
-    `node:${nodePath?.trim() ?? "auto"}`,
-  ].join("|");
-  if (activeConnectionKey !== null && activeConnectionKey !== connectionKey) {
-    await shutdownChromeDevToolsMcp();
-  }
-  activeConnectionKey = connectionKey;
+  try {
+    return await withChromeDevToolsMcpClient(
+      { connectionMode, browserUrl, nodePath },
+      async (client) => {
+        toolsPromise ??= createChromeDevToolsMcpToolsInternal(client).catch(
+          (error) => {
+            toolsPromise = null;
+            console.warn(
+              "[chrome-devtools-mcp] Failed to initialize tools:",
+              error,
+            );
+            return {};
+          },
+        );
 
-  toolsPromise ??= createChromeDevToolsMcpToolsInternal({ connectionMode, browserUrl, nodePath }).catch((error) => {
-    toolsPromise = null;
+        return toolsPromise;
+      },
+    );
+  } catch (error) {
     console.warn("[chrome-devtools-mcp] Failed to initialize tools:", error);
     return {};
-  });
-
-  return toolsPromise;
+  }
 }
 
 export async function shutdownChromeDevToolsMcp() {
+  return chromeDevToolsOperations.add(
+    shutdownChromeDevToolsMcpUnserialized,
+  );
+}
+
+async function shutdownChromeDevToolsMcpUnserialized() {
   const client = await clientPromise?.catch(() => null);
   clientPromise = null;
   transportRef = null;
@@ -67,10 +88,7 @@ if (typeof window !== "undefined") {
   });
 }
 
-async function createChromeDevToolsMcpToolsInternal(
-  connection: { connectionMode?: ChromeMcpConnectionMode; browserUrl?: string; nodePath?: string },
-): Promise<ToolSet> {
-  const client = await getChromeDevToolsMcpClient(connection);
+async function createChromeDevToolsMcpToolsInternal(client: Client): Promise<ToolSet> {
   const { tools: mcpTools } = await client.listTools(undefined, {
     timeout: MCP_REQUEST_TIMEOUT_MS,
   });
@@ -90,34 +108,63 @@ async function createChromeDevToolsMcpToolsInternal(
             source: "chrome-devtools-mcp",
             mcpToolName: mcpTool.name,
           },
-          execute: async (input) => {
-            try {
-              return normalizeToolCallResult(
-                await client.callTool(
-                  { name: mcpTool.name, arguments: isRecord(input) ? input : {} },
-                  undefined,
-                  { timeout: MCP_REQUEST_TIMEOUT_MS },
-                ) as { content?: unknown[]; structuredContent?: unknown; isError?: boolean },
-              );
-            } catch (error) {
-              const tail = transportRef?.stderrTail;
-              if (tail) {
-                throw new Error(
-                  `${error instanceof Error ? error.message : String(error)} Last stderr: ${tail}`,
+          execute: async (input, options) =>
+            chromeDevToolsOperations.add(async () => {
+              try {
+                return normalizeToolCallResult(
+                  await client.callTool(
+                    { name: mcpTool.name, arguments: isRecord(input) ? input : {} },
+                    undefined,
+                    { timeout: MCP_REQUEST_TIMEOUT_MS },
+                  ) as { content?: unknown[]; structuredContent?: unknown; isError?: boolean },
                 );
+              } catch (error) {
+                const tail = transportRef?.stderrTail;
+                if (tail) {
+                  throw new Error(
+                    `${error instanceof Error ? error.message : String(error)} Last stderr: ${tail}`,
+                  );
+                }
+                throw error;
               }
-              throw error;
-            }
-          },
+            }, options?.abortSignal ? { signal: options.abortSignal } : undefined),
         }),
       ];
     }),
   ) satisfies ToolSet;
 }
 
-export async function getChromeDevToolsMcpClient(
+export function withChromeDevToolsMcpClient<T>(
+  connection: ChromeMcpConnection,
+  operation: (client: Client) => Promise<T>,
+  abortSignal?: AbortSignal,
+): Promise<T> {
+  return chromeDevToolsOperations.add(async () => {
+    const client = await abortablePromise(
+      getChromeDevToolsMcpClientUnserialized(connection),
+      abortSignal,
+    );
+    throwIfAborted(abortSignal);
+    return operation(client);
+  }, abortSignal ? { signal: abortSignal } : undefined);
+}
+
+async function getChromeDevToolsMcpClientUnserialized(
   connection: { connectionMode?: ChromeMcpConnectionMode; browserUrl?: string; nodePath?: string },
 ): Promise<Client> {
+  // Keep reconnection validation at the client boundary so direct consumers and
+  // dynamically exposed tools both honor configuration changes.
+  const connectionKey = [
+    connection.connectionMode === "browser-url"
+      ? `browser-url:${connection.browserUrl?.trim() ?? ""}`
+      : "auto-connect",
+    `node:${connection.nodePath?.trim() ?? "auto"}`,
+  ].join("|");
+  if (activeConnectionKey !== null && activeConnectionKey !== connectionKey) {
+    await shutdownChromeDevToolsMcpUnserialized();
+  }
+  activeConnectionKey = connectionKey;
+
   clientPromise ??= (async () => {
     const command = await createChromeDevToolsMcpCommand({
       mode: connection.connectionMode,

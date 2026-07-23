@@ -23,21 +23,22 @@ describe("createTavilySearchTool", () => {
     const tool = createTavilySearchTool(
       " tvly-test-key ",
     ) as unknown as ExecutableTavilyTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({
-        query: "standing desk",
-        results: [
-          {
-            title: "Desk review",
-            url: "https://example.com/desk",
-            content: "Compact standing desk review.",
-            score: 0.91,
-          },
-        ],
-      }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          query: "standing desk",
+          results: [
+            {
+              title: "Desk review",
+              url: "https://example.com/desk",
+              content: "Compact standing desk review.",
+              score: 0.91,
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
 
     await expect(tool.execute({ query: "standing desk" })).resolves.toBe(
       "Desk review: https://example.com/desk\nCompact standing desk review.",
@@ -61,12 +62,12 @@ describe("createTavilySearchTool", () => {
     const tool = createTavilySearchTool(
       "tvly-test-key",
     ) as unknown as ExecutableTavilyTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-      statusText: "Unauthorized",
-      text: async () => JSON.stringify({ detail: "Invalid API key" }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Invalid API key" }), {
+        status: 401,
+        statusText: "Unauthorized",
+      }),
+    );
 
     await expect(tool.execute({ query: "standing desk" })).rejects.toThrow(
       "Tavily search failed with HTTP 401",
@@ -77,11 +78,11 @@ describe("createTavilySearchTool", () => {
     const tool = createTavilySearchTool(
       "tvly-test-key",
     ) as unknown as ExecutableTavilyTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ query: "test", results: [] }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ query: "test", results: [] }), {
+        status: 200,
+      }),
+    );
 
     await expect(tool.execute({ query: "standing desk" })).resolves.toBe(
       "No results found.",
@@ -92,14 +93,15 @@ describe("createTavilySearchTool", () => {
     const tool = createTavilySearchTool(
       "tvly-test-key",
     ) as unknown as ExecutableTavilyTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({
-        query: "standing desk",
-        results: [{ title: "Desk review", url: "https://example.com/desk" }],
-      }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          query: "standing desk",
+          results: [{ title: "Desk review", url: "https://example.com/desk" }],
+        }),
+        { status: 200 },
+      ),
+    );
 
     await expect(tool.execute({ query: "standing desk" })).rejects.toThrow(
       "Tavily search response did not match the expected format:",

@@ -1,6 +1,6 @@
 [package]
 name = "deep-search-app"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 description = "Local-first desktop deep research with MCP"
 authors = ["Florian Herrengt"]
 license = "MIT"
@@ -41,3 +41,8 @@ ipnet = "2.10"
 dotenvy = "0.15"
 tauri-plugin-playwright = { version = "0.4", optional = true }
 uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Already used transitively by tauri-plugin-notification. Declared directly so
+# the macOS notification path can wait for a content click and recover the tab.
+mac-notification-sys = "0.6.13"

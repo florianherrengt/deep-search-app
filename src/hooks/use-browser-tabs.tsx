@@ -1,27 +1,37 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@/lib/tauri-bridge";
 import {
   BROWSER_TAB_CLOSED_EVENT,
   BROWSER_TAB_OPENED_EVENT,
+  BROWSER_TAB_VERIFICATION_CLEARED_EVENT,
+  BROWSER_TAB_VERIFICATION_REQUIRED_EVENT,
   type BrowserTabClosedDetail,
   type BrowserTabOpenedDetail,
+  type BrowserTabVerificationDetail,
 } from "@/lib/browser-tab-events";
 
 export interface BrowserTab {
   id: string;
   url: string;
   title: string;
+  needsAttention?: boolean;
 }
+
+const APP_TAB_IDS = new Set(["main", "settings", "prompts", "skills", "tools"]);
 
 export function useBrowserTabs() {
   const [tabs, setTabs] = useState<BrowserTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>("main");
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
 
   const addTab = useCallback(
     (tab: BrowserTab, activate = true) => {
       setTabs((prev) =>
         prev.some((existing) => existing.id === tab.id)
-          ? prev.map((existing) => (existing.id === tab.id ? tab : existing))
+          ? prev.map((existing) =>
+              existing.id === tab.id ? { ...existing, ...tab } : existing,
+            )
           : [...prev, tab],
       );
       if (activate) setActiveTabId(tab.id);
@@ -42,8 +52,12 @@ export function useBrowserTabs() {
   );
 
   const switchToTab = useCallback((id: string) => {
-    setActiveTabId(id);
-    invoke("switch_tab", { id }).catch(() => {});
+    const targetId =
+      APP_TAB_IDS.has(id) || tabsRef.current.some((tab) => tab.id === id)
+        ? id
+        : "main";
+    setActiveTabId(targetId);
+    invoke("switch_tab", { id: targetId }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -71,12 +85,46 @@ export function useBrowserTabs() {
       removeTab(detail.id);
     };
 
+    const setVerificationAttention = (event: Event, needsAttention: boolean) => {
+      const detail = (event as CustomEvent<BrowserTabVerificationDetail>).detail;
+      if (!detail?.id) return;
+      setTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === detail.id ? { ...tab, needsAttention } : tab,
+        ),
+      );
+    };
+
+    const handleVerificationRequired = (event: Event) => {
+      setVerificationAttention(event, true);
+    };
+
+    const handleVerificationCleared = (event: Event) => {
+      setVerificationAttention(event, false);
+    };
+
     window.addEventListener(BROWSER_TAB_OPENED_EVENT, handleTabOpened);
     window.addEventListener(BROWSER_TAB_CLOSED_EVENT, handleTabClosed);
+    window.addEventListener(
+      BROWSER_TAB_VERIFICATION_REQUIRED_EVENT,
+      handleVerificationRequired,
+    );
+    window.addEventListener(
+      BROWSER_TAB_VERIFICATION_CLEARED_EVENT,
+      handleVerificationCleared,
+    );
 
     return () => {
       window.removeEventListener(BROWSER_TAB_OPENED_EVENT, handleTabOpened);
       window.removeEventListener(BROWSER_TAB_CLOSED_EVENT, handleTabClosed);
+      window.removeEventListener(
+        BROWSER_TAB_VERIFICATION_REQUIRED_EVENT,
+        handleVerificationRequired,
+      );
+      window.removeEventListener(
+        BROWSER_TAB_VERIFICATION_CLEARED_EVENT,
+        handleVerificationCleared,
+      );
     };
   }, [addTab, removeTab]);
 

@@ -6,6 +6,8 @@ export const SYSTEM_NODE_ALIAS = "system-node";
 export const CHROME_DEVTOOLS_MCP_RESOURCE =
   "mcp/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js";
 export const CHROME_DEVTOOLS_AUTO_CONNECT_ARG = "--auto-connect";
+const CHROME_DEVTOOLS_STRUCTURED_CONTENT_ARG =
+  "--experimentalStructuredContent";
 
 /**
  * Required Node version range for chrome-devtools-mcp.
@@ -121,7 +123,9 @@ export async function createChromeDevToolsMcpCommand(
   const { envPath } = await getNodeEnvironment(options.nodePath);
   const connectionArgs = resolveChromeDevToolsConnectionArgs(options);
   const entrypoint = await resolveResource(CHROME_DEVTOOLS_MCP_RESOURCE);
-  return createSystemCommand(SYSTEM_NODE_ALIAS, [entrypoint, ...connectionArgs], {
-    PATH: envPath,
-  });
+  return createSystemCommand(
+    SYSTEM_NODE_ALIAS,
+    [entrypoint, CHROME_DEVTOOLS_STRUCTURED_CONTENT_ARG, ...connectionArgs],
+    { PATH: envPath },
+  );
 }

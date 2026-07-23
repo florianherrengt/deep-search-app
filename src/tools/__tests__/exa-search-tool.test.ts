@@ -19,12 +19,9 @@ describe("createExaSearchTool", () => {
 
   it("surfaces HTTP errors instead of returning empty results", async () => {
     const tool = createExaSearchTool("test-key") as unknown as ExecutableTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-      statusText: "Unauthorized",
-      text: async () => "",
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response("", { status: 401, statusText: "Unauthorized" }),
+    );
 
     await expect(tool.execute({ query: "test" })).rejects.toThrow(
       "Exa search failed with HTTP 401",
@@ -33,12 +30,12 @@ describe("createExaSearchTool", () => {
 
   it("surfaces 500 errors", async () => {
     const tool = createExaSearchTool("test-key") as unknown as ExecutableTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      statusText: "Internal Server Error",
-      text: async () => "upstream timeout",
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response("upstream timeout", {
+        status: 500,
+        statusText: "Internal Server Error",
+      }),
+    );
 
     await expect(tool.execute({ query: "test" })).rejects.toThrow(
       "Exa search failed with HTTP 500",
@@ -47,10 +44,8 @@ describe("createExaSearchTool", () => {
 
   it("returns formatted results for successful responses", async () => {
     const tool = createExaSearchTool("test-key") as unknown as ExecutableTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () =>
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(
         JSON.stringify({
           results: [
             {
@@ -60,7 +55,9 @@ describe("createExaSearchTool", () => {
             },
           ],
         }),
-    });
+        { status: 200 },
+      ),
+    );
 
     const result = await tool.execute({ query: "test" });
     expect(result).toContain("Exa Result");
@@ -69,11 +66,9 @@ describe("createExaSearchTool", () => {
 
   it("returns 'No results found.' for empty results", async () => {
     const tool = createExaSearchTool("test-key") as unknown as ExecutableTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ results: [] }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: [] }), { status: 200 }),
+    );
 
     await expect(tool.execute({ query: "test" })).resolves.toBe(
       "No results found.",

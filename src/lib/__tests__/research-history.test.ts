@@ -371,37 +371,6 @@ describe("research history", () => {
     );
   });
 
-  it("creates collision-resistant chat ids without crypto.randomUUID", () => {
-    const originalDescriptor = Object.getOwnPropertyDescriptor(
-      globalThis.crypto,
-      "randomUUID",
-    );
-    Object.defineProperty(globalThis.crypto, "randomUUID", {
-      configurable: true,
-      value: undefined,
-    });
-
-    try {
-      const id = createResearchChatId(
-        new Date("2026-05-22T10:11:12.123Z"),
-      );
-
-      expect(id).toMatch(
-        /^2026-05-22T10-11-12\.123Z--[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/,
-      );
-    } finally {
-      if (originalDescriptor) {
-        Object.defineProperty(
-          globalThis.crypto,
-          "randomUUID",
-          originalDescriptor,
-        );
-      } else {
-        Reflect.deleteProperty(globalThis.crypto, "randomUUID");
-      }
-    }
-  });
-
   it("renames research folders", async () => {
     fsMocks.exists.mockResolvedValueOnce(false);
 

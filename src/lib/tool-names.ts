@@ -2,6 +2,7 @@ import { TOOL_NAMES as CORE_TOOL_NAMES } from "deep-search-core/research-orchest
 
 export const TOOL_NAMES = {
   ...CORE_TOOL_NAMES,
+  google_search: "google_search",
   create_file: "create_file",
   read_file: "read_file",
   update_file: "update_file",

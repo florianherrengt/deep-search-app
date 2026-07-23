@@ -1,11 +1,11 @@
 import { isAbortError } from "@/lib/abort";
 import {
   ChatHistorySearchIndex,
-  CHAT_HISTORY_EMBEDDING_DIMENSIONS,
   type ChatHistorySearchOptions,
   type ChatHistorySearchRecord,
   type ChatHistorySearchResult,
 } from "@/lib/chat-history-search-index";
+import { isValidEmbedding } from "@/lib/chat-history-embedding-schema";
 
 const EMBEDDING_BATCH_SIZE = 16;
 
@@ -262,14 +262,6 @@ function validateEmbeddingBatch(embeddings: number[][], expectedLength: number) 
   ) {
     throw new Error("Embedding worker returned an invalid vector batch.");
   }
-}
-
-function isValidEmbedding(value: number[] | undefined): value is number[] {
-  return (
-    Array.isArray(value) &&
-    value.length === CHAT_HISTORY_EMBEDDING_DIMENSIONS &&
-    value.every(Number.isFinite)
-  );
 }
 
 function fingerprint(value: string) {

@@ -169,6 +169,15 @@ describe("tool call requirements", () => {
     expect(activeTools).toContain("extract_page_content");
   });
 
+  it("shows extract_page_content after google_search was called", () => {
+    const activeTools = getActiveToolNamesForMessages(fakeToolsWithExtract(), [
+      userMessage("Research the market"),
+      assistantToolCallMessage("google_search"),
+    ]);
+
+    expect(activeTools).toContain("extract_page_content");
+  });
+
   it("shows extract_page_content after youtube_search was called", () => {
     const activeTools = getActiveToolNamesForMessages(fakeToolsWithExtract(), [
       userMessage("Research the market"),
@@ -286,6 +295,7 @@ describe("tool call requirements", () => {
         "serper_search",
         "tavily_search",
         "searxng_search",
+        "google_search",
         "youtube_search",
       ],
       missingAnyOfTools: [
@@ -295,6 +305,7 @@ describe("tool call requirements", () => {
         "serper_search",
         "tavily_search",
         "searxng_search",
+        "google_search",
         "youtube_search",
       ],
       instruction:
@@ -306,6 +317,7 @@ describe("tool call requirements", () => {
     expect(message).toContain("`aggregate_search`");
     expect(message).toContain("`brave_search`");
     expect(message).toContain("`exa_search`");
+    expect(message).toContain("`google_search`");
     expect(message).toContain("`youtube_search`");
     expect(message).toMatch(/^\S/);
   });

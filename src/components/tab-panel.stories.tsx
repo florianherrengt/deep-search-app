@@ -84,6 +84,16 @@ export const BrowserTabActive: Story = {
   },
 };
 
+export const HumanVerificationRequired: Story = {
+  args: {
+    tabs: browserTabs.map((tab, index) => ({
+      ...tab,
+      needsAttention: index === 0,
+    })),
+    activeTabId: "main",
+  },
+};
+
 export const NoBrowserTabs: Story = {
   args: {
     tabs: [],

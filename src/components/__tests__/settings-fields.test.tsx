@@ -1,6 +1,28 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, fireEvent, act } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+const tauriRuntime = vi.hoisted(() => ({ enabled: false }));
+
+vi.mock("@/lib/tauri-bridge", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/tauri-bridge")>(
+    "@/lib/tauri-bridge",
+  );
+  return {
+    ...actual,
+    isTauri: () => tauriRuntime.enabled,
+    resolveNodePath: vi.fn(async () => ({
+      path: "/usr/local/bin/node",
+      dir: "/usr/local/bin",
+      version: "v22.12.0",
+      envPath: "/usr/local/bin:/usr/bin",
+    })),
+  };
+});
+
+beforeEach(() => {
+  tauriRuntime.enabled = false;
+});
 
 afterEach(() => {
   cleanup();
@@ -129,6 +151,28 @@ describe("SettingsFields", () => {
     renderSettingsFields();
 
     expect(screen.getByLabelText("YouTube Data API Key")).toBeTruthy();
+  });
+
+  it("explains that the selected browser powers direct Google search", () => {
+    tauriRuntime.enabled = true;
+    renderSettingsFields({
+      settings: { chrome_devtools_mcp_enabled: true },
+    });
+
+    expect(
+      screen.getByText(/selected browser powers direct Google search/i),
+    ).toBeTruthy();
+  });
+
+  it("states that browser-backed Google search requires the desktop app outside Tauri", () => {
+    renderSettingsFields();
+
+    expect(
+      screen.getByText(/browser-backed Google search is available in the desktop app/i),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/built-in Tauri webview powers direct Google search/i),
+    ).toBeNull();
   });
 
   it("renders the Deep Search MCP setup section", () => {

@@ -39,6 +39,11 @@
   flex-shrink: 0;
 }
 
+.browserTabGroup[data-needs-attention="true"] {
+  background: var(--mantine-color-orange-light);
+  border-radius: var(--mantine-radius-sm);
+}
+
 .browserTab {
   position: relative;
   max-width: 11rem;
@@ -49,6 +54,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.verificationIndicator {
+  display: inline-flex;
+  align-items: center;
+  color: var(--mantine-color-orange-filled);
 }
 
 .tabDivider {

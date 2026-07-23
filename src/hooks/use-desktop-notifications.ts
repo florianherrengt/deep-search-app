@@ -19,13 +19,25 @@ interface SessionState {
   needsAttention: boolean;
 }
 
-interface NotificationPayload {
+interface SessionNotificationPayload {
+  kind: "session";
   sessionId: string;
   researchFolder: string;
   researchChatId: string;
 }
 
-function toExtra(payload: NotificationPayload): Record<string, unknown> {
+interface BrowserTabNotificationPayload {
+  kind: "browser-tab";
+  browserTabId: string;
+}
+
+type NotificationPayload =
+  | SessionNotificationPayload
+  | BrowserTabNotificationPayload;
+
+function toExtra(
+  payload: Omit<SessionNotificationPayload, "kind">,
+): Record<string, unknown> {
   return {
     sessionId: payload.sessionId,
     researchFolder: payload.researchFolder,
@@ -34,15 +46,26 @@ function toExtra(payload: NotificationPayload): Record<string, unknown> {
 }
 
 function fromExtra(extra: Record<string, unknown> | undefined): NotificationPayload | null {
+  if (typeof extra?.browserTabId === "string" && extra.browserTabId.trim()) {
+    return {
+      kind: "browser-tab",
+      browserTabId: extra.browserTabId,
+    };
+  }
   if (!extra?.sessionId || !extra?.researchChatId) return null;
   return {
+    kind: "session",
     sessionId: String(extra.sessionId),
     researchFolder: String(extra.researchFolder ?? ""),
     researchChatId: String(extra.researchChatId),
   };
 }
 
-async function trySendNotification(title: string, body: string, payload: NotificationPayload) {
+async function trySendNotification(
+  title: string,
+  body: string,
+  payload: Omit<SessionNotificationPayload, "kind">,
+) {
   try {
     let granted = await isPermissionGranted();
     if (!granted) {
@@ -68,21 +91,20 @@ export function useDesktopNotifications({
   switchToTab,
 }: UseDesktopNotificationsOptions) {
   const prevStates = useRef<Map<string, SessionState>>(new Map());
-  const activated = useRef(false);
   const activateSessionRef = useRef(activateSession);
   activateSessionRef.current = activateSession;
   const switchToTabRef = useRef(switchToTab);
   switchToTabRef.current = switchToTab;
 
   useEffect(() => {
-    if (activated.current) return;
-    activated.current = true;
-
-    let cancelled = false;
-    onNotificationAction((notification) => {
-      if (cancelled) return;
+    return onNotificationAction((notification) => {
       const payload = fromExtra(notification.extra);
       if (!payload) return;
+
+      if (payload.kind === "browser-tab") {
+        switchToTabRef.current(payload.browserTabId);
+        return;
+      }
 
       activateSessionRef.current({
         researchChatId: payload.researchChatId,
@@ -90,10 +112,6 @@ export function useDesktopNotifications({
       });
       switchToTabRef.current("main");
     });
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   useEffect(() => {

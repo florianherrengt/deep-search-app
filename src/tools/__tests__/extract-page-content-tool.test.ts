@@ -10,7 +10,10 @@ const mockMcpCallTool = vi.fn();
 const mockMcpGetClient = vi.fn();
 
 vi.mock("@/lib/mcp/chrome-devtools-tools", () => ({
-  getChromeDevToolsMcpClient: (...args: unknown[]) => mockMcpGetClient(...args),
+  withChromeDevToolsMcpClient: async <T>(
+    connection: unknown,
+    operation: (client: unknown) => Promise<T>,
+  ) => operation(await mockMcpGetClient(connection)),
 }));
 
 import { fetch as bridgeFetch, invoke, isTauri } from "@/lib/tauri-bridge";
@@ -47,12 +50,8 @@ const OLD_REDDIT_HTML = `
 `;
 
 function makeResponse(status: number, body: unknown, statusText = "") {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    statusText,
-    text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
-  };
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  return new Response(text, { status, statusText });
 }
 
 function youtubePlayerHtml(captionTracks: unknown[]) {
@@ -71,6 +70,43 @@ function deferred<T = void>() {
     resolve = r;
   });
   return { promise, resolve };
+}
+
+function mockSuccessfulChromeHtml(html: string) {
+  let pageOpened = false;
+  mockMcpCallTool.mockImplementation(async ({ name }: { name: string }) => {
+    if (name === "list_pages") {
+      return {
+        structuredContent: {
+          pages: pageOpened
+            ? [
+                { id: 1, url: "https://original.example/", selected: false },
+                { id: 2, url: "https://example.com/page", selected: true },
+              ]
+            : [
+                { id: 1, url: "https://original.example/", selected: true },
+              ],
+        },
+        isError: false,
+      };
+    }
+    if (name === "new_page") {
+      pageOpened = true;
+      return {
+        structuredContent: {
+          pages: [
+            { id: 1, url: "https://original.example/", selected: false },
+            { id: 2, url: "https://example.com/page", selected: true },
+          ],
+        },
+        isError: false,
+      };
+    }
+    if (name === "evaluate_script") {
+      return { content: [{ type: "text", text: html }], isError: false };
+    }
+    return { content: [], isError: false };
+  });
 }
 
 describe("extractPageContent", () => {
@@ -625,9 +661,7 @@ describe("extractPageContent with Chrome MCP backend", () => {
   });
 
   it("extracts content using Chrome MCP when backend is chrome-mcp", async () => {
-    mockMcpCallTool
-      .mockResolvedValueOnce({ content: [], isError: false })
-      .mockResolvedValueOnce({ content: [{ type: "text", text: CHROME_MCP_HTML }], isError: false });
+    mockSuccessfulChromeHtml(CHROME_MCP_HTML);
 
     const result = await extractPageContent(
       "https://example.com/page",
@@ -636,7 +670,7 @@ describe("extractPageContent with Chrome MCP backend", () => {
 
     expect(result).toContain("Extracted via Chrome");
     expect(mockMcpCallTool).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "navigate_page" }),
+      expect.objectContaining({ name: "new_page" }),
       undefined,
       expect.anything(),
     );
@@ -649,9 +683,7 @@ describe("extractPageContent with Chrome MCP backend", () => {
   });
 
   it("forces Chrome MCP when method is chrome even if backend is tauri-webview", async () => {
-    mockMcpCallTool
-      .mockResolvedValueOnce({ content: [], isError: false })
-      .mockResolvedValueOnce({ content: [{ type: "text", text: CHROME_MCP_HTML }], isError: false });
+    mockSuccessfulChromeHtml(CHROME_MCP_HTML);
 
     const result = await extractPageContent(
       "https://example.com/page",
@@ -664,7 +696,7 @@ describe("extractPageContent with Chrome MCP backend", () => {
 
     expect(result).toContain("Extracted via Chrome");
     expect(mockMcpCallTool).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "navigate_page" }),
+      expect.objectContaining({ name: "new_page" }),
       undefined,
       expect.anything(),
     );
@@ -757,9 +789,7 @@ describe("extractPageContent with Chrome MCP backend", () => {
   });
 
   it("falls back to the Tauri webview when Chrome returns empty content", async () => {
-    mockMcpCallTool
-      .mockResolvedValueOnce({ content: [], isError: false })
-      .mockResolvedValueOnce({ content: [], isError: false });
+    mockSuccessfulChromeHtml("");
 
     const result = await extractPageContent(
       "https://example.com/page",
@@ -775,12 +805,9 @@ describe("extractPageContent with Chrome MCP backend", () => {
 
   it("keeps short Chrome content when the Tauri fallback is even shorter", async () => {
     const shortChromeContent = "Useful short Chrome content. ".repeat(4);
-    mockMcpCallTool
-      .mockResolvedValueOnce({ content: [], isError: false })
-      .mockResolvedValueOnce({
-        content: [{ type: "text", text: `<html><body><p>${shortChromeContent}</p></body></html>` }],
-        isError: false,
-      });
+    mockSuccessfulChromeHtml(
+      `<html><body><p>${shortChromeContent}</p></body></html>`,
+    );
     mockInvoke.mockImplementation(async (command) => {
       if (command === "fetch_html") return null;
       if (command === "extract_content") return "<html><body>Blocked</body></html>";
@@ -803,12 +830,9 @@ describe("extractPageContent with Chrome MCP backend", () => {
   it("uses the Tauri fallback when it is better than short Chrome content", async () => {
     const shortChromeContent = "Short Chrome content.";
     const richerTauriContent = "More complete Tauri fallback content. ".repeat(10);
-    mockMcpCallTool
-      .mockResolvedValueOnce({ content: [], isError: false })
-      .mockResolvedValueOnce({
-        content: [{ type: "text", text: `<html><body><p>${shortChromeContent}</p></body></html>` }],
-        isError: false,
-      });
+    mockSuccessfulChromeHtml(
+      `<html><body><p>${shortChromeContent}</p></body></html>`,
+    );
     mockInvoke.mockImplementation(async (command) => {
       if (command === "fetch_html") return null;
       if (command === "extract_content") {
@@ -834,12 +858,41 @@ describe("extractPageContent with Chrome MCP backend", () => {
     }>();
     const controller = new AbortController();
     const chromeContent = "Chrome content after cancellation. ".repeat(10);
-    mockMcpCallTool
-      .mockResolvedValueOnce({ content: [], isError: false })
-      .mockImplementationOnce(async () => {
+    let pageOpened = false;
+    mockMcpCallTool.mockImplementation(async ({ name }: { name: string }) => {
+      if (name === "list_pages") {
+        return {
+          structuredContent: {
+            pages: pageOpened
+              ? [
+                  { id: 1, url: "https://original.example/", selected: false },
+                  { id: 2, url: "https://example.com/page", selected: true },
+                ]
+              : [
+                  { id: 1, url: "https://original.example/", selected: true },
+                ],
+          },
+          isError: false,
+        };
+      }
+      if (name === "new_page") {
+        pageOpened = true;
+        return {
+          structuredContent: {
+            pages: [
+              { id: 1, url: "https://original.example/", selected: false },
+              { id: 2, url: "https://example.com/page", selected: true },
+            ],
+          },
+          isError: false,
+        };
+      }
+      if (name === "evaluate_script") {
         evaluationStarted.resolve();
         return pendingEvaluation.promise;
-      });
+      }
+      return { content: [], isError: false };
+    });
 
     const extraction = extractPageContent(
       "https://example.com/page",
@@ -981,12 +1034,9 @@ describe("extractPageContent with Chrome MCP backend", () => {
 
   it("produces the same result shape with Chrome MCP as with webview", async () => {
     const sameContent = "Same content from either renderer. ".repeat(10);
-    mockMcpCallTool
-      .mockResolvedValueOnce({ content: [], isError: false })
-      .mockResolvedValueOnce({
-        content: [{ type: "text", text: `<html><body><p>${sameContent}</p></body></html>` }],
-        isError: false,
-      });
+    mockSuccessfulChromeHtml(
+      `<html><body><p>${sameContent}</p></body></html>`,
+    );
 
     const chromeResult = await extractPageContent(
       "https://example.com/page",
@@ -1038,12 +1088,9 @@ describe("extract_page_content via the Tools panel path (getAvailableTools)", ()
   it("runs the chrome method through the panel without crashing on options.toolCallId", async () => {
     // Reproduces: ToolsPanel calls descriptor.execute(params) -> execute(params, undefined).
     const panelChromeContent = "Panel chrome content. ".repeat(12);
-    mockMcpCallTool
-      .mockResolvedValueOnce({ content: [], isError: false })
-      .mockResolvedValueOnce({
-        content: [{ type: "text", text: `<html><body><p>${panelChromeContent}</p></body></html>` }],
-        isError: false,
-      });
+    mockSuccessfulChromeHtml(
+      `<html><body><p>${panelChromeContent}</p></body></html>`,
+    );
 
     const tools = getAvailableTools({
       researchFolder: "folder",
@@ -1062,7 +1109,7 @@ describe("extract_page_content via the Tools panel path (getAvailableTools)", ()
 
     expect(result).toContain("Panel chrome content");
     expect(mockMcpCallTool).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "navigate_page" }),
+      expect.objectContaining({ name: "new_page" }),
       undefined,
       expect.anything(),
     );

@@ -160,7 +160,7 @@ describe("createAggregateSearchTool", () => {
       }
 
       return Promise.resolve(
-        mockResponse(500, { error: "boom" }, false, "Server Error"),
+        mockResponse(500, { error: "boom" }, "Server Error"),
       );
     });
 
@@ -218,13 +218,7 @@ describe("createAggregateSearchTool", () => {
 function mockResponse(
   status: number,
   body: unknown,
-  ok = status >= 200 && status < 300,
   statusText = "",
 ) {
-  return {
-    ok,
-    status,
-    statusText,
-    text: async () => JSON.stringify(body),
-  };
+  return new Response(JSON.stringify(body), { status, statusText });
 }

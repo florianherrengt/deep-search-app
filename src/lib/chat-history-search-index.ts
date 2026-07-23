@@ -1,6 +1,6 @@
 import { create, insertMultiple, search } from "@orama/orama";
-
-export const CHAT_HISTORY_EMBEDDING_DIMENSIONS = 384;
+import { CHAT_HISTORY_EMBEDDING_DIMENSIONS } from "@/lib/chat-history-embedding-config";
+import { isValidEmbedding } from "@/lib/chat-history-embedding-schema";
 
 const BASE_SCHEMA = {
   id: "string",
@@ -259,12 +259,4 @@ function sortableTimestamp(value: string | null) {
   if (!value) return 0;
   const timestamp = Date.parse(value);
   return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function isValidEmbedding(value: number[] | undefined): value is number[] {
-  return (
-    Array.isArray(value) &&
-    value.length === CHAT_HISTORY_EMBEDDING_DIMENSIONS &&
-    value.every(Number.isFinite)
-  );
 }

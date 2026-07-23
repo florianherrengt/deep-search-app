@@ -1,9 +1,7 @@
 import { z } from "zod";
 import { loadStore } from "@/lib/tauri-bridge";
-import {
-  CHAT_HISTORY_EMBEDDING_DIMENSIONS,
-} from "@/lib/chat-history-search-index";
 import { CHAT_HISTORY_EMBEDDING_CACHE_KEY } from "@/lib/chat-history-embedding-config";
+import { EmbeddingVectorSchema } from "@/lib/chat-history-embedding-schema";
 import type { ChatHistoryEmbeddingCache } from "@/lib/chat-history-search-service";
 
 const STORE_FILENAME = "chat-history-search.json";
@@ -16,9 +14,7 @@ const StoredEmbeddingCacheSchema = z.object({
     z.string(),
     z.object({
       fingerprint: z.string(),
-      embedding: z
-        .array(z.number().finite())
-        .length(CHAT_HISTORY_EMBEDDING_DIMENSIONS),
+      embedding: EmbeddingVectorSchema,
     }),
   ),
 });

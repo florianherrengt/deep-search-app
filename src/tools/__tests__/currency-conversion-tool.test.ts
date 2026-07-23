@@ -110,10 +110,12 @@ describe("createCurrencyConversionTool", () => {
   });
 
   it("executes and converts EUR to USD via API", async () => {
-    bridgeMocks.mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ date: "2026-06-18", base: "EUR", quote: "USD", rate: 1.1 }),
-    });
+    bridgeMocks.mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ date: "2026-06-18", base: "EUR", quote: "USD", rate: 1.1 }),
+        { status: 200 },
+      ),
+    );
 
     const t = createCurrencyConversionTool("USD");
     const result = await t.execute!(
@@ -141,14 +143,18 @@ describe("createCurrencyConversionTool", () => {
 
   it("converts multiple currencies in parallel", async () => {
     bridgeMocks.mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ date: "2026-06-18", base: "GBP", quote: "USD", rate: 1.3 }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ date: "2026-06-18", base: "JPY", quote: "USD", rate: 0.007 }),
-      });
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ date: "2026-06-18", base: "GBP", quote: "USD", rate: 1.3 }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ date: "2026-06-18", base: "JPY", quote: "USD", rate: 0.007 }),
+          { status: 200 },
+        ),
+      );
 
     const t = createCurrencyConversionTool("USD");
     const result = await t.execute!(
@@ -165,10 +171,12 @@ describe("createCurrencyConversionTool", () => {
   });
 
   it("caches rates and reuses them on subsequent calls", async () => {
-    bridgeMocks.mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ date: "2026-06-18", base: "CAD", quote: "USD", rate: 0.75 }),
-    });
+    bridgeMocks.mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ date: "2026-06-18", base: "CAD", quote: "USD", rate: 0.75 }),
+        { status: 200 },
+      ),
+    );
 
     const t = createCurrencyConversionTool("USD");
 
@@ -187,11 +195,9 @@ describe("createCurrencyConversionTool", () => {
   });
 
   it("throws on API error", async () => {
-    bridgeMocks.mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      statusText: "Internal Server Error",
-    });
+    bridgeMocks.mockFetch.mockResolvedValueOnce(
+      new Response(null, { status: 500, statusText: "Internal Server Error" }),
+    );
 
     const t = createCurrencyConversionTool("USD");
     await expect(
@@ -203,10 +209,9 @@ describe("createCurrencyConversionTool", () => {
   });
 
   it("throws on invalid API response shape", async () => {
-    bridgeMocks.mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ invalid: true }),
-    });
+    bridgeMocks.mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ invalid: true }), { status: 200 }),
+    );
 
     const t = createCurrencyConversionTool("USD");
     await expect(
@@ -218,10 +223,12 @@ describe("createCurrencyConversionTool", () => {
   });
 
   it("passes abort signal to fetch", async () => {
-    bridgeMocks.mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ date: "2026-06-18", base: "NZD", quote: "USD", rate: 0.62 }),
-    });
+    bridgeMocks.mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ date: "2026-06-18", base: "NZD", quote: "USD", rate: 0.62 }),
+        { status: 200 },
+      ),
+    );
 
     const abortController = new AbortController();
     const t = createCurrencyConversionTool("USD");

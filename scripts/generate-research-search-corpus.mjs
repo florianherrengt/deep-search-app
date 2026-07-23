@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseArgs as nodeParseArgs } from "node:util";
 
 const DEFAULT_SOURCE =
   process.env.RESEARCH_SEARCH_SOURCE_DIR ?? "~/projects/researches/data";
@@ -55,70 +56,54 @@ const NO_MATCH_QUERIES = [
 ];
 
 function parseArgs(argv) {
-  const parsed = {
-    source: DEFAULT_SOURCE,
-    out: DEFAULT_OUT,
-    maxFolders: DEFAULTS.maxFolders,
-    maxFilesPerFolder: DEFAULTS.maxFilesPerFolder,
-    maxFileChars: DEFAULTS.maxFileChars,
-    maxQueries: DEFAULTS.maxQueries,
-    maxRelatedQueries: DEFAULTS.maxRelatedQueries,
-    force: false,
-    folders: null,
-  };
+  const { values } = nodeParseArgs({
+    args: argv.slice(2),
+    strict: true,
+    options: {
+      source: { type: "string" },
+      out: { type: "string" },
+      "max-folders": { type: "string" },
+      "max-files-per-folder": { type: "string" },
+      "max-file-chars": { type: "string" },
+      "max-queries": { type: "string" },
+      "max-related-queries": { type: "string" },
+      folders: { type: "string" },
+      force: { type: "boolean" },
+      help: { type: "boolean", short: "h" },
+    },
+  });
 
-  for (let i = 2; i < argv.length; i += 1) {
-    const arg = argv[i];
-    switch (arg) {
-      case "--source":
-        parsed.source = requiredArg(argv, ++i, arg);
-        break;
-      case "--out":
-        parsed.out = requiredArg(argv, ++i, arg);
-        break;
-      case "--max-folders":
-        parsed.maxFolders = positiveInt(requiredArg(argv, ++i, arg), arg);
-        break;
-      case "--max-files-per-folder":
-        parsed.maxFilesPerFolder = positiveInt(requiredArg(argv, ++i, arg), arg);
-        break;
-      case "--max-file-chars":
-        parsed.maxFileChars = positiveInt(requiredArg(argv, ++i, arg), arg);
-        break;
-      case "--max-queries":
-        parsed.maxQueries = positiveInt(requiredArg(argv, ++i, arg), arg);
-        break;
-      case "--max-related-queries":
-        parsed.maxRelatedQueries = positiveInt(requiredArg(argv, ++i, arg), arg);
-        break;
-      case "--folders":
-        parsed.folders = requiredArg(argv, ++i, arg)
+  if (values.help) {
+    usage();
+    process.exit(0);
+  }
+
+  return {
+    source: values.source ?? DEFAULT_SOURCE,
+    out: values.out ?? DEFAULT_OUT,
+    maxFolders: values["max-folders"] != null
+      ? positiveInt(values["max-folders"], "--max-folders")
+      : DEFAULTS.maxFolders,
+    maxFilesPerFolder: values["max-files-per-folder"] != null
+      ? positiveInt(values["max-files-per-folder"], "--max-files-per-folder")
+      : DEFAULTS.maxFilesPerFolder,
+    maxFileChars: values["max-file-chars"] != null
+      ? positiveInt(values["max-file-chars"], "--max-file-chars")
+      : DEFAULTS.maxFileChars,
+    maxQueries: values["max-queries"] != null
+      ? positiveInt(values["max-queries"], "--max-queries")
+      : DEFAULTS.maxQueries,
+    maxRelatedQueries: values["max-related-queries"] != null
+      ? positiveInt(values["max-related-queries"], "--max-related-queries")
+      : DEFAULTS.maxRelatedQueries,
+    folders: values.folders != null
+      ? values.folders
           .split(",")
           .map((item) => item.trim())
-          .filter(Boolean);
-        break;
-      case "--force":
-        parsed.force = true;
-        break;
-      case "--help":
-      case "-h":
-        usage();
-        process.exit(0);
-        break;
-      default:
-        throw new Error(`Unknown argument: ${arg}`);
-    }
-  }
-
-  return parsed;
-}
-
-function requiredArg(argv, index, flag) {
-  const value = argv[index];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value`);
-  }
-  return value;
+          .filter(Boolean)
+      : null,
+    force: values.force === true,
+  };
 }
 
 function positiveInt(value, flag) {

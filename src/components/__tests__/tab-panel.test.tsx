@@ -74,4 +74,36 @@ describe("TabPanel", () => {
     expect(html).not.toContain("Open sub-agents");
     expect(html).not.toContain("Close sub-agents");
   });
+
+  it("marks verification-blocked browser tabs with visible and accessible context", () => {
+    const html = renderToStaticMarkup(
+      <MantineProvider>
+        <TabPanel
+          chatPanel={<div>Chat panel</div>}
+          settingsPanel={<div>Settings panel</div>}
+          toolsPanel={<div>Tools panel</div>}
+          promptsPanel={<div>Prompts panel</div>}
+          skillsPanel={<div>Skills panel</div>}
+          tabs={[
+            {
+              id: "google-search",
+              title: "Google Search",
+              url: "https://www.google.com/search?q=test",
+              needsAttention: true,
+            },
+          ]}
+          activeTabId="main"
+          onSwitchTab={vi.fn()}
+          onCloseTab={vi.fn()}
+        />
+      </MantineProvider>,
+    );
+
+    expect(html).toContain('data-needs-attention="true"');
+    expect(html).toContain("browser-tab-verification-indicator");
+    expect(html).toContain("Human verification required");
+    expect(html).toContain(
+      'aria-label="Google Search — human verification required"',
+    );
+  });
 });

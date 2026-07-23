@@ -23,6 +23,7 @@ import { emitSubAgentEvent } from "@/lib/sub-agent-emitter";
 describe("getToolDisplayName", () => {
   it("returns display name for known tools", () => {
     expect(getToolDisplayName("brave_search")).toBe("Brave Search");
+    expect(getToolDisplayName("google_search")).toBe("Google Search");
   });
 
   it("returns the raw tool name for unknown tools", () => {

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 vi.mock("@/lib/tauri-bridge", () => ({
   fetch: vi.fn(async () => new Response("")),
+  isTauri: vi.fn(() => false),
 }));
 
 vi.mock("@/lib/research-library-events", () => ({

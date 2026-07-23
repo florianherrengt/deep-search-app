@@ -5,6 +5,7 @@ import { promises as fs } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { parseArgs as nodeParseArgs } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const LOCK_DIR_NAME = "codex-e2e.lock";
@@ -30,18 +31,28 @@ async function main() {
 }
 
 function parseCommand(args) {
-  if (args.includes("--help") || args.includes("-h")) {
+  const { values, positionals } = nodeParseArgs({
+    args,
+    allowPositionals: true,
+    strict: false,
+    options: {
+      help: { type: "boolean", short: "h" },
+    },
+  });
+
+  if (values.help) {
     printHelp();
     process.exit(0);
   }
 
-  const separatorIndex = args.indexOf("--");
-  if (separatorIndex === -1 || separatorIndex === args.length - 1) {
+  // The wrapped command must follow a literal "--" separator so that any flags
+  // it owns are passed through untouched rather than parsed here.
+  if (!args.includes("--") || positionals.length === 0) {
     printHelp();
     throw new Error("Expected a command after --.");
   }
 
-  return args.slice(separatorIndex + 1);
+  return positionals;
 }
 
 function printHelp() {

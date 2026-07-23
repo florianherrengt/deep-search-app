@@ -56,7 +56,7 @@ describe("createSearXNGSearchTool", () => {
       "http://localhost:8080",
     ) as unknown as ExecutableSearXNGTool;
     tauriMocks.fetch.mockResolvedValueOnce(
-      mockResponse(502, undefined, false, "Bad Gateway", "upstream error"),
+      mockResponse(502, undefined, "Bad Gateway", "upstream error"),
     );
 
     await expect(tool.execute({ query: "test query" })).rejects.toThrow(
@@ -89,15 +89,9 @@ describe("createSearXNGSearchTool", () => {
 function mockResponse(
   status: number,
   body?: unknown,
-  ok = true,
   statusText = "",
   textOverride?: string,
 ) {
   const textContent = textOverride ?? JSON.stringify(body);
-  return {
-    ok,
-    status,
-    statusText,
-    text: async () => textContent,
-  };
+  return new Response(textContent, { status, statusText });
 }

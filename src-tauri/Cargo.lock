@@ -713,10 +713,11 @@ dependencies = [
 
 [[package]]
 name = "deep-search-app"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 dependencies = [
  "dotenvy",
  "ipnet",
+ "mac-notification-sys",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

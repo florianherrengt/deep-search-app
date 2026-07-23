@@ -27,6 +27,7 @@ const APP_LOG_FILENAME: &str = "deep-search.log";
 const MAX_RENDERER_LOG_ENTRIES: usize = 200;
 const MAX_LOG_MESSAGE_CHARS: usize = 32_000;
 const MAX_APP_LOG_BYTES: u64 = 5 * 1024 * 1024;
+const BROWSER_TAB_NOTIFICATION_ACTION_EVENT: &str = "deep-search:browser-tab-notification-action";
 static APP_LOG_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 struct SidecarState {
@@ -60,6 +61,12 @@ struct McpBridgeInfo {
 struct McpBridgeRequestPayload {
     id: String,
     body: serde_json::Value,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserTabNotificationActionPayload {
+    browser_tab_id: String,
 }
 
 const MCP_BRIDGE_CONFIG_FILENAME: &str = "mcp-bridge.json";
@@ -112,6 +119,14 @@ fn close_tab(app: AppHandle, id: String) -> Result<(), String> {
         wv.close().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+fn get_tab_url(app: AppHandle, id: String) -> Result<String, String> {
+    let wv = app.get_webview(&id).ok_or("webview not found")?;
+    wv.url()
+        .map(|url| url.to_string())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -169,6 +184,93 @@ async fn extract_content(app: AppHandle, id: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
 
     Ok(serde_json::from_str::<String>(&result).unwrap_or(result))
+}
+
+/// Sends a browser-tab notification whose content click can recover the
+/// relevant managed WebView. macOS supports click responses through the
+/// already-bundled notification backend; other desktop platforms safely show
+/// the notification without promising a click callback.
+#[tauri::command]
+fn send_browser_tab_notification(
+    app: AppHandle,
+    title: String,
+    body: String,
+    browser_tab_id: String,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let application_id = if tauri::is_dev() {
+            "com.apple.Terminal".to_string()
+        } else {
+            app.config().identifier.clone()
+        };
+        std::thread::Builder::new()
+            .name("browser-tab-notification".to_string())
+            .spawn(move || {
+                // The notification plugin uses the same crate and may have
+                // already selected the application identity. Either identity
+                // is valid, so AlreadySet is intentionally ignored.
+                let _ = mac_notification_sys::set_application(&application_id);
+                let response = mac_notification_sys::Notification::new()
+                    .title(&title)
+                    .message(&body)
+                    .wait_for_click(true)
+                    .send();
+
+                match response {
+                    Ok(mac_notification_sys::NotificationResponse::Click) => {
+                        activate_browser_tab_notification(&app, browser_tab_id);
+                    }
+                    Ok(_) => {}
+                    Err(error) => write_native_log(
+                        &app,
+                        "warn",
+                        "notification",
+                        &format!("Browser-tab notification failed: {error}"),
+                    ),
+                }
+            })
+            .map(|_| ())
+            .map_err(|error| format!("Failed to start notification worker: {error}"))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri_plugin_notification::NotificationExt;
+
+        let _ = browser_tab_id;
+        app.notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show()
+            .map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn activate_browser_tab_notification(app: &AppHandle, browser_tab_id: String) {
+    let callback_app = app.clone();
+    let log_app = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        if let Some(window) = callback_app.get_window("main") {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+        let _ = callback_app.emit_to(
+            "main",
+            BROWSER_TAB_NOTIFICATION_ACTION_EVENT,
+            BrowserTabNotificationActionPayload { browser_tab_id },
+        );
+    }) {
+        write_native_log(
+            &log_app,
+            "warn",
+            "notification",
+            &format!("Failed to activate browser notification target: {error}"),
+        );
+    }
 }
 
 #[tauri::command]
@@ -1768,7 +1870,9 @@ pub fn run() {
             open_tab,
             switch_tab,
             close_tab,
+            get_tab_url,
             extract_content,
+            send_browser_tab_notification,
             fetch_html,
             download_youtube_subtitles_with_ytdlp,
             append_app_log,
@@ -1827,6 +1931,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browser_tab_notification_payload_uses_frontend_field_name() {
+        let value = serde_json::to_value(BrowserTabNotificationActionPayload {
+            browser_tab_id: "tab-7".to_string(),
+        })
+        .unwrap();
+
+        assert_eq!(value, serde_json::json!({ "browserTabId": "tab-7" }));
+    }
 
     #[test]
     fn webview_url_validation_rejects_non_https_urls() {

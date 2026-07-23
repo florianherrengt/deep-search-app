@@ -342,6 +342,13 @@ let notificationClickHandler:
   | ((notification: { extra?: Record<string, unknown> }) => void)
   | null = null;
 
+const BROWSER_TAB_NOTIFICATION_ACTION_EVENT =
+  "deep-search:browser-tab-notification-action";
+
+interface BrowserTabNotificationActionPayload {
+  browserTabId: string;
+}
+
 export function sendNotification(options: {
   title: string;
   body: string;
@@ -350,6 +357,26 @@ export function sendNotification(options: {
   const mock = getBridgeMock("sendNotification");
   if (mock) {
     mock(options);
+    return;
+  }
+
+  if (isTauri()) {
+    const browserTabId = options.extra?.browserTabId;
+    if (typeof browserTabId === "string" && browserTabId.trim()) {
+      // macOS returns content clicks through this command. Other desktop
+      // platforms intentionally use its display-only fallback.
+      void invoke("send_browser_tab_notification", {
+        title: options.title,
+        body: options.body,
+        browserTabId,
+      }).catch(() => undefined);
+    } else {
+      void import("@tauri-apps/plugin-notification")
+        .then(({ sendNotification: sendNativeNotification }) => {
+          sendNativeNotification(options);
+        })
+        .catch(() => undefined);
+    }
     return;
   }
 
@@ -372,10 +399,33 @@ export function sendNotification(options: {
 export function onNotificationAction(
   callback: (notification: { extra?: Record<string, unknown> }) => void,
 ): () => void {
-  notificationClickHandler = callback;
+  const runningInTauri = isTauri();
+  if (!runningInTauri) notificationClickHandler = callback;
+  let disposed = false;
+  const nativeListener = runningInTauri
+    ? import("@tauri-apps/api/event")
+        .then(({ listen }) =>
+          listen<BrowserTabNotificationActionPayload>(
+            BROWSER_TAB_NOTIFICATION_ACTION_EVENT,
+            ({ payload }) => {
+              callback({ extra: { browserTabId: payload.browserTabId } });
+            },
+          ),
+        )
+        .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return null;
+          }
+          return unlisten;
+        })
+        .catch(() => null)
+    : null;
 
   return () => {
-    notificationClickHandler = null;
+    disposed = true;
+    if (!runningInTauri) notificationClickHandler = null;
+    void nativeListener?.then((unlisten) => unlisten?.());
   };
 }
 

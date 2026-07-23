@@ -11,6 +11,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   serper_search: "Serper Search",
   tavily_search: "Tavily Search",
   searxng_search: "SearXNG Search",
+  google_search: "Google Search",
   extract_page_content: "Content Extraction",
   create_file: "Create File",
   read_file: "Read File",

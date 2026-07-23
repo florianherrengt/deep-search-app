@@ -36,6 +36,7 @@ vi.mock("@/lib/tauri-bridge", () => ({
   ...fsMocks,
   invoke: tauriMocks.invoke,
   fetch: vi.fn(),
+  isTauri: vi.fn(() => false),
   BaseDirectory: {
     AppData: "AppData",
   },

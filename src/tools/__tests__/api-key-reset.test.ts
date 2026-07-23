@@ -23,6 +23,9 @@ describe("search tool availability from config", () => {
       const t = tools.find((t) => t.name === name);
       expect(t?.available ?? false).toBe(false);
     }
+    expect(
+      tools.find((tool) => tool.name === "google_search")?.available,
+    ).toBe(false);
   });
 
   it("brave_search available when brave key provided", () => {

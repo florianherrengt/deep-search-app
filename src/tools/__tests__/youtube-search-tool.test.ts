@@ -55,13 +55,7 @@ describe("youtube_search", () => {
 function mockResponse(
   status: number,
   body: unknown,
-  ok = status >= 200 && status < 300,
   statusText = "",
 ) {
-  return {
-    ok,
-    status,
-    statusText,
-    text: async () => JSON.stringify(body),
-  };
+  return new Response(JSON.stringify(body), { status, statusText });
 }

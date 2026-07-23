@@ -2,6 +2,7 @@ import http from "node:http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs as nodeParseArgs } from "node:util";
 import { chromium } from "playwright";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
@@ -79,67 +80,61 @@ async function main() {
 }
 
 function parseArgs(args) {
+  // npm forwards flags after a bare "--" (e.g. `npm run test:visual:update -- --update`).
+  // util.parseArgs treats "--" as a positional separator, so strip bare "--" tokens
+  // first to keep parsing the trailing flags as options (matches the prior behavior).
   const filtered = args.filter((a) => a !== "--");
-  const options = { ...defaultOptions };
+  const { values } = nodeParseArgs({
+    args: filtered,
+    strict: true,
+    options: {
+      help: { type: "boolean", short: "h" },
+      url: { type: "string" },
+      "static-dir": { type: "string" },
+      "baseline-dir": { type: "string" },
+      "diff-dir": { type: "string" },
+      match: { type: "string" },
+      limit: { type: "string" },
+      viewport: { type: "string" },
+      "color-scheme": { type: "string" },
+      threshold: { type: "string" },
+      delay: { type: "string" },
+      update: { type: "boolean" },
+      list: { type: "boolean" },
+    },
+  });
 
-  for (let i = 0; i < filtered.length; i += 1) {
-    const arg = filtered[i];
+  const options = {
+    ...defaultOptions,
+    help: values.help === true,
+    update: values.update === true,
+    list: values.list === true,
+  };
 
-    switch (arg) {
-      case "--help":
-      case "-h":
-        options.help = true;
-        break;
-      case "--url":
-        options.url = normalizeBaseUrl(readValue(filtered, ++i, arg));
-        break;
-      case "--static-dir":
-        options.staticDir = path.resolve(rootDir, readValue(filtered, ++i, arg));
-        break;
-      case "--baseline-dir":
-        options.baselineDir = path.resolve(rootDir, readValue(filtered, ++i, arg));
-        break;
-      case "--diff-dir":
-        options.diffDir = path.resolve(rootDir, readValue(filtered, ++i, arg));
-        break;
-      case "--match":
-        options.match = readValue(filtered, ++i, arg);
-        break;
-      case "--limit":
-        options.limit = parsePositiveInteger(readValue(filtered, ++i, arg), arg);
-        break;
-      case "--viewport":
-        options.viewport = parseViewport(readValue(filtered, ++i, arg));
-        break;
-      case "--color-scheme":
-        options.colorScheme = parseColorScheme(readValue(filtered, ++i, arg));
-        break;
-      case "--threshold":
-        options.threshold = Number(readValue(filtered, ++i, arg));
-        break;
-      case "--delay":
-        options.delay = parseNonNegativeInteger(readValue(filtered, ++i, arg), arg);
-        break;
-      case "--update":
-        options.update = true;
-        break;
-      case "--list":
-        options.list = true;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
-    }
+  if (values.url != null) options.url = normalizeBaseUrl(values.url);
+  if (values["static-dir"] != null) {
+    options.staticDir = path.resolve(rootDir, values["static-dir"]);
+  }
+  if (values["baseline-dir"] != null) {
+    options.baselineDir = path.resolve(rootDir, values["baseline-dir"]);
+  }
+  if (values["diff-dir"] != null) {
+    options.diffDir = path.resolve(rootDir, values["diff-dir"]);
+  }
+  if (values.match != null) options.match = values.match;
+  if (values.limit != null) {
+    options.limit = parsePositiveInteger(values.limit, "--limit");
+  }
+  if (values.viewport != null) options.viewport = parseViewport(values.viewport);
+  if (values["color-scheme"] != null) {
+    options.colorScheme = parseColorScheme(values["color-scheme"]);
+  }
+  if (values.threshold != null) options.threshold = Number(values.threshold);
+  if (values.delay != null) {
+    options.delay = parseNonNegativeInteger(values.delay, "--delay");
   }
 
   return options;
-}
-
-function readValue(args, index, flag) {
-  const value = args[index];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.`);
-  }
-  return value;
 }
 
 function normalizeBaseUrl(value) {

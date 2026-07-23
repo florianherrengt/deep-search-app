@@ -2,6 +2,7 @@ import http from "node:http";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs as nodeParseArgs } from "node:util";
 import { chromium } from "playwright";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -72,67 +73,55 @@ async function main() {
 }
 
 function parseArgs(args) {
-  const options = { ...defaultOptions };
+  const { values } = nodeParseArgs({
+    args,
+    strict: true,
+    options: {
+      help: { type: "boolean", short: "h" },
+      url: { type: "string" },
+      "static-dir": { type: "string" },
+      out: { type: "string" },
+      match: { type: "string" },
+      stories: { type: "string" },
+      limit: { type: "string" },
+      format: { type: "string" },
+      quality: { type: "string" },
+      viewport: { type: "string" },
+      delay: { type: "string" },
+      "full-page": { type: "boolean" },
+      "color-scheme": { type: "string" },
+      list: { type: "boolean" },
+    },
+  });
 
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
+  const match = values.match ?? values.stories;
+  const options = {
+    ...defaultOptions,
+    help: values.help === true,
+    list: values.list === true,
+    fullPage: values["full-page"] === true,
+  };
 
-    switch (arg) {
-      case "--help":
-      case "-h":
-        options.help = true;
-        break;
-      case "--url":
-        options.url = normalizeBaseUrl(readValue(args, ++i, arg));
-        break;
-      case "--static-dir":
-        options.staticDir = path.resolve(rootDir, readValue(args, ++i, arg));
-        break;
-      case "--out":
-        options.outDir = path.resolve(rootDir, readValue(args, ++i, arg));
-        break;
-      case "--match":
-      case "--stories":
-        options.match = readValue(args, ++i, arg);
-        break;
-      case "--limit":
-        options.limit = parsePositiveInteger(readValue(args, ++i, arg), arg);
-        break;
-      case "--format":
-        options.format = parseFormat(readValue(args, ++i, arg));
-        break;
-      case "--quality":
-        options.quality = parseQuality(readValue(args, ++i, arg));
-        break;
-      case "--viewport":
-        options.viewport = parseViewport(readValue(args, ++i, arg));
-        break;
-      case "--delay":
-        options.delay = parseNonNegativeInteger(readValue(args, ++i, arg), arg);
-        break;
-      case "--full-page":
-        options.fullPage = true;
-        break;
-      case "--color-scheme":
-        options.colorScheme = parseColorScheme(readValue(args, ++i, arg));
-        break;
-      case "--list":
-        options.list = true;
-        break;
-      default:
-        throw new Error(`Unknown option: ${arg}`);
-    }
+  if (values.url != null) options.url = normalizeBaseUrl(values.url);
+  if (values["static-dir"] != null) {
+    options.staticDir = path.resolve(rootDir, values["static-dir"]);
+  }
+  if (values.out != null) options.outDir = path.resolve(rootDir, values.out);
+  if (match != null) options.match = match;
+  if (values.limit != null) {
+    options.limit = parsePositiveInteger(values.limit, "--limit");
+  }
+  if (values.format != null) options.format = parseFormat(values.format);
+  if (values.quality != null) options.quality = parseQuality(values.quality);
+  if (values.viewport != null) options.viewport = parseViewport(values.viewport);
+  if (values.delay != null) {
+    options.delay = parseNonNegativeInteger(values.delay, "--delay");
+  }
+  if (values["color-scheme"] != null) {
+    options.colorScheme = parseColorScheme(values["color-scheme"]);
   }
 
   return options;
-}
-
-function readValue(args, index, flag) {
-  const value = args[index];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value.`);
-  }
-  return value;
 }
 
 function normalizeBaseUrl(value) {

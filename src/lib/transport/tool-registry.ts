@@ -7,7 +7,7 @@ import {
   createResearchCheckpointTool,
   type SearchKeys as PkgSearchKeys,
 } from "deep-search-core/research-orchestrator";
-import { fetch as bridgeFetch } from "@/lib/tauri-bridge";
+import { fetch as bridgeFetch, isTauri } from "@/lib/tauri-bridge";
 import { createExtractPageContentTool } from "@/tools/extract-page-content-tool";
 import { createCreateFileTool, createReadFileTool, createUpdateFileTool, createMoveFileTool, createDeleteFileTool, createListFilesTool } from "@/tools/file-tools";
 import { createLoadSkillTool } from "@/tools/load-skill-tool";
@@ -15,6 +15,7 @@ import { createSearchResearchTool } from "@/tools/search-research-tool";
 import { createAggregateSearchTool } from "@/tools/aggregate-search-tool";
 import { createSwitchResearchFolderTool } from "@/tools/switch-research-folder-tool";
 import { createCurrencyConversionTool } from "@/tools/currency-conversion-tool";
+import { createConfiguredGoogleSearchTool } from "@/tools/google-search-tool";
 import {
   createFactsCheckTool,
   createResearchPlanTool,
@@ -79,6 +80,7 @@ function addSourceCoverageDescriptions(searchTools: ToolSet): void {
     TOOL_NAMES.serper_search,
     TOOL_NAMES.tavily_search,
     TOOL_NAMES.searxng_search,
+    TOOL_NAMES.google_search,
   ]) {
     const searchTool = appendToolDescription(
       searchTools[toolName],
@@ -137,6 +139,11 @@ export async function createTools({
 
   const searchTools = asAppToolSet(createSearchTools(pkgSearchKeys, bridgeFetch));
   delete searchTools.aggregate_search;
+  if (isTauri()) {
+    searchTools[TOOL_NAMES.google_search] = asAppTool(
+      createConfiguredGoogleSearchTool(model, searchKeys, { emitEvent }),
+    );
+  }
   addSourceCoverageDescriptions(searchTools);
   const aggregateSearchTool = appendToolDescription(
     createAggregateSearchTool(pkgSearchKeys),

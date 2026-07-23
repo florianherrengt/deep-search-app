@@ -23,25 +23,26 @@ describe("createSerperSearchTool", () => {
     const tool = createSerperSearchTool(
       " serper-test-key ",
     ) as unknown as ExecutableSerperTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({
-        organic: [
-          {
-            title: "Coastal camping review",
-            link: "https://example.com/review",
-            snippet: "A long-form review of a coastal kayak camping trip.",
-            position: 1,
-          },
-          {
-            title: "Snippetless result",
-            link: "https://example.com/snippetless",
-            position: 2,
-          },
-        ],
-      }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          organic: [
+            {
+              title: "Coastal camping review",
+              link: "https://example.com/review",
+              snippet: "A long-form review of a coastal kayak camping trip.",
+              position: 1,
+            },
+            {
+              title: "Snippetless result",
+              link: "https://example.com/snippetless",
+              position: 2,
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
 
     await expect(
       tool.execute({
@@ -67,12 +68,12 @@ describe("createSerperSearchTool", () => {
     const tool = createSerperSearchTool(
       "serper-test-key",
     ) as unknown as ExecutableSerperTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: false,
-      status: 403,
-      statusText: "Forbidden",
-      text: async () => JSON.stringify({ message: "Invalid API key" }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "Invalid API key" }), {
+        status: 403,
+        statusText: "Forbidden",
+      }),
+    );
 
     await expect(tool.execute({ query: "coastal camping" })).rejects.toThrow(
       "Serper search failed with HTTP 403",
@@ -83,11 +84,9 @@ describe("createSerperSearchTool", () => {
     const tool = createSerperSearchTool(
       "serper-test-key",
     ) as unknown as ExecutableSerperTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ organic: [] }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ organic: [] }), { status: 200 }),
+    );
 
     await expect(tool.execute({ query: "coastal camping" })).resolves.toBe(
       "No results found.",
@@ -98,18 +97,19 @@ describe("createSerperSearchTool", () => {
     const tool = createSerperSearchTool(
       "serper-test-key",
     ) as unknown as ExecutableSerperTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({
-        organic: [
-          {
-            title: "No snippet here",
-            link: "https://example.com/no-snippet",
-          },
-        ],
-      }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          organic: [
+            {
+              title: "No snippet here",
+              link: "https://example.com/no-snippet",
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
 
     await expect(tool.execute({ query: "test" })).resolves.toBe(
       "No snippet here: https://example.com/no-snippet\n",
@@ -120,11 +120,9 @@ describe("createSerperSearchTool", () => {
     const tool = createSerperSearchTool(
       "serper-test-key",
     ) as unknown as ExecutableSerperTool;
-    tauriMocks.fetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () => JSON.stringify({ organic: "not an array" }),
-    });
+    tauriMocks.fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ organic: "not an array" }), { status: 200 }),
+    );
 
     await expect(tool.execute({ query: "coastal camping" })).rejects.toThrow(
       "Serper search response did not match the expected format:",

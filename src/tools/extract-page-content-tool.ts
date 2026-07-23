@@ -7,17 +7,13 @@ import {
 } from "@/lib/sub-agent-emitter";
 import { createSubAgentId } from "@/lib/sub-agent-types";
 import {
-  abortableDelay,
   abortablePromise,
   isAbortError,
   throwIfAborted,
 } from "@/lib/abort";
 import { writeAppFile } from "@/lib/app-file-storage";
-import {
-  emitBrowserTabClosed,
-  emitBrowserTabOpened,
-} from "@/lib/browser-tab-events";
-import { tryParseJson } from "@/lib/json";
+import { renderWithManagedWebview } from "@/lib/managed-webview";
+import type { HumanVerificationDetection } from "@/lib/human-verification";
 import slugify from "slugify";
 import { validateUrl, UrlValidationError } from "@/lib/url-validation";
 // Type-only imports for `deep-search-core/search-extract/core` — the runtime
@@ -39,9 +35,6 @@ function loadCore(): Promise<CoreModule> {
   if (!corePromise) corePromise = import("deep-search-core/search-extract");
   return corePromise;
 }
-
-const DEFAULT_WEBVIEW_RETRY_INTERVAL_MS = 5_000;
-const DEFAULT_WEBVIEW_MAX_WAIT_MS = 5 * 60_000;
 
 type ExtractionMethod = "auto" | "fetch" | "webview" | "chrome" | "scrape.do";
 
@@ -72,9 +65,6 @@ type RawContentLocation = {
   rawPath: string;
   page: string;
 };
-
-let webviewExtractionQueue: Promise<void> = Promise.resolve();
-let nextWebviewTabId = 0;
 
 function createPageExtractors(
   core: CoreModule,
@@ -196,6 +186,7 @@ export function createExtractionPageLoader({
   chromeMcp,
   scrapeDoApiKey,
   method = "auto",
+  onHumanVerification,
 }: {
   chromeMcp?: {
     enabled: boolean;
@@ -206,6 +197,9 @@ export function createExtractionPageLoader({
   };
   scrapeDoApiKey?: string | null;
   method?: ExtractionMethod;
+  onHumanVerification?: (
+    detection: HumanVerificationDetection,
+  ) => void | Promise<void>;
 } = {}): PageLoader {
   const backend = chromeMcp?.backend ?? "tauri-webview";
   const forceChrome = method === "chrome";
@@ -217,13 +211,18 @@ export function createExtractionPageLoader({
   const scrapeDoToken = scrapeDoApiKey?.trim() ?? "";
   const useScrapeDo = (method === "auto" || method === "scrape.do") && scrapeDoToken.length > 0;
 
-  const tauriPageLoader = createAppPageLoader({ fetchHtml, extractViaWebview });
+  const tauriPageLoader = createAppPageLoader({
+    fetchHtml,
+    extractViaWebview: (url, _options, signal) =>
+      extractViaWebview(url, signal, onHumanVerification),
+  });
   const basePageLoader = shouldUseChromeMcp
     ? withRenderFallback(
         createChromeMcpPageLoader({
           connectionMode: chromeMcp!.connectionMode,
           browserUrl: chromeMcp!.browserUrl,
           nodePath: chromeMcp!.nodePath,
+          onHumanVerification,
         }),
         tauriPageLoader,
         "Chrome MCP rendering",
@@ -233,29 +232,6 @@ export function createExtractionPageLoader({
   return useScrapeDo
     ? withScrapeDoFallback(basePageLoader, scrapeDoToken)
     : basePageLoader;
-}
-
-function createWebviewTabId(): string {
-  nextWebviewTabId += 1;
-  return `tab-${Date.now()}-${nextWebviewTabId}`;
-}
-
-async function runExclusiveWebviewExtraction<T>(
-  task: () => Promise<T>,
-): Promise<T> {
-  const previous = webviewExtractionQueue;
-  let release!: () => void;
-  webviewExtractionQueue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-
-  await previous.catch(() => undefined);
-
-  try {
-    return await task();
-  } finally {
-    release();
-  }
 }
 
 function domainFromUrl(url: string): string {
@@ -290,59 +266,6 @@ function rawContentLocation(
     rawPath: `search-results/${researchFolder}/raw/${domain}`,
     page,
   };
-}
-
-function waitForBrowserPaint(): Promise<void> {
-  if (
-    typeof window === "undefined" ||
-    typeof window.requestAnimationFrame !== "function"
-  ) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      resolve();
-    };
-
-    window.requestAnimationFrame(finish);
-    window.setTimeout(finish, 100);
-  });
-}
-
-async function openWebviewTab(
-  id: string,
-  url: string,
-  abortSignal?: AbortSignal,
-) {
-  await abortablePromise(invoke("open_tab", { url, id }), abortSignal);
-}
-
-async function switchWebviewTab(
-  id: string,
-  abortSignal?: AbortSignal,
-) {
-  await abortablePromise(
-    invoke("switch_tab", { id }).catch(() => undefined),
-    abortSignal,
-  );
-}
-
-async function extractWebviewContent(
-  id: string,
-  abortSignal?: AbortSignal,
-): Promise<string> {
-  return abortablePromise(
-    invoke<string>("extract_content", { id }),
-    abortSignal,
-  );
-}
-
-async function closeWebviewTab(id: string) {
-  await invoke("close_tab", { id }).catch(() => undefined);
 }
 
 export async function fetchHtml(
@@ -385,24 +308,6 @@ async function summarizeContent(
   return result.text;
 }
 
-function normalizeWebviewHtml(html: string): string {
-  const trimmed = html.trim();
-  if (!trimmed.startsWith('"') && !trimmed.startsWith("{")) return html;
-
-  const parsed = tryParseJson(trimmed);
-  if (typeof parsed === "string") return parsed;
-  if (
-    parsed &&
-    typeof parsed === "object" &&
-    "value" in parsed &&
-    typeof parsed.value === "string"
-  ) {
-    return parsed.value;
-  }
-
-  return html;
-}
-
 function getRetryOptions(core: CoreModule, url: string) {
   const isReddit = /\.?reddit\.com\//.test(url);
   const isAmazon = /\.?amazon\./.test(url) && /\/dp\//i.test(url);
@@ -426,62 +331,16 @@ function getRetryOptions(core: CoreModule, url: string) {
 
 async function extractViaWebview(
   url: string,
-  _options?: unknown,
   abortSignal?: AbortSignal,
+  onHumanVerification?: (
+    detection: HumanVerificationDetection,
+  ) => void | Promise<void>,
 ): Promise<string | null> {
-  validateUrl(url);
-  throwIfAborted(abortSignal);
   const core = await loadCore();
-
-  return runExclusiveWebviewExtraction(async () => {
-    const id = createWebviewTabId();
-    let tabAnnounced = false;
-    try {
-      emitBrowserTabOpened({
-        id,
-        url,
-        title: domainFromUrl(url),
-        activate: true,
-      });
-      tabAnnounced = true;
-
-      await abortablePromise(waitForBrowserPaint(), abortSignal);
-      await openWebviewTab(id, url, abortSignal);
-      await switchWebviewTab(id, abortSignal);
-      const startedAt = Date.now();
-
-      const retryOptions = getRetryOptions(core, url);
-
-      while (true) {
-        throwIfAborted(abortSignal);
-        const rawHtml = await extractWebviewContent(id, abortSignal);
-        const html = normalizeWebviewHtml(rawHtml);
-        const shouldRetry = retryOptions?.shouldRetry?.(html) ?? false;
-
-        if (!shouldRetry) return html;
-
-        const maxWaitMs = retryOptions?.maxWaitMs ?? DEFAULT_WEBVIEW_MAX_WAIT_MS;
-        if (Date.now() - startedAt >= maxWaitMs) return html;
-
-        await abortableDelay(
-          retryOptions?.retryIntervalMs ?? DEFAULT_WEBVIEW_RETRY_INTERVAL_MS,
-          abortSignal,
-        );
-      }
-    } catch (error) {
-      // Tauri invoke doesn't always translate an aborted command into an
-      // AbortError; if the signal fired, treat any failure as cancellation
-      // so the caller stops downstream work (save, summarize) immediately.
-      if (isAbortError(error) || abortSignal?.aborted) throw error;
-      console.warn(
-        `[extract] extractViaWebview failed for ${url}:`,
-        error instanceof Error ? error.message : error,
-      );
-      return null;
-    } finally {
-      await closeWebviewTab(id);
-      if (tabAnnounced) emitBrowserTabClosed({ id });
-    }
+  return renderWithManagedWebview(url, {
+    signal: abortSignal,
+    retry: getRetryOptions(core, url),
+    onHumanVerification,
   });
 }
 
@@ -591,6 +450,14 @@ export async function extractPageContent(
         chromeMcp: options.chromeMcp,
         scrapeDoApiKey: options.scrapeDoApiKey,
         method: forced,
+        onHumanVerification: (detection) => {
+          if (!saId) return;
+          emitEvent({
+            type: "text-delta",
+            id: saId,
+            delta: `${detection.message} Complete it in the browser; extraction will resume automatically.\n\n`,
+          });
+        },
       }),
       extractors: createPageExtractors(core, options.youtubeSubtitleDownload),
     },

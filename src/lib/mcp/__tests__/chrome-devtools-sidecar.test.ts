@@ -133,7 +133,11 @@ describe("createChromeDevToolsMcpCommand", () => {
     expect(mockCreateSystemCommand).toHaveBeenCalledTimes(1);
     expect(mockCreateSystemCommand).toHaveBeenCalledWith(
       SYSTEM_NODE_ALIAS,
-      ["/resolved/chrome-devtools-mcp.js", "--auto-connect"],
+      [
+        "/resolved/chrome-devtools-mcp.js",
+        "--experimentalStructuredContent",
+        "--auto-connect",
+      ],
       { PATH: resolvedNode.envPath },
     );
     expect(result).toBe("mock-command");
@@ -151,7 +155,11 @@ describe("createChromeDevToolsMcpCommand", () => {
     });
     expect(mockCreateSystemCommand).toHaveBeenCalledWith(
       SYSTEM_NODE_ALIAS,
-      ["/resolved/chrome-devtools-mcp.js", "--browser-url=http://127.0.0.1:9222"],
+      [
+        "/resolved/chrome-devtools-mcp.js",
+        "--experimentalStructuredContent",
+        "--browser-url=http://127.0.0.1:9222",
+      ],
       { PATH: resolvedNode.envPath },
     );
   });
