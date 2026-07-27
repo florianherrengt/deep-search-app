@@ -63,7 +63,7 @@
     "lucide-react": "^1.16.0",
     "onnxruntime-web": "^1.26.0-dev.20260416-b7804b056c",
     "p-queue": "^9.3.0",
-    "postcss": "^8.5.15",
+    "postcss": "^8.5.23",
     "postcss-preset-mantine": "^1.18.0",
     "postcss-simple-vars": "^7.0.1",
     "react": "^18.3.1",
