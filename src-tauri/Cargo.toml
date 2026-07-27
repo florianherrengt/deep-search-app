@@ -1,6 +1,6 @@
 [package]
 name = "deep-search-app"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.3"
 description = "Local-first desktop deep research with MCP"
 authors = ["Florian Herrengt"]
 license = "MIT"

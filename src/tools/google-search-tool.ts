@@ -98,7 +98,7 @@ export function createGoogleSearchTool(
 ) {
   return tool({
     description:
-      "Search Google directly in a managed browser, then use the configured language model to extract up to 10 organic web results. This does not require a Google Search API key.",
+      "Use this as the first general web search when available. Search Google directly in a managed browser, then use the configured language model to extract up to 10 organic web results. This does not require a Google Search API key.",
     strict: true,
     inputSchema: zodSchema(googleSearchInputSchema),
     outputSchema: zodSchema(

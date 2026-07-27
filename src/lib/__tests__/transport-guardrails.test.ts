@@ -1144,6 +1144,9 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("site:youtube.com/watch");
     expect(prompt).toContain("youtube_search");
     expect(prompt).toContain("aggregate_search is a general web-search fanout");
+    expect(prompt).toContain(
+      "google_search is available, use it for the first general web search",
+    );
   });
 
   it("adds current-request guidance for explicit Reddit and configured YouTube asks", () => {

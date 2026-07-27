@@ -151,9 +151,32 @@ test.describe("Settings panel", () => {
     await chatPage.getByRole("button", { name: "Settings" }).click();
 
     await expect(chatPage.getByText("Search Services", { exact: true })).toBeVisible();
+    await expect(
+      chatPage.getByRole("checkbox", {
+        name: /Browser-backed Google Search/i,
+      }),
+    ).toBeChecked();
     await expect(chatPage.getByRole("textbox", { name: "SearXNG URL" })).toBeVisible();
     await expect(chatPage.getByRole("textbox", { name: "Brave Search API Key" })).toBeVisible();
     await expect(chatPage.getByRole("textbox", { name: "Exa API Key" })).toBeVisible();
+  });
+
+  test("browser-backed Google search can be disabled", async ({ chatPage }) => {
+    await chatPage.getByRole("button", { name: "Settings" }).click();
+
+    const checkbox = chatPage.getByRole("checkbox", {
+      name: /Browser-backed Google Search/i,
+    });
+    await expect(checkbox).toBeChecked();
+    await checkbox.click();
+    await expect(checkbox).not.toBeChecked();
+
+    await chatPage.waitForFunction(
+      () =>
+        JSON.parse(
+          window.localStorage.getItem("deep-search-test-settings") || "{}",
+        ).google_search_enabled === false,
+    );
   });
 
   test("shows extraction settings fields", async ({ chatPage }) => {

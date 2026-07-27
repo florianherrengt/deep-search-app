@@ -73,6 +73,15 @@ export const CurrencyConversionDisabled: Story = {
   },
 };
 
+export const GoogleSearchDisabled: Story = {
+  args: {
+    settings: {
+      ...settingsDefaults,
+      google_search_enabled: false,
+    },
+  },
+};
+
 export const LongModelNames: Story = {
   args: {
     settings: {

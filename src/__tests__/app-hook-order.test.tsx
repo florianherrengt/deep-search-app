@@ -45,6 +45,7 @@ const appMocks = vi.hoisted(() => ({
     scrape_do_api_key: "",
     searxng_url: "",
     currency: "USD",
+    google_search_enabled: true,
     chrome_devtools_mcp_enabled: false,
     chrome_devtools_mcp_connection_mode: "auto",
     chrome_devtools_mcp_browser_url: "",

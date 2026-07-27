@@ -93,6 +93,9 @@ describe("RESEARCH_PLANNER_SYSTEM", () => {
     expect(RESEARCH_PLANNER_SYSTEM).toContain("site:old.reddit.com");
     expect(RESEARCH_PLANNER_SYSTEM).toContain("youtube_search");
     expect(RESEARCH_PLANNER_SYSTEM).toContain("extract transcripts");
+    expect(RESEARCH_PLANNER_SYSTEM).toContain(
+      "google_search is available, make it the first general web-search pass",
+    );
   });
 });
 

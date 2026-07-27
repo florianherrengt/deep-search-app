@@ -168,6 +168,26 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
 
       <Stack gap="sm">
         <Text size="sm" fw={500}>Search Services</Text>
+        <Checkbox
+          id={`${fieldIdPrefix}-google-search-enabled`}
+          label={
+            <Box>
+              <Text size="sm" fw={500}>Browser-backed Google Search</Text>
+              <Text size="xs" c="dimmed">
+                Use Google for the first general web search with the selected
+                managed browser and configured language model. No Google Search
+                API key is required.
+              </Text>
+            </Box>
+          }
+          checked={settings.google_search_enabled}
+          onChange={(event) => {
+            void updateSetting(
+              "google_search_enabled",
+              event.currentTarget.checked,
+            );
+          }}
+        />
         {SERVICE_FIELDS.map((field) => (
           <SettingInput
             key={field.key}
@@ -320,6 +340,10 @@ export function SettingsFields({ settings, updateSetting }: SettingsFieldsProps)
           <Text size="xs" c="dimmed">
             {!isTauri()
               ? "Browser-backed Google search is available in the desktop app."
+              : !settings.google_search_enabled
+              ? settings.chrome_devtools_mcp_enabled
+                ? "The selected browser powers rendered page extraction. Browser-backed Google Search is disabled above."
+                : "The built-in Tauri webview powers rendered page extraction. Browser-backed Google Search is disabled above."
               : settings.chrome_devtools_mcp_enabled
               ? "The selected browser powers direct Google search and rendered page extraction. Chrome MCP uses your local Chrome; Tauri webview is built in."
               : "The built-in Tauri webview powers direct Google search and rendered page extraction. Enable Chrome DevTools MCP above to use your local Chrome instead."}

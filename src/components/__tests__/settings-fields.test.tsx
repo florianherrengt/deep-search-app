@@ -153,6 +153,20 @@ describe("SettingsFields", () => {
     expect(screen.getByLabelText("YouTube Data API Key")).toBeTruthy();
   });
 
+  it("enables browser-backed Google search by default and lets users disable it", () => {
+    const updateSetting = vi.fn().mockResolvedValue(undefined);
+    renderSettingsFields({ updateSetting: updateSetting as never });
+
+    const checkbox = screen.getByRole("checkbox", {
+      name: /Browser-backed Google Search/i,
+    });
+    expect((checkbox as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(checkbox);
+
+    expect(updateSetting).toHaveBeenCalledWith("google_search_enabled", false);
+  });
+
   it("explains that the selected browser powers direct Google search", () => {
     tauriRuntime.enabled = true;
     renderSettingsFields({
@@ -173,6 +187,17 @@ describe("SettingsFields", () => {
     expect(
       screen.queryByText(/built-in Tauri webview powers direct Google search/i),
     ).toBeNull();
+  });
+
+  it("explains when browser-backed Google search is disabled", () => {
+    tauriRuntime.enabled = true;
+    renderSettingsFields({
+      settings: { google_search_enabled: false },
+    });
+
+    expect(
+      screen.getByText(/Browser-backed Google Search is disabled above/i),
+    ).toBeTruthy();
   });
 
   it("renders the Deep Search MCP setup section", () => {

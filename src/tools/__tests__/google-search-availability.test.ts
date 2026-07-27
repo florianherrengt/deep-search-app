@@ -137,4 +137,28 @@ describe("direct Google search availability and browser routing", () => {
 
     expect(descriptor?.available).toBe(false);
   });
+
+  it("is unavailable when the user disables it", () => {
+    const descriptor = getAvailableTools({
+      researchFolder: null,
+      getChatModel: () => CHAT_MODEL,
+      googleSearchEnabled: false,
+    }).find((tool) => tool.name === "google_search");
+
+    expect(descriptor?.available).toBe(false);
+  });
+
+  it("appears before other general web-search tools", () => {
+    const tools = getAvailableTools({
+      researchFolder: null,
+      getChatModel: () => CHAT_MODEL,
+      braveApiKey: "brave-key",
+    });
+    const names = tools.filter((tool) => tool.available).map((tool) => tool.name);
+
+    expect(names.indexOf("google_search")).toBeGreaterThanOrEqual(0);
+    expect(names.indexOf("google_search")).toBeLessThan(
+      names.indexOf("brave_search"),
+    );
+  });
 });

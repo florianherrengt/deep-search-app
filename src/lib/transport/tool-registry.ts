@@ -46,6 +46,7 @@ export interface SearchToolKeys {
   youtubeYtDlpPath?: string | null;
   searxngBaseUrl?: string | null;
   currency?: Currency;
+  googleSearchEnabled?: boolean;
   chromeDevToolsMcpEnabled?: boolean;
   chromeDevToolsMcpConnectionMode?: ChromeMcpConnectionMode;
   chromeDevToolsMcpBrowserUrl?: string | null;
@@ -137,13 +138,17 @@ export async function createTools({
     }
     : undefined;
 
-  const searchTools = asAppToolSet(createSearchTools(pkgSearchKeys, bridgeFetch));
-  delete searchTools.aggregate_search;
-  if (isTauri()) {
+  const providerSearchTools = asAppToolSet(
+    createSearchTools(pkgSearchKeys, bridgeFetch),
+  );
+  delete providerSearchTools.aggregate_search;
+  const searchTools: ToolSet = {};
+  if (isTauri() && searchKeys?.googleSearchEnabled !== false) {
     searchTools[TOOL_NAMES.google_search] = asAppTool(
       createConfiguredGoogleSearchTool(model, searchKeys, { emitEvent }),
     );
   }
+  Object.assign(searchTools, providerSearchTools);
   addSourceCoverageDescriptions(searchTools);
   const aggregateSearchTool = appendToolDescription(
     createAggregateSearchTool(pkgSearchKeys),

@@ -257,6 +257,35 @@ describe("createTools", () => {
     expect(toolsByName.google_search?.description).toContain(
       "does not require a Google Search API key",
     );
+    expect(toolsByName.google_search?.description).toContain(
+      "first general web search",
+    );
+  });
+
+  it("does not register Google search when the user disables it", async () => {
+    const tools = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+      searchKeys: { googleSearchEnabled: false },
+    });
+
+    expect((tools as ToolByName).google_search).toBeUndefined();
+  });
+
+  it("registers Google before other general web-search tools", async () => {
+    const tools = await createTools({
+      model: makeModel(),
+      getResearchFolder: async () => "folder",
+      switchResearchFolder: vi.fn(),
+      searchKeys: { braveApiKey: "brave-key" },
+    });
+    const names = Object.keys(tools);
+
+    expect(names.indexOf("google_search")).toBeGreaterThanOrEqual(0);
+    expect(names.indexOf("google_search")).toBeLessThan(
+      names.indexOf("brave_search"),
+    );
   });
 
   it("does not register Google search in browser-only sessions", async () => {

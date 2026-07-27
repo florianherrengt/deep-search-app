@@ -83,6 +83,7 @@ export interface ToolExecuteConfig {
   scrapeDoApiKey?: string | null;
   youtubeYtDlpPath?: string | null;
   searxngBaseUrl?: string | null;
+  googleSearchEnabled?: boolean | null;
   chromeDevToolsMcpEnabled?: boolean | null;
   chromeDevToolsMcpConnectionMode?: ChromeMcpConnectionMode | null;
   chromeDevToolsMcpBrowserUrl?: string | null;
@@ -137,7 +138,7 @@ export function getAvailableTools(
   const tavilyTool = searchTools[TOOL_NAMES.tavily_search];
   const youtubeTool = searchTools[TOOL_NAMES.youtube_search];
   const searxngTool = searchTools[TOOL_NAMES.searxng_search];
-  const googleTool = isTauri() && model
+  const googleTool = isTauri() && model && config?.googleSearchEnabled !== false
     ? createConfiguredGoogleSearchTool(model, config)
     : undefined;
   const aggregateTool = createAggregateSearchTool({
@@ -191,6 +192,11 @@ export function getAvailableTools(
     : undefined;
 
   return [
+    describeOptionalTool(
+      TOOL_NAMES.google_search,
+      googleTool,
+      googleSearchInputSchema,
+    ),
     describeOptionalTool(TOOL_NAMES.brave_search, braveTool, braveSearchInputSchema),
     describeOptionalTool(TOOL_NAMES.exa_search, exaTool, exaSearchInputSchema),
     describeOptionalTool(TOOL_NAMES.serper_search, serperTool, serperSearchInputSchema),
@@ -204,11 +210,6 @@ export function getAvailableTools(
       TOOL_NAMES.youtube_search,
       youtubeTool,
       youtubeSearchInputSchema,
-    ),
-    describeOptionalTool(
-      TOOL_NAMES.google_search,
-      googleTool,
-      googleSearchInputSchema,
     ),
     describeOptionalTool(
       TOOL_NAMES.aggregate_search,

@@ -34,6 +34,7 @@ export const TEST_SETTINGS = {
   zhipu_model: "glm-4.7-flash",
   opencode_zen_model: "anthropic/claude-sonnet-4-5",
   currency: "USD",
+  google_search_enabled: true,
   chrome_devtools_mcp_enabled: false,
   chrome_devtools_mcp_connection_mode: "auto",
   chrome_devtools_mcp_browser_url: "",
