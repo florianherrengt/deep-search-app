@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 // vi.mock is hoisted above all imports, so mock refs must be hoisted too.
@@ -23,6 +25,16 @@ import {
   resetNodeEnvironmentCache,
   SYSTEM_NODE_ALIAS,
 } from "@/lib/mcp/chrome-devtools-sidecar";
+
+interface ShellScope {
+  name: string;
+  args: Array<{ validator: string }>;
+}
+
+interface TauriPermission {
+  identifier: string;
+  allow?: ShellScope[];
+}
 
 describe("resolveChromeDevToolsConnectionArgs", () => {
   it("auto-connects by default and in auto mode, ignoring any browser URL", () => {
@@ -112,6 +124,8 @@ describe("checkNodeVersion", () => {
 });
 
 describe("createChromeDevToolsMcpCommand", () => {
+  const resolvedEntrypoint =
+    "/resolved/mcp/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js";
   const resolvedNode = {
     path: "/opt/homebrew/bin/node",
     dir: "/opt/homebrew/bin",
@@ -124,7 +138,7 @@ describe("createChromeDevToolsMcpCommand", () => {
     resetNodeEnvironmentCache();
     mockResolveNodePath.mockResolvedValue(resolvedNode);
     mockCreateSystemCommand.mockResolvedValue("mock-command");
-    mockResolveResource.mockResolvedValue("/resolved/chrome-devtools-mcp.js");
+    mockResolveResource.mockResolvedValue(resolvedEntrypoint);
   });
 
   it("resolves Node then spawns the MCP server with the resolved PATH env", async () => {
@@ -134,7 +148,7 @@ describe("createChromeDevToolsMcpCommand", () => {
     expect(mockCreateSystemCommand).toHaveBeenCalledWith(
       SYSTEM_NODE_ALIAS,
       [
-        "/resolved/chrome-devtools-mcp.js",
+        resolvedEntrypoint,
         "--experimentalStructuredContent",
         "--auto-connect",
       ],
@@ -156,12 +170,59 @@ describe("createChromeDevToolsMcpCommand", () => {
     expect(mockCreateSystemCommand).toHaveBeenCalledWith(
       SYSTEM_NODE_ALIAS,
       [
-        "/resolved/chrome-devtools-mcp.js",
+        resolvedEntrypoint,
         "--experimentalStructuredContent",
         "--browser-url=http://127.0.0.1:9222",
       ],
       { PATH: resolvedNode.envPath },
     );
+  });
+
+  it.each([
+    ["auto-connect", {}],
+    [
+      "browser URL",
+      {
+        mode: "browser-url" as const,
+        browserUrl: "http://127.0.0.1:9222",
+      },
+    ],
+  ])("matches every managed Tauri shell scope in %s mode", async (_name, options) => {
+    await createChromeDevToolsMcpCommand(options);
+    const [alias, commandArgs] = mockCreateSystemCommand.mock.calls[0] as [
+      string,
+      string[],
+    ];
+    const capability = JSON.parse(
+      readFileSync(
+        resolve(process.cwd(), "src-tauri/capabilities/default.json"),
+        "utf8",
+      ),
+    ) as { permissions?: Array<string | TauriPermission> };
+
+    expect(alias).toBe(SYSTEM_NODE_ALIAS);
+    for (const identifier of [
+      "shell:allow-spawn",
+      "shell:allow-stdin-write",
+      "shell:allow-kill",
+    ]) {
+      const permission = capability.permissions?.find(
+        (entry): entry is TauriPermission =>
+          typeof entry !== "string" && entry.identifier === identifier,
+      );
+      const scope = permission?.allow?.find(({ name }) => name === alias);
+
+      expect(scope, `${identifier} ${alias} scope`).toBeDefined();
+      expect(scope?.args, `${identifier} argument count`).toHaveLength(
+        commandArgs.length,
+      );
+      for (const [index, value] of commandArgs.entries()) {
+        expect(
+          new RegExp(scope?.args[index]?.validator ?? "(?!)").test(value),
+          `${identifier} argument ${index}: ${value}`,
+        ).toBe(true);
+      }
+    }
   });
 
   it("caches the resolved Node environment across calls", async () => {

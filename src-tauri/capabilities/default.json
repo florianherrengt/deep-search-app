@@ -59,6 +59,9 @@
               "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
             },
             {
+              "validator": "^--experimentalStructuredContent$"
+            },
+            {
               "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
           ]
@@ -76,6 +79,9 @@
               "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
             },
             {
+              "validator": "^--experimentalStructuredContent$"
+            },
+            {
               "validator": "^(--auto-connect|--browser-url=https?://.+)$"
             }
           ]
@@ -91,6 +97,9 @@
           "args": [
             {
               "validator": "^.*chrome-devtools-mcp[\\\\/]build[\\\\/]src[\\\\/]bin[\\\\/]chrome-devtools-mcp\\.js$"
+            },
+            {
+              "validator": "^--experimentalStructuredContent$"
             },
             {
               "validator": "^(--auto-connect|--browser-url=https?://.+)$"
