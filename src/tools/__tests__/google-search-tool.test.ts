@@ -23,6 +23,7 @@ import {
   extractGoogleSearchResults,
   googleSearchResultsSchema,
   normalizeGoogleResultUrl,
+  parseGoogleSearchExtractionText,
   validateGoogleSearchExtraction,
 } from "@/tools/google-search-extractor";
 
@@ -64,6 +65,14 @@ function extraction(
       },
     ],
     ...overrides,
+  };
+}
+
+function modelResponse(value = extraction()) {
+  return {
+    text: JSON.stringify(value),
+    finishReason: "stop",
+    reasoningText: undefined,
   };
 }
 
@@ -224,13 +233,35 @@ describe("validateGoogleSearchExtraction", () => {
   });
 });
 
+describe("parseGoogleSearchExtractionText", () => {
+  it("accepts plain or fenced JSON and validates the exact result shape", () => {
+    expect(
+      parseGoogleSearchExtractionText(JSON.stringify(extraction())),
+    ).toEqual(extraction());
+    expect(
+      parseGoogleSearchExtractionText(
+        `\`\`\`json\n${JSON.stringify(extraction())}\n\`\`\``,
+      ),
+    ).toEqual(extraction());
+  });
+
+  it("rejects invalid JSON and incompatible shapes", () => {
+    expect(() => parseGoogleSearchExtractionText("not json")).toThrow(
+      /invalid JSON/,
+    );
+    expect(() =>
+      parseGoogleSearchExtractionText('{"results":[]}'),
+    ).toThrow(/required result shape/);
+  });
+});
+
 describe("extractGoogleSearchResults", () => {
   beforeEach(() => {
     aiMocks.generateText.mockReset();
-    aiMocks.generateText.mockResolvedValue({ output: extraction() });
+    aiMocks.generateText.mockResolvedValue(modelResponse());
   });
 
-  it("uses structured model output, treats the page as untrusted, and forwards cancellation", async () => {
+  it("uses validated model JSON, treats the page as untrusted, and forwards cancellation", async () => {
     const controller = new AbortController();
 
     await expect(
@@ -250,7 +281,11 @@ describe("extractGoogleSearchResults", () => {
         maxOutputTokens: 2_000,
         system: expect.stringContaining("untrusted data"),
         prompt: expect.stringContaining("Search query: example topic"),
-        output: expect.any(Object),
+        providerOptions: {
+          deepseek: { thinking: { type: "disabled" } },
+          openrouter: { reasoning: { max_tokens: 0 } },
+          zhipu: { thinking: { type: "disabled" } },
+        },
       }),
     );
   });
@@ -267,7 +302,7 @@ describe("extractGoogleSearchResults", () => {
 describe("createGoogleSearchTool", () => {
   beforeEach(() => {
     aiMocks.generateText.mockReset();
-    aiMocks.generateText.mockResolvedValue({ output: extraction() });
+    aiMocks.generateText.mockResolvedValue(modelResponse());
   });
 
   it("renders the direct search URL and returns the standard result format", async () => {
@@ -335,9 +370,9 @@ describe("createGoogleSearchTool", () => {
   });
 
   it("uses the standard no-results output for an explicit empty state", async () => {
-    aiMocks.generateText.mockResolvedValueOnce({
-      output: extraction({ status: "no-results", results: [] }),
-    });
+    aiMocks.generateText.mockResolvedValueOnce(
+      modelResponse(extraction({ status: "no-results", results: [] })),
+    );
     const tool = createGoogleSearchTool(
       model,
       async () => "<html><body>No results found for this query.</body></html>",

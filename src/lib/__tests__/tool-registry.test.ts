@@ -106,7 +106,7 @@ describe("createTools", () => {
     googleRendererMocks.webview.mockResolvedValue(googleHtml);
     googleRendererMocks.chrome.mockResolvedValue(googleHtml);
     aiMocks.generateText.mockResolvedValue({
-      output: {
+      text: JSON.stringify({
         status: "results",
         results: [
           {
@@ -115,7 +115,9 @@ describe("createTools", () => {
             description: "Rendered browser result.",
           },
         ],
-      },
+      }),
+      finishReason: "stop",
+      reasoningText: undefined,
     });
   });
 
