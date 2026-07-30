@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import packageJson from "../../package.json" with { type: "json" };
 
 export const CHAT_COMPOSER_INPUT_SELECTOR = '[data-testid="chat-composer-input"]';
 export const CHAT_SEND_BUTTON_SELECTOR = '[data-testid="chat-send-button"]';
@@ -65,7 +66,7 @@ export async function setupMockedAppPage(
   settings: TestSettingsOverride = {},
 ) {
   await page.addInitScript(
-    ({ baseSettings, settingsOverride }) => {
+    ({ appVersion, baseSettings, settingsOverride }) => {
       const win = window as any;
       const mergedSettings = { ...baseSettings, ...settingsOverride };
       if (!window.localStorage.getItem("deep-search-test-settings")) {
@@ -161,6 +162,7 @@ export async function setupMockedAppPage(
           setupMenu: existingBridgeMock.setupMenu || (async () => undefined),
           sendNotification: existingBridgeMock.sendNotification || (() => undefined),
           checkForUpdate: existingBridgeMock.checkForUpdate || (async () => null),
+          getAppVersion: existingBridgeMock.getAppVersion || (async () => appVersion),
           relaunchApp: existingBridgeMock.relaunchApp || (async () => undefined),
         };
 
@@ -235,7 +237,11 @@ export async function setupMockedAppPage(
           .join("/");
       }
     },
-    { baseSettings: TEST_SETTINGS, settingsOverride: settings },
+    {
+      appVersion: packageJson.version,
+      baseSettings: TEST_SETTINGS,
+      settingsOverride: settings,
+    },
   );
 
   await page.goto("/");

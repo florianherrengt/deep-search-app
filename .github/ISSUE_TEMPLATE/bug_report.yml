@@ -13,14 +13,14 @@ body:
     attributes:
       label: Deep Search version
       description: Find this in the app or the downloaded release name.
-      placeholder: v0.1.0-beta.1
+      placeholder: 0.1.0-beta.7
     validations:
       required: true
   - type: input
     id: system
     attributes:
-      label: Mac and macOS version
-      placeholder: MacBook Pro M2, macOS 15.5
+      label: Operating system and architecture
+      placeholder: Windows 11 x64, or MacBook Pro M2, macOS 15.5
     validations:
       required: true
   - type: input

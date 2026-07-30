@@ -1,0 +1,21 @@
+{
+  "generatedAt": "2026-07-28T13:22:04.225Z",
+  "baseUrl": "http://127.0.0.1:51896",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "colorScheme": "light",
+  "fullPage": false,
+  "format": "png",
+  "screenshots": [
+    {
+      "id": "settings-settingspanel--narrow",
+      "title": "Settings/SettingsPanel",
+      "name": "Narrow",
+      "url": "http://127.0.0.1:51896/iframe.html?id=settings-settingspanel--narrow&viewMode=story",
+      "file": "visual-snapshots/settings-settingspanel--narrow.png"
+    }
+  ],
+  "failures": []
+}

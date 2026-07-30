@@ -81,8 +81,9 @@ export function appUpdateReducer(
   }
 }
 
-export function useAppUpdate(options?: { manual?: boolean }) {
+export function useAppUpdate(options?: { manual?: boolean; autoDownload?: boolean }) {
   const manual = options?.manual ?? false;
+  const autoDownload = options?.autoDownload ?? false;
   const updateRef = useRef<AppUpdate | null>(null);
   const [state, dispatch] = useReducer(appUpdateReducer, {
     status: "hidden",
@@ -91,6 +92,10 @@ export function useAppUpdate(options?: { manual?: boolean }) {
   stateRef.current = state;
   const latestCheckIdRef = useRef(0);
   const isMountedRef = useRef(true);
+  // Tracks the version we already auto-started a download for, so we only
+  // auto-trigger once per discovered version (and never re-trigger after a
+  // dismiss or while a download/install is in progress or has errored).
+  const autoDownloadedVersionRef = useRef<string | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -227,8 +232,24 @@ export function useAppUpdate(options?: { manual?: boolean }) {
     const update = updateRef.current;
     updateRef.current = null;
     void update?.close().catch(() => undefined);
+    // Re-arm auto-download for this version so a future re-detection (after a
+    // manual dismiss) can auto-trigger again if still enabled.
+    autoDownloadedVersionRef.current = null;
     dispatch({ type: "dismissed" });
   }, []);
+
+  // When auto-download is enabled and an update becomes available for a version
+  // we haven't already started downloading, kick off the download/install
+  // automatically. Only the toolbar (auto) instance opts in; the manual
+  // Settings instance never does, so opening Settings won't start a download.
+  useEffect(() => {
+    if (manual || !autoDownload) return;
+    if (state.status !== "available") return;
+    const version = state.update.version;
+    if (autoDownloadedVersionRef.current === version) return;
+    autoDownloadedVersionRef.current = version;
+    void installUpdate();
+  }, [manual, autoDownload, state, installUpdate]);
 
   return {
     state,

@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { useClipboard } from "@mantine/hooks";
 import { CheckIcon, CopyIcon, FileText, Loader2, RefreshCw } from "lucide-react";
-import { Button, PasswordInput, TextInput, Select, SegmentedControl, Box, Stack, Text, Group, Checkbox, Paper, Progress } from "@mantine/core";
+import { Button, PasswordInput, TextInput, Select, SegmentedControl, Box, Stack, Text, Group, Checkbox, Paper, Progress, Switch } from "@mantine/core";
 import { generateText } from "ai";
 import {
   CHAT_PROVIDER_SETTINGS,
@@ -17,8 +17,15 @@ import {
   CURRENCY_CONVERSION_DISABLED,
   WEB_EXTRACTION_BACKENDS,
 } from "@/lib/settings-store";
-import { getAppLogPath, isTauri, openPath, resolveNodePath } from "@/lib/tauri-bridge";
+import {
+  getAppLogPath,
+  getAppVersion,
+  isTauri,
+  openPath,
+  resolveNodePath,
+} from "@/lib/tauri-bridge";
 import type { Settings } from "@/hooks/use-settings";
+import { useSettings } from "@/hooks/use-settings";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { getDeepSearchMcpBridgeInfo } from "@/lib/mcp/deep-search-app-bridge";
 
@@ -501,8 +508,26 @@ export function SettingsDiagnosticsSection() {
 }
 
 export function SettingsUpdateSection() {
+  const { settings, updateSetting } = useSettings();
   const { state, checkForUpdates, installUpdate, retryUpdate, dismissUpdate } = useAppUpdate({ manual: true });
   const [hasChecked, setHasChecked] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState<string | null>();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getAppVersion()
+      .then((version) => {
+        if (!cancelled) setCurrentVersion(version);
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentVersion(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function handleCheck() {
     setHasChecked(true);
@@ -534,10 +559,9 @@ export function SettingsUpdateSection() {
     buttonColor = "red";
   } else if (showInstall) {
     statusText = (
-      <Text size="xs">
+      <>
         Version <Text component="span" fw={600}>{state.update.version}</Text> available
-        (current: {state.update.currentVersion})
-      </Text>
+      </>
     );
     if (state.update.body) {
       detailText = (
@@ -585,6 +609,14 @@ export function SettingsUpdateSection() {
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <Box style={{ flex: 1, minWidth: 0 }}>
           <Text size="sm" fw={500}>App Updates</Text>
+          <Text size="xs" c="dimmed" mt={2}>
+            Current version:{" "}
+            <Text component="span" fw={600}>
+              {currentVersion === undefined
+                ? "Loading..."
+                : currentVersion ?? "Unavailable"}
+            </Text>
+          </Text>
           {statusText && (
             <Text size="xs" c="dimmed" mt={2}>{statusText}</Text>
           )}
@@ -616,6 +648,19 @@ export function SettingsUpdateSection() {
           )}
         </Group>
       </Group>
+      <Stack gap={4} mt="sm">
+        <Switch
+          size="xs"
+          label="Automatically download updates"
+          checked={settings.auto_download_updates}
+          onChange={(event) => {
+            void updateSetting("auto_download_updates", event.currentTarget.checked);
+          }}
+        />
+        <Text size="xs" c="dimmed">
+          When enabled, new updates are downloaded in the background as soon as they are detected. You'll be prompted to restart to apply them.
+        </Text>
+      </Stack>
     </Paper>
   );
 }

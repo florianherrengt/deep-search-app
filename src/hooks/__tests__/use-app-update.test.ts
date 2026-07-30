@@ -403,4 +403,107 @@ describe("useAppUpdate", () => {
       update: updateInfo,
     });
   });
+
+  describe("auto-download", () => {
+    it("automatically installs when autoDownload is true and an update is detected", async () => {
+      bridgeMocks.isTauri.mockReturnValue(true);
+      const update = createUpdate({
+        downloadAndInstall: vi.fn().mockImplementation((onEvent) => {
+          // Never resolves in this test; we only assert it was invoked.
+          return new Promise(() => undefined).then(() => onEvent);
+        }),
+      });
+      bridgeMocks.checkForUpdate.mockResolvedValue(update);
+
+      const { result } = renderHook(() => useAppUpdate({ autoDownload: true }));
+      await flushPromises();
+
+      expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+      expect(result.current.state.status).toBe("downloading");
+    });
+
+    it("does not auto-install when autoDownload is false", async () => {
+      bridgeMocks.isTauri.mockReturnValue(true);
+      const update = createUpdate();
+      bridgeMocks.checkForUpdate.mockResolvedValue(update);
+
+      const { result } = renderHook(() => useAppUpdate());
+      await flushPromises();
+
+      expect(update.downloadAndInstall).not.toHaveBeenCalled();
+      expect(result.current.state.status).toBe("available");
+    });
+
+    it("does not auto-install in manual mode even with autoDownload true", async () => {
+      bridgeMocks.isTauri.mockReturnValue(true);
+      const update = createUpdate();
+      bridgeMocks.checkForUpdate.mockResolvedValue(update);
+
+      const { result } = renderHook(() =>
+        useAppUpdate({ manual: true, autoDownload: true }),
+      );
+
+      act(() => {
+        result.current.checkForUpdates();
+      });
+      await flushPromises();
+
+      // Manual Settings instance never auto-downloads; the user must click.
+      expect(update.downloadAndInstall).not.toHaveBeenCalled();
+      expect(result.current.state.status).toBe("available");
+    });
+
+    it("only auto-installs once per detected version", async () => {
+      bridgeMocks.isTauri.mockReturnValue(true);
+      const update = createUpdate({
+        downloadAndInstall: vi.fn().mockImplementation(() => {
+          // Stays pending so the state stays "downloading".
+          return new Promise(() => undefined);
+        }),
+      });
+      // First check returns the update; subsequent checks (still pending) are
+      // irrelevant because the hook only re-checks when status is "hidden".
+      bridgeMocks.checkForUpdate.mockResolvedValue(update);
+
+      renderHook(() => useAppUpdate({ autoDownload: true }));
+      await flushPromises();
+      await flushPromises();
+
+      expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+    });
+
+    it("re-arms auto-download after the update is dismissed", async () => {
+      bridgeMocks.isTauri.mockReturnValue(true);
+      const firstUpdate = createUpdate({
+        downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+      });
+      bridgeMocks.checkForUpdate.mockResolvedValueOnce(firstUpdate);
+
+      const { result } = renderHook(() =>
+        useAppUpdate({ autoDownload: true }),
+      );
+      await flushPromises();
+
+      // Auto-download fired for the first detection.
+      expect(firstUpdate.downloadAndInstall).toHaveBeenCalledTimes(1);
+
+      // Dismiss re-arms the gate; a new detection triggers a fresh download.
+      act(() => {
+        result.current.dismissUpdate();
+      });
+      await flushPromises();
+
+      const secondUpdate = createUpdate({
+        downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+      });
+      bridgeMocks.checkForUpdate.mockResolvedValue(secondUpdate);
+
+      act(() => {
+        result.current.checkForUpdates();
+      });
+      await flushPromises();
+
+      expect(secondUpdate.downloadAndInstall).toHaveBeenCalledTimes(1);
+    });
+  });
 });

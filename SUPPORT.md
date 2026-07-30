@@ -4,7 +4,7 @@
 
 1. Read the [README](README.md), [documentation index](docs/README.md), and
    [beta limitations](README.md#beta-limitations).
-2. Update to [v0.1.0-beta.1](https://github.com/florianherrengt/deep-search-app/releases/tag/v0.1.0-beta.1),
+2. Update to [v0.1.0-beta.7](https://github.com/florianherrengt/deep-search-app/releases/tag/0.1.0-beta.7),
    or check the repository's releases for a newer beta.
 3. Search [existing issues](https://github.com/florianherrengt/deep-search-app/issues).
 4. Confirm that your selected model supports tool calling and that each
@@ -12,16 +12,18 @@
 
 ## Installation help
 
-The published beta supports Apple Silicon Macs running macOS 11 or later. It is
-not Apple-notarized. Follow the [documented Finder and Gatekeeper
-steps](README.md#install-the-beta); do not disable Gatekeeper or run quarantine
-bypass commands.
+The published beta supports Intel and Apple Silicon Macs running macOS 11 or
+later, plus 64-bit Windows. Linux is source-only. The macOS build is not
+Apple-notarized. Follow the [documented Finder and Gatekeeper
+steps](README.md#first-launch-on-macos); do not disable Gatekeeper or run
+quarantine bypass commands.
 
 ## Bug reports
 
 Use the [bug report form](https://github.com/florianherrengt/deep-search-app/issues/new/choose)
-for reproducible failures. Include the app version, macOS version, Mac chip,
-selected providers, steps, expected behavior, and actual behavior.
+for reproducible failures. Include the app version, operating system and
+architecture, selected providers, steps, expected behavior, and actual
+behavior.
 
 Screenshots and short logs are useful, but redact API keys, tokens, personal
 information, local paths you consider sensitive, and private research content.

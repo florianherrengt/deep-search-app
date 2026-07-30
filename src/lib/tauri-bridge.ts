@@ -551,6 +551,17 @@ export async function checkForUpdate(opts?: {
   return check(opts) as Promise<AppUpdate | null>;
 }
 
+export async function getAppVersion(): Promise<string | null> {
+  const mock = getBridgeMock("getAppVersion");
+  if (mock) return mock();
+
+  if (!isTauri()) return null;
+
+  requireTauri();
+  const { getVersion } = await import("@tauri-apps/api/app");
+  return getVersion();
+}
+
 export async function relaunchApp(): Promise<void> {
   const mock = getBridgeMock("relaunchApp");
   if (mock) return mock();
@@ -864,6 +875,7 @@ export type TauriBridgeMock = {
   checkForUpdate?: (opts?: {
     timeout: number;
   }) => Promise<AppUpdate | null>;
+  getAppVersion?: () => Promise<string | null>;
   relaunchApp?: () => Promise<void>;
 };
 

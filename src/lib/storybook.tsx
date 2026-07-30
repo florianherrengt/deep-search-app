@@ -7,7 +7,10 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import type { AppUpdateState } from "@/hooks/use-app-update";
+import { SettingsProvider } from "@/hooks/use-settings";
+import { settingsDefaults, type Settings } from "@/lib/settings-store";
 import { setBridgeMock } from "@/lib/tauri-bridge";
+import packageJson from "../../package.json";
 
 type StoreSeed = Record<string, Record<string, unknown>>;
 
@@ -39,6 +42,7 @@ export function setStorybookTauriStores(stores: StoreSeed) {
   storybookWindow.__storybookTauriStores = cloneStoreSeed(stores);
   setBridgeMock({
     ...(storybookWindow.__deepSearchBridgeMock ?? {}),
+    getAppVersion: async () => packageJson.version,
     loadStore: async (filename, options) => {
       const seededStores = storybookWindow.__storybookTauriStores ?? {};
       seededStores[filename] = {
@@ -76,6 +80,24 @@ export function withAppUpdateState(state: AppUpdateState): Decorator {
   };
 }
 
+/**
+ * Decorator that seeds the Tauri settings store and wraps the story in a
+ * `SettingsProvider` so components reading `useSettings()` work in Storybook.
+ * Pass a partial settings object to override individual defaults.
+ */
+export function withSettings(overrides: Partial<Settings> = {}): Decorator {
+  return (Story) => {
+    setStorybookTauriStores({
+      "settings.json": { ...settingsDefaults, ...overrides },
+    });
+    return (
+      <SettingsProvider>
+        <Story />
+      </SettingsProvider>
+    );
+  };
+}
+
 function StorybookAppUpdateStateProvider({
   state,
   children,
@@ -84,7 +106,13 @@ function StorybookAppUpdateStateProvider({
   children: ReactNode;
 }) {
   if (typeof window !== "undefined") {
-    (window as StorybookWindow).__storybookAppUpdateState = state;
+    const storybookWindow = window as StorybookWindow;
+    storybookWindow.__storybookAppUpdateState = state;
+    setBridgeMock({
+      ...(storybookWindow.__deepSearchBridgeMock ?? {}),
+      getAppVersion: async () =>
+        "update" in state ? state.update.currentVersion : packageJson.version,
+    });
   }
 
   useEffect(() => {

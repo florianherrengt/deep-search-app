@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Box } from "@mantine/core";
 import { SettingsUpdateSection } from "./settings-fields";
-import { withAppUpdateState } from "@/lib/storybook";
+import { withAppUpdateState, withSettings } from "@/lib/storybook";
 
 const updateInfo = {
   version: "0.2.0",
@@ -37,12 +37,24 @@ export const Available: Story = {
   decorators: [withAppUpdateState({ status: "available", update: updateInfo })],
 };
 
+// "Available" state with the auto-download toggle enabled.
+export const AutoDownloadEnabled: Story = {
+  decorators: [
+    withSettings({ auto_download_updates: true }),
+    withAppUpdateState({ status: "available", update: updateInfo }),
+  ],
+};
+
 export const Downloading: Story = {
-  decorators: [withAppUpdateState({ status: "downloading", update: updateInfo, progress: 42 })],
+  decorators: [
+    withAppUpdateState({ status: "downloading", update: updateInfo, progress: 42 }),
+  ],
 };
 
 export const Installing: Story = {
-  decorators: [withAppUpdateState({ status: "installing", update: updateInfo, progress: 100 })],
+  decorators: [
+    withAppUpdateState({ status: "installing", update: updateInfo, progress: 100 }),
+  ],
 };
 
 export const Error: Story = {

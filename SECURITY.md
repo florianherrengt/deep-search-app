@@ -22,7 +22,7 @@ subject `Deep Search security report`.
 
 Include, when possible:
 
-- the affected version and macOS version;
+- the affected version, operating system, and architecture;
 - the vulnerable component or feature;
 - reproducible steps or a minimal proof of concept;
 - the impact you observed or expect;
@@ -40,8 +40,9 @@ Security-relevant areas include the Tauri command boundary, filesystem access,
 URL validation and request handling, page extraction, local Chrome integration,
 the MCP bridge, update delivery, and credential handling.
 
-The current macOS beta is ad-hoc signed and not Apple-notarized. API keys and
-service tokens are stored unencrypted in `settings.json`; see
+The current macOS beta is ad-hoc signed and not Apple-notarized. Windows and
+macOS builds are beta software, and API keys and service tokens are stored
+unencrypted in `settings.json`; see
 [PRIVACY.md](PRIVACY.md). These are disclosed limitations, not requests to
 publish a report, unless you find a way they behave beyond the documented
 boundary or expose data to an unintended party.

@@ -2,7 +2,28 @@
 import { cleanup, render, screen, fireEvent, act } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const tauriRuntime = vi.hoisted(() => ({ enabled: false }));
+const tauriRuntime = vi.hoisted(() => ({
+  enabled: false,
+  appVersion: "0.1.0-beta.4",
+}));
+
+// SettingsUpdateSection reads settings via useSettings(); SettingsFields takes
+// them as props. This mock controls the hook side for the update-section tests.
+const settingsMock = vi.hoisted(() => ({
+  settings: {} as Partial<Settings>,
+  updateSetting: vi.fn(),
+}));
+
+vi.mock("@/hooks/use-settings", async () => {
+  const { settingsDefaults } = await import("@/lib/settings-store");
+  return {
+    useSettings: () => ({
+      settings: { ...settingsDefaults, ...settingsMock.settings },
+      updateSetting: settingsMock.updateSetting,
+      resetAll: vi.fn(),
+    }),
+  };
+});
 
 vi.mock("@/lib/tauri-bridge", async () => {
   const actual = await vi.importActual<typeof import("@/lib/tauri-bridge")>(
@@ -11,6 +32,7 @@ vi.mock("@/lib/tauri-bridge", async () => {
   return {
     ...actual,
     isTauri: () => tauriRuntime.enabled,
+    getAppVersion: vi.fn(async () => tauriRuntime.appVersion),
     resolveNodePath: vi.fn(async () => ({
       path: "/usr/local/bin/node",
       dir: "/usr/local/bin",
@@ -22,13 +44,18 @@ vi.mock("@/lib/tauri-bridge", async () => {
 
 beforeEach(() => {
   tauriRuntime.enabled = false;
+  settingsMock.settings = {};
+  settingsMock.updateSetting = vi.fn().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
   cleanup();
 });
 import { MantineProvider } from "@mantine/core";
-import { SettingsFields } from "@/components/settings-fields";
+import {
+  SettingsFields,
+  SettingsUpdateSection,
+} from "@/components/settings-fields";
 import { settingsDefaults } from "@/lib/settings-store";
 import type { Settings } from "@/hooks/use-settings";
 
@@ -89,7 +116,66 @@ function getProviderInput() {
   return input;
 }
 
+describe("SettingsUpdateSection", () => {
+  it("shows the running app version in the update section", async () => {
+    render(
+      <MantineProvider>
+        <SettingsUpdateSection />
+      </MantineProvider>,
+    );
+
+    expect(await screen.findByText("0.1.0-beta.4")).toBeTruthy();
+  });
+
+  it("renders the auto-download toggle unchecked by default", () => {
+    render(
+      <MantineProvider>
+        <SettingsUpdateSection />
+      </MantineProvider>,
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: /Automatically download updates/i,
+    }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+  });
+
+  it("calls updateSetting when the auto-download toggle is switched on", () => {
+    render(
+      <MantineProvider>
+        <SettingsUpdateSection />
+      </MantineProvider>,
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: /Automatically download updates/i,
+    }) as HTMLInputElement;
+    fireEvent.click(toggle);
+
+    expect(settingsMock.updateSetting).toHaveBeenCalledWith(
+      "auto_download_updates",
+      true,
+    );
+  });
+
+  it("reflects the persisted auto-download setting when enabled", () => {
+    settingsMock.settings = { auto_download_updates: true };
+
+    render(
+      <MantineProvider>
+        <SettingsUpdateSection />
+      </MantineProvider>,
+    );
+
+    const toggle = screen.getByRole("switch", {
+      name: /Automatically download updates/i,
+    }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+  });
+});
+
 describe("SettingsFields", () => {
+
   it("keeps the current provider when the active option is selected again", () => {
     renderSettingsFields();
 

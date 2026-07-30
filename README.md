@@ -1,18 +1,18 @@
 # Deep Search
 
 [![CI](https://github.com/florianherrengt/deep-search-app/actions/workflows/ci.yml/badge.svg)](https://github.com/florianherrengt/deep-search-app/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/florianherrengt/deep-search-app?include_prereleases&label=beta)](https://github.com/florianherrengt/deep-search-app/releases/tag/v0.1.0-beta.1)
+[![Latest release](https://img.shields.io/github/v/release/florianherrengt/deep-search-app?include_prereleases&label=beta)](https://github.com/florianherrengt/deep-search-app/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Deep research that reads the sources, keeps the evidence, and runs on your
-Mac.**
+**Deep research that reads the sources, keeps the evidence, and runs locally on
+your Mac or Windows PC.**
 
 Deep Search is a local-first desktop research agent. Give it a difficult
 question and it searches the web, opens the actual pages, cross-checks claims,
 and produces a cited answer. Your research library stays on disk, and the same
 workflow is available to coding agents over MCP.
 
-**[Download v0.1.0-beta.1](https://github.com/florianherrengt/deep-search-app/releases/tag/v0.1.0-beta.1)**
+**[Download v0.1.0-beta.7](https://github.com/florianherrengt/deep-search-app/releases/tag/0.1.0-beta.7)**
 · **[Watch the demo](https://www.youtube.com/watch?v=bN8V7AK_ByE)**
 · **[Connect over MCP](docs/research-mcp.md)**
 · **[Read the docs](docs/README.md)**
@@ -35,21 +35,38 @@ workflow is available to coding agents over MCP.
 
 ## Install the beta
 
-The current build requires **macOS 11 or later on Apple Silicon** (M1 or newer).
-Windows, Linux, and Intel Mac builds are not published yet.
+The published beta currently includes:
 
-1. [Download the v0.1.0-beta.1 `.dmg`](https://github.com/florianherrengt/deep-search-app/releases/tag/v0.1.0-beta.1).
-2. Open it and drag Deep Search to Applications.
-3. In Finder, open Applications, Control-click Deep Search, choose **Open**,
+- **macOS 11 or later** on Apple Silicon (M1 or newer) and Intel;
+- **64-bit Windows**; and
+- Linux source builds only. No prebuilt Linux bundle is published.
+
+[Open the v0.1.0-beta.7 release](https://github.com/florianherrengt/deep-search-app/releases/tag/0.1.0-beta.7)
+and choose the installer for your platform:
+
+- Apple Silicon Mac: the `.dmg` ending in `_aarch64.dmg`;
+- Intel Mac: the `.dmg` ending in `_x64.dmg`; or
+- Windows: the installer ending in `_x64-setup.exe`.
+
+### First launch on macOS
+
+1. Open the downloaded `.dmg` and drag Deep Search to Applications.
+2. In Finder, open Applications, Control-click Deep Search, choose **Open**,
    then confirm **Open**.
-4. If macOS still blocks it, go to **System Settings → Privacy & Security** and
+3. If macOS still blocks it, go to **System Settings → Privacy & Security** and
    choose **Open Anyway** for Deep Search.
 
-The beta is ad-hoc signed and not notarized because the project does not use a
-paid Apple Developer membership. macOS therefore cannot verify the developer
-on first launch. Do not disable Gatekeeper or run terminal commands to bypass
-it; the Finder flow above preserves macOS's normal warning and confirmation.
-You can inspect the source or [build it yourself](#development).
+The macOS beta is ad-hoc signed and not notarized because the project does not
+use a paid Apple Developer membership. macOS therefore cannot verify the
+developer on first launch. Do not disable Gatekeeper or run terminal commands
+to bypass it; the Finder flow above preserves macOS's normal warning and
+confirmation. You can inspect the source or [build it yourself](#development).
+
+### Build on Linux
+
+Linux users should build from source rather than looking for a published
+installer. Install the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/),
+then follow the [development setup](#development) and run `npm run tauri build`.
 
 ## Five-minute setup
 
@@ -170,7 +187,8 @@ before adding credentials.
 
 ## Beta limitations
 
-- Apple Silicon and macOS 11+ only.
+- macOS 11+ on Intel or Apple Silicon, plus a 64-bit Windows build; Linux is
+  source-only.
 - The app is not Apple-notarized; first launch requires the Gatekeeper steps
   above.
 - API credentials are stored in plaintext in the app data directory.
@@ -178,9 +196,9 @@ before adding credentials.
 - Websites can block, rate-limit, or change in ways that break extraction.
 - Local OpenAI-compatible models vary widely in tool-calling reliability.
 - MCP research requires the desktop app to be running.
-- Beta auto-updates are not delivered through the stable/latest update channel;
-  check the [beta release page](https://github.com/florianherrengt/deep-search-app/releases/tag/v0.1.0-beta.1)
-  for newer beta builds.
+- Beta auto-updates use the published GitHub latest-release channel. Linux
+  source builds do not receive packaged auto-updates; pull newer source and
+  rebuild instead.
 
 Please [report reproducible bugs](https://github.com/florianherrengt/deep-search-app/issues/new/choose)
 and avoid putting API keys or private research content in issues or logs.

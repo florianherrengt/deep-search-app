@@ -1,6 +1,14 @@
 import { test, expect } from "../fixtures";
+import packageJson from "../../package.json" with { type: "json" };
 
 test.describe("Settings panel", () => {
+  test("shows the running app version", async ({ chatPage }) => {
+    await chatPage.getByRole("button", { name: "Settings" }).click();
+
+    await expect(chatPage.getByText("Current version:")).toBeVisible();
+    await expect(chatPage.getByText(packageJson.version)).toBeVisible();
+  });
+
   test("shows provider configuration section", async ({ chatPage }) => {
     await chatPage.getByRole("button", { name: "Settings" }).click();
 

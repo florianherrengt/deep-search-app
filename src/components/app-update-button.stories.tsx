@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Box, Group, Text } from "@mantine/core";
-import { withAppUpdateState } from "@/lib/storybook";
+import { withAppUpdateState, withSettings } from "@/lib/storybook";
 import { AppUpdateButton } from "./app-update-button";
 
 const update = {
@@ -30,6 +30,15 @@ type Story = StoryObj<typeof meta>;
 
 export const Available: Story = {
   decorators: [withAppUpdateState({ status: "available", update })],
+};
+
+// Same "available" state but with auto-download enabled — the Download button
+// shows a spinner and is disabled, reflecting the in-progress auto-download.
+export const AutoDownload: Story = {
+  decorators: [
+    withSettings({ auto_download_updates: true }),
+    withAppUpdateState({ status: "available", update }),
+  ],
 };
 
 export const ToolbarContext: Story = {

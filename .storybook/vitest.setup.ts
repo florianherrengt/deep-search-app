@@ -1,6 +1,7 @@
 import { beforeEach } from "vitest";
 import { vis } from "storybook-addon-vis/vitest-setup";
 import { setBridgeMock, type StoreOptions } from "@/lib/tauri-bridge";
+import packageJson from "../package.json";
 
 type StoreSeed = Record<string, Record<string, unknown>>;
 
@@ -53,6 +54,7 @@ beforeEach(() => {
     join: async (...paths: string[]) => paths.join("/").replace(/\/+/g, "/"),
     sendNotification: () => {},
     checkForUpdate: async () => null,
+    getAppVersion: async () => packageJson.version,
     relaunchApp: async () => {},
   });
 });

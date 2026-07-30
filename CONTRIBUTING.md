@@ -26,7 +26,7 @@ Requirements:
 - Node.js LTS and npm;
 - Rust stable;
 - the platform-specific [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/);
-- macOS for the currently supported desktop release path.
+- macOS or Windows for packaged desktop release builds; Linux is source-only.
 
 ```sh
 git clone https://github.com/florianherrengt/deep-search-app.git
