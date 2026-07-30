@@ -105,17 +105,19 @@ describe("createTools", () => {
     `;
     googleRendererMocks.webview.mockResolvedValue(googleHtml);
     googleRendererMocks.chrome.mockResolvedValue(googleHtml);
+    const googleExtraction = {
+      status: "results" as const,
+      results: [
+        {
+          title: "Example result",
+          url: "https://example.com/result",
+          description: "Rendered browser result.",
+        },
+      ],
+    };
     aiMocks.generateText.mockResolvedValue({
-      text: JSON.stringify({
-        status: "results",
-        results: [
-          {
-            title: "Example result",
-            url: "https://example.com/result",
-            description: "Rendered browser result.",
-          },
-        ],
-      }),
+      text: JSON.stringify(googleExtraction),
+      output: googleExtraction,
       finishReason: "stop",
       reasoningText: undefined,
     });

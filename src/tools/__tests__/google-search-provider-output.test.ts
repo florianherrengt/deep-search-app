@@ -12,7 +12,7 @@ const GOOGLE_HTML = `
 `;
 
 describe("Google extraction provider integration", () => {
-  it("disables DeepSeek reasoning and validates plain model JSON locally", async () => {
+  it("disables DeepSeek reasoning and requests schema-free JSON output", async () => {
     let requestBody: Record<string, unknown> | undefined;
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -84,7 +84,7 @@ describe("Google extraction provider integration", () => {
 
     expect(requestBody).toMatchObject({
       thinking: { type: "disabled" },
+      response_format: { type: "json_object" },
     });
-    expect(requestBody).not.toHaveProperty("response_format");
   });
 });

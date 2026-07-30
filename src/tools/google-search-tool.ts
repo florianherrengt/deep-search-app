@@ -74,6 +74,7 @@ export function createConfiguredGoogleSearchTool(
           {
             signal: options.signal,
             onHumanVerification: options.onHumanVerification,
+            settleDynamicContent: true,
           },
         );
       }
@@ -84,6 +85,7 @@ export function createConfiguredGoogleSearchTool(
       return renderWithManagedWebview(url, {
         signal: options.signal,
         onHumanVerification: options.onHumanVerification,
+        settleDynamicContent: true,
         throwOnError: true,
       });
     },

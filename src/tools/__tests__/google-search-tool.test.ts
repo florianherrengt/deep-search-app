@@ -71,6 +71,7 @@ function extraction(
 function modelResponse(value = extraction()) {
   return {
     text: JSON.stringify(value),
+    output: value,
     finishReason: "stop",
     reasoningText: undefined,
   };
@@ -98,6 +99,22 @@ describe("Google result evidence", () => {
         "/url?q=https%3A%2F%2FExample.com%2Fdocs%2F%3Fchapter%3D2%26utm_source%3Dgoogle%23heading&sa=U",
       ),
     ).toBe("https://example.com/docs?chapter=2");
+  });
+
+  it("uses the redirect url parameter when q is empty", () => {
+    expect(
+      normalizeGoogleResultUrl(
+        "/url?q=&url=https%3A%2F%2Fexample.com%2Ffallback",
+      ),
+    ).toBe("https://example.com/fallback");
+  });
+
+  it("removes Google's srsltid tracking parameter", () => {
+    expect(
+      normalizeGoogleResultUrl(
+        "https://hardsider.com/review?product=hardvan&srsltid=tracking-value",
+      ),
+    ).toBe("https://hardsider.com/review?product=hardvan");
   });
 
   it("filters invalid schemes, ads, and Google navigation", () => {
@@ -220,6 +237,36 @@ describe("validateGoogleSearchExtraction", () => {
     ).toThrow(/present on the rendered Google page/);
   });
 
+  it("matches clean model URLs to Google-tracked page evidence", () => {
+    const snapshot = createGoogleSearchPageSnapshot(`
+      <a href="https://hardsider.com/review?srsltid=tracking-value">
+        HardVan owner review
+      </a>
+    `);
+
+    expect(
+      validateGoogleSearchExtraction(
+        extraction({
+          results: [
+            {
+              title: "HardVan owner review",
+              url: "https://hardsider.com/review",
+              description: "Long-term ownership experience.",
+            },
+          ],
+        }),
+        snapshot.allowedUrls,
+      ),
+    ).toEqual([
+      {
+        title: "HardVan owner review",
+        url: "https://hardsider.com/review",
+        description: "Long-term ownership experience.",
+        snippet: "Long-term ownership experience.",
+      },
+    ]);
+  });
+
   it("validates result counts and fields with Zod", () => {
     expect(
       googleSearchResultsSchema.safeParse(
@@ -253,6 +300,47 @@ describe("parseGoogleSearchExtractionText", () => {
       parseGoogleSearchExtractionText('{"results":[]}'),
     ).toThrow(/required result shape/);
   });
+
+  it("normalizes harmless model shape drift without losing valid results", () => {
+    expect(
+      parseGoogleSearchExtractionText(
+        JSON.stringify({
+          metadata: { source: "google" },
+          results: [
+            {
+              title: "First result",
+              url: "https://example.com/first",
+              snippet: "Snippet alias.",
+              rank: 1,
+            },
+            {
+              title: "Second result",
+              url: "https://example.com/second",
+            },
+            {
+              title: "",
+              url: "https://example.com/invalid",
+              description: "Only this malformed item should be skipped.",
+            },
+          ],
+        }),
+      ),
+    ).toEqual({
+      status: "results",
+      results: [
+        {
+          title: "First result",
+          url: "https://example.com/first",
+          description: "Snippet alias.",
+        },
+        {
+          title: "Second result",
+          url: "https://example.com/second",
+          description: "",
+        },
+      ],
+    });
+  });
 });
 
 describe("extractGoogleSearchResults", () => {
@@ -281,12 +369,19 @@ describe("extractGoogleSearchResults", () => {
         maxOutputTokens: 2_000,
         system: expect.stringContaining("untrusted data"),
         prompt: expect.stringContaining("Search query: example topic"),
+        output: expect.objectContaining({ name: "json" }),
         providerOptions: {
           deepseek: { thinking: { type: "disabled" } },
           openrouter: { reasoning: { max_tokens: 0 } },
           zhipu: { thinking: { type: "disabled" } },
         },
       }),
+    );
+    expect(aiMocks.generateText.mock.calls[0]?.[0]?.system).toContain(
+      "every visible organic result",
+    );
+    expect(aiMocks.generateText.mock.calls[0]?.[0]?.system).toContain(
+      "entries labelled 'Missing:' as results",
     );
   });
 

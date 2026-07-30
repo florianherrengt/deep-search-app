@@ -19,6 +19,9 @@ use tauri::{
 const TAB_BAR_HEIGHT: f64 = 40.0;
 const PAGE_LOAD_TIMEOUT_SECS: u64 = 30;
 const EVAL_RECV_TIMEOUT_SECS: u64 = 5;
+const DYNAMIC_CONTENT_MAX_SCROLLS: usize = 8;
+const DYNAMIC_CONTENT_SCROLL_DELAY_MS: u64 = 750;
+const DYNAMIC_CONTENT_STABLE_PASSES: usize = 3;
 const FETCH_TIMEOUT_SECS: u64 = 10;
 const MAX_FETCH_REDIRECTS: usize = 5;
 const MAX_HTML_BYTES: usize = 5 * 1024 * 1024;
@@ -184,6 +187,56 @@ async fn extract_content(app: AppHandle, id: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
 
     Ok(serde_json::from_str::<String>(&result).unwrap_or(result))
+}
+
+#[tauri::command]
+async fn settle_tab_content(app: AppHandle, id: String) -> Result<(), String> {
+    let wv = app.get_webview(&id).ok_or("webview not found")?;
+    let mut previous_height = None;
+    let mut stable_passes = 0;
+
+    for _ in 0..DYNAMIC_CONTENT_MAX_SCROLLS {
+        let (tx, rx) = mpsc::channel::<String>();
+        wv.eval_with_callback(
+            r##"(function(){
+                var height = Math.max(
+                    document.body ? document.body.scrollHeight : 0,
+                    document.documentElement ? document.documentElement.scrollHeight : 0
+                );
+                window.scrollTo(0, height);
+                return String(height);
+            })()"##,
+            move |result| {
+                let _ = tx.send(result);
+            },
+        )
+        .map_err(|error| error.to_string())?;
+
+        let result = rx
+            .recv_timeout(Duration::from_secs(EVAL_RECV_TIMEOUT_SECS))
+            .map_err(|error| error.to_string())?;
+        let value = serde_json::from_str::<String>(&result).unwrap_or(result);
+        let height = value
+            .parse::<u64>()
+            .map_err(|error| format!("invalid page height: {error}"))?;
+
+        if previous_height == Some(height) {
+            stable_passes += 1;
+            if stable_passes >= DYNAMIC_CONTENT_STABLE_PASSES {
+                break;
+            }
+        } else {
+            stable_passes = 0;
+        }
+        previous_height = Some(height);
+        tokio::time::sleep(Duration::from_millis(
+            DYNAMIC_CONTENT_SCROLL_DELAY_MS,
+        ))
+        .await;
+    }
+
+    let _ = wv.eval("window.scrollTo(0, 0)");
+    Ok(())
 }
 
 /// Sends a browser-tab notification whose content click can recover the
@@ -1872,6 +1925,7 @@ pub fn run() {
             close_tab,
             get_tab_url,
             extract_content,
+            settle_tab_content,
             send_browser_tab_notification,
             fetch_html,
             download_youtube_subtitles_with_ytdlp,

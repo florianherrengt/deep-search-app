@@ -143,6 +143,30 @@ describe("managed Chrome MCP page loading", () => {
     );
   });
 
+  it("settles lazy-loaded content before reading the final HTML", async () => {
+    configureSuccessfulTransaction();
+
+    await expect(
+      renderWithManagedChromeMcp(
+        "https://www.google.com/search?q=test",
+        {},
+        { settleDynamicContent: true },
+      ),
+    ).resolves.toBe(MOCK_HTML);
+
+    const evaluations = mockCallTool.mock.calls.filter(
+      ([request]) =>
+        (request as { name: string }).name === "evaluate_script",
+    );
+    expect(evaluations).toHaveLength(3);
+    expect(evaluations[1]?.[0]).toEqual({
+      name: "evaluate_script",
+      arguments: {
+        function: expect.stringContaining("scrollTo"),
+      },
+    });
+  });
+
   it("decodes the real Chrome MCP evaluate_script response envelope", () => {
     expect(
       parseEvaluatedPageSnapshot(

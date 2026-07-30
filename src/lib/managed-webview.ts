@@ -36,6 +36,7 @@ export interface ManagedWebviewRetryOptions {
 export interface ManagedWebviewRenderOptions {
   signal?: AbortSignal;
   retry?: ManagedWebviewRetryOptions;
+  settleDynamicContent?: boolean;
   throwOnError?: boolean;
   onHumanVerification?: (
     detection: HumanVerificationDetection,
@@ -73,28 +74,45 @@ export async function renderWithManagedWebview(
       const startedAt = Date.now();
       while (true) {
         throwIfAborted(options.signal);
-        const snapshot = await waitForHumanVerification(
-          await readWebviewSnapshot(id, url, options.signal),
-          {
-            signal: options.signal,
-            getSnapshot: () => readWebviewSnapshot(id, url, options.signal),
-            onRequired: async (detection) => {
-              emitBrowserTabVerificationRequired({ id });
-              await switchWebviewTab(id, options.signal);
-              await Promise.all([
-                notifyHumanVerification({
-                  backend: "webview",
-                  browserTabId: id,
-                  message: detection.message,
-                }),
-                options.onHumanVerification?.(detection),
-              ]);
-            },
-            onCleared: () => {
-              emitBrowserTabVerificationCleared({ id });
-            },
+        let verificationRequired = false;
+        const verificationOptions = {
+          signal: options.signal,
+          getSnapshot: () => readWebviewSnapshot(id, url, options.signal),
+          onRequired: async (detection: HumanVerificationDetection) => {
+            verificationRequired = true;
+            emitBrowserTabVerificationRequired({ id });
+            await switchWebviewTab(id, options.signal);
+            await Promise.all([
+              notifyHumanVerification({
+                backend: "webview" as const,
+                browserTabId: id,
+                message: detection.message,
+              }),
+              options.onHumanVerification?.(detection),
+            ]);
           },
+          onCleared: () => {
+            emitBrowserTabVerificationCleared({ id });
+          },
+        };
+        let snapshot = await waitForHumanVerification(
+          await readWebviewSnapshot(id, url, options.signal),
+          verificationOptions,
         );
+
+        if (options.settleDynamicContent) {
+          do {
+            verificationRequired = false;
+            // Native commands cannot be cancelled once dispatched. Keep the
+            // serialized tab transaction open until settling finishes.
+            await invoke("settle_tab_content", { id });
+            throwIfAborted(options.signal);
+            snapshot = await waitForHumanVerification(
+              await readWebviewSnapshot(id, url, options.signal),
+              verificationOptions,
+            );
+          } while (verificationRequired);
+        }
 
         if (!options.retry?.shouldRetry(snapshot.html)) {
           return snapshot.html;

@@ -14,6 +14,9 @@ import { throwIfAborted } from "@/lib/abort";
 const MCP_CALL_TIMEOUT_MS = 30_000;
 const CLEANUP_CALL_TIMEOUT_MS = 5_000;
 const NAVIGATE_TIMEOUT_MS = 30_000;
+const DYNAMIC_CONTENT_MAX_SCROLLS = 8;
+const DYNAMIC_CONTENT_SCROLL_DELAY_MS = 750;
+const DYNAMIC_CONTENT_STABLE_PASSES = 3;
 
 const ChromePageSchema = z.object({
   id: z.number().int().nonnegative(),
@@ -35,6 +38,7 @@ interface ChromeMcpToolResult {
 
 export interface ManagedChromeRenderOptions {
   signal?: AbortSignal;
+  settleDynamicContent?: boolean;
   onHumanVerification?: (
     detection: HumanVerificationDetection,
   ) => void | Promise<void>;
@@ -97,40 +101,60 @@ export async function renderWithManagedChromeMcp(
       );
       if (firstSnapshot === null) return null;
 
-      const snapshot = await waitForHumanVerification(
-        firstSnapshot,
-        {
-          signal: options.signal,
-          getSnapshot: async () => {
-            await selectPage(
-              client,
-              managedPage!.id,
-              false,
-              options.signal,
-            );
-            const currentSnapshot = await readPageSnapshot(
-              client,
-              managedPage?.url || url,
-              options.signal,
-            );
-            if (currentSnapshot === null) {
-              throw new Error("Chrome MCP returned no page HTML while waiting for verification.");
-            }
-            return currentSnapshot;
-          },
-          onRequired: async (detection) => {
-            await selectPage(client, managedPage!.id, true, options.signal);
-            managedPageBroughtToFront = true;
-            await Promise.all([
-              notifyHumanVerification({
-                backend: "chrome-mcp",
-                message: detection.message,
-              }),
-              options.onHumanVerification?.(detection),
-            ]);
-          },
+      let verificationRequired = false;
+      const verificationOptions = {
+        signal: options.signal,
+        getSnapshot: async () => {
+          await selectPage(
+            client,
+            managedPage!.id,
+            false,
+            options.signal,
+          );
+          const currentSnapshot = await readPageSnapshot(
+            client,
+            managedPage?.url || url,
+            options.signal,
+          );
+          if (currentSnapshot === null) {
+            throw new Error("Chrome MCP returned no page HTML while waiting for verification.");
+          }
+          return currentSnapshot;
         },
+        onRequired: async (detection: HumanVerificationDetection) => {
+          verificationRequired = true;
+          await selectPage(client, managedPage!.id, true, options.signal);
+          managedPageBroughtToFront = true;
+          await Promise.all([
+            notifyHumanVerification({
+              backend: "chrome-mcp" as const,
+              message: detection.message,
+            }),
+            options.onHumanVerification?.(detection),
+          ]);
+        },
+      };
+      let snapshot = await waitForHumanVerification(
+        firstSnapshot,
+        verificationOptions,
       );
+
+      if (options.settleDynamicContent) {
+        do {
+          verificationRequired = false;
+          await settlePageContent(client, options.signal);
+          const settledSnapshot = await readPageSnapshot(
+            client,
+            managedPage.url || url,
+            options.signal,
+          );
+          if (settledSnapshot === null) return null;
+          snapshot = await waitForHumanVerification(
+            settledSnapshot,
+            verificationOptions,
+          );
+        } while (verificationRequired);
+      }
 
       return snapshot.html;
     } finally {
@@ -227,6 +251,46 @@ async function readPageSnapshot(
   );
   const text = extractTextFromToolResult(result);
   return text === null ? null : parseEvaluatedPageSnapshot(text, fallbackUrl);
+}
+
+async function settlePageContent(
+  client: Client,
+  signal?: AbortSignal,
+): Promise<void> {
+  await callTool(
+    client,
+    "evaluate_script",
+    {
+      function: `async () => {
+        let stablePasses = 0;
+        for (
+          let index = 0;
+          index < ${DYNAMIC_CONTENT_MAX_SCROLLS} &&
+            stablePasses < ${DYNAMIC_CONTENT_STABLE_PASSES};
+          index += 1
+        ) {
+          const height = Math.max(
+            document.body?.scrollHeight ?? 0,
+            document.documentElement?.scrollHeight ?? 0,
+          );
+          window.scrollTo(0, height);
+          await new Promise((resolve) =>
+            setTimeout(resolve, ${DYNAMIC_CONTENT_SCROLL_DELAY_MS}),
+          );
+          const nextHeight = Math.max(
+            document.body?.scrollHeight ?? 0,
+            document.documentElement?.scrollHeight ?? 0,
+          );
+          stablePasses =
+            nextHeight === height ? stablePasses + 1 : 0;
+        }
+        window.scrollTo(0, 0);
+        return true;
+      }`,
+    },
+    MCP_CALL_TIMEOUT_MS,
+    signal,
+  );
 }
 
 export function parseEvaluatedPageSnapshot(

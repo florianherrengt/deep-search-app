@@ -81,6 +81,7 @@ describe("direct Google search availability and browser routing", () => {
       {
         signal: undefined,
         onHumanVerification: expect.any(Function),
+        settleDynamicContent: true,
         throwOnError: true,
       },
     );
@@ -110,6 +111,7 @@ describe("direct Google search availability and browser routing", () => {
       {
         signal: undefined,
         onHumanVerification: expect.any(Function),
+        settleDynamicContent: true,
       },
     );
     expect(rendererMocks.webview).not.toHaveBeenCalled();

@@ -110,6 +110,69 @@ describe("managed WebView operations", () => {
     });
   });
 
+  it("settles lazy-loaded content before returning the final snapshot", async () => {
+    let extractionCount = 0;
+    bridgeMocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "extract_content") {
+        extractionCount += 1;
+        return extractionCount === 1
+          ? "<html><body>Initial results</body></html>"
+          : "<html><body>All lazy results</body></html>";
+      }
+      return undefined;
+    });
+
+    await expect(
+      renderWithManagedWebview("https://www.google.com/search?q=test", {
+        settleDynamicContent: true,
+      }),
+    ).resolves.toContain("All lazy results");
+    expect(bridgeMocks.invoke).toHaveBeenCalledWith("settle_tab_content", {
+      id: expect.any(String),
+    });
+    expect(extractionCount).toBe(2);
+  });
+
+  it("waits for native settling before abort cleanup", async () => {
+    const settleStarted = deferred();
+    const releaseSettle = deferred();
+    bridgeMocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "extract_content") {
+        return "<html><body>Google results</body></html>";
+      }
+      if (command === "settle_tab_content") {
+        settleStarted.resolve();
+        await releaseSettle.promise;
+      }
+      return undefined;
+    });
+    const controller = new AbortController();
+
+    const rendering = renderWithManagedWebview(
+      "https://www.google.com/search?q=test",
+      {
+        signal: controller.signal,
+        settleDynamicContent: true,
+        throwOnError: true,
+      },
+    );
+    const rejection = expect(rendering).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await settleStarted.promise;
+    controller.abort();
+
+    expect(
+      bridgeMocks.invoke.mock.calls.some(([command]) => command === "close_tab"),
+    ).toBe(false);
+    releaseSettle.resolve();
+
+    await rejection;
+    expect(bridgeMocks.invoke).toHaveBeenCalledWith("close_tab", {
+      id: expect.any(String),
+    });
+  });
+
   it("waits for a dispatched native open before abort cleanup", async () => {
     const openStarted = deferred();
     const releaseOpen = deferred();
