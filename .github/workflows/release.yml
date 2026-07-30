@@ -81,11 +81,7 @@ jobs:
             git push origin "refs/tags/$RELEASE_TAG"
           fi
 
-          release_id="$(
-            gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-              --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id" \
-              | head -n 1
-          )"
+          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .id 2>/dev/null || true)"
 
           if [ -n "$release_id" ]; then
             release_is_draft="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq .draft)"
@@ -112,11 +108,15 @@ jobs:
             fi
 
             gh release create "${args[@]}"
-            release_id="$(
-              gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-                --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .id" \
-                | head -n 1
-            )"
+            release_id=""
+            for delay in 1 2 4 8 16; do
+              release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .id 2>/dev/null || true)"
+              if [ -n "$release_id" ]; then
+                break
+              fi
+              echo "Release $RELEASE_TAG is not visible yet; retrying in ${delay}s."
+              sleep "$delay"
+            done
           fi
 
           if [ -z "$release_id" ]; then
