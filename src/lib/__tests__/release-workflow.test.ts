@@ -35,6 +35,7 @@ describe("release workflow", () => {
     expect(workflow).toContain("includeUpdaterJson: false");
     expect(workflow).toContain('"windows-x86_64": windows');
     expect(workflow).toContain('"darwin-x86_64": macIntel');
+    expect(workflow).toContain("GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}");
     expect(workflow).toContain('repos/$GITHUB_REPOSITORY/releases" --paginate');
     expect(workflow).toContain("find_release_id()");
     expect(workflow).toContain("for delay in 1 2 4 8 16");

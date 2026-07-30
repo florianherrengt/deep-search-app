@@ -257,6 +257,8 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Setup Node
