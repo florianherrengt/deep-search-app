@@ -3,15 +3,17 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("release workflow", () => {
-  it("keeps SemVer prereleases eligible for the single-channel updater feed", () => {
+  it("publishes only the three manual installer assets", () => {
     const workflow = readFileSync(
       resolve(process.cwd(), ".github/workflows/release.yml"),
       "utf8",
     );
 
-    expect(workflow).toContain(
-      "releases/latest/download/latest.json",
-    );
+    expect(workflow).toContain("name: Publish installer-only release");
+    expect(workflow).toContain("Installer-only release mismatch");
+    expect(workflow).not.toContain("latest.json");
+    expect(workflow).not.toContain("app.tar.gz");
+    expect(workflow).not.toContain("TAURI_SIGNING_PRIVATE_KEY");
     expect(workflow).not.toContain('args+=("--prerelease")');
     expect(workflow).toContain("-F prerelease=false");
   });
@@ -30,11 +32,10 @@ describe("release workflow", () => {
     expect(workflow).toContain("target: x86_64-pc-windows-msvc");
     expect(workflow).toContain("uses: Swatinem/rust-cache@v2");
     expect(workflow).toContain("shared-key: release-${{ matrix.target }}");
-    expect(workflow).toContain("'_x64-setup\\.exe$'");
+    expect(workflow).toContain("Deep.Search_${version}_x64-setup.exe");
     expect(workflow).toContain("Configure Windows NSIS bundle");
     expect(workflow).toContain("includeUpdaterJson: false");
-    expect(workflow).toContain('"windows-x86_64": windows');
-    expect(workflow).toContain('"darwin-x86_64": macIntel');
+    expect(workflow).toContain("uploadUpdaterSignatures: false");
     expect(workflow).toContain("GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}");
     expect(workflow).toContain('repos/$GITHUB_REPOSITORY/releases" --paginate');
     expect(workflow).toContain("find_release_id()");

@@ -180,10 +180,9 @@ or spending limits than necessary, and do not share that file.
 There is no Deep Search account, hosted relay, product analytics, or telemetry.
 Data does leave your Mac when you use configured services: model providers
 receive prompts and relevant research context; search providers receive search
-queries; websites and extraction services receive page requests; GitHub is
-contacted for release updates; and the local embedding model may be downloaded
-from Hugging Face on first use. Read the [full privacy disclosure](PRIVACY.md)
-before adding credentials.
+queries; websites and extraction services receive page requests; and the local
+embedding model may be downloaded from Hugging Face on first use. Read the
+[full privacy disclosure](PRIVACY.md) before adding credentials.
 
 ## Beta limitations
 
@@ -196,9 +195,9 @@ before adding credentials.
 - Websites can block, rate-limit, or change in ways that break extraction.
 - Local OpenAI-compatible models vary widely in tool-calling reliability.
 - MCP research requires the desktop app to be running.
-- Beta auto-updates use the published GitHub latest-release channel. Linux
-  source builds do not receive packaged auto-updates; pull newer source and
-  rebuild instead.
+- Beta releases are installer-only. Download the latest installer from the
+  GitHub release page when a new version is published; Linux source builds
+  require pulling newer source and rebuilding.
 
 Please [report reproducible bugs](https://github.com/florianherrengt/deep-search-app/issues/new/choose)
 and avoid putting API keys or private research content in issues or logs.
