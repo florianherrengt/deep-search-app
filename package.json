@@ -42,7 +42,7 @@
     "@mantine/core": "^7.17.8",
     "@mantine/form": "^7.17.8",
     "@mantine/hooks": "^7.17.8",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@openrouter/ai-sdk-provider": "^2.9.0",
     "@orama/orama": "^3.1.18",
     "@tauri-apps/api": "^2",
